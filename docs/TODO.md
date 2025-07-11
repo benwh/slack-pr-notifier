@@ -5,6 +5,7 @@ This document tracks future improvements and technical debt identified during de
 ## 🔧 Technical Improvements
 
 ### Code Quality & Linting
+
 - [ ] **Re-enable disabled linters gradually**
   - Currently disabled: `revive`, `stylecheck`, `nilnil`, `gomnd`, `gci`, `goimports`, `gofumpt`, `perfsprint`
   - Add proper exported function comments for all public APIs
@@ -13,6 +14,7 @@ This document tracks future improvements and technical debt identified during de
   - Standardize import grouping and formatting
 
 ### Error Handling
+
 - [ ] **Improve error handling patterns**
   - Replace `log.Fatal` calls with graceful shutdown
   - Add proper error wrapping with context
@@ -20,6 +22,7 @@ This document tracks future improvements and technical debt identified during de
   - Add structured logging with levels
 
 ### Database & Storage
+
 - [ ] **Firestore optimizations**
   - Implement proper indexes for complex queries
   - Add database connection pooling/management
@@ -27,6 +30,7 @@ This document tracks future improvements and technical debt identified during de
   - Add database migration system for schema changes
 
 ### Security Enhancements
+
 - [ ] **Authentication & Authorization**
   - Implement proper GitHub App authentication (vs webhook secrets)
   - Add rate limiting per user/organization
@@ -34,6 +38,7 @@ This document tracks future improvements and technical debt identified during de
   - Add CORS configuration for admin endpoints
 
 ### API Design
+
 - [ ] **REST API improvements**
   - Add API versioning (`/v1/`)
   - Implement proper HTTP status codes
@@ -43,6 +48,7 @@ This document tracks future improvements and technical debt identified during de
 ## 🚀 Feature Enhancements
 
 ### Core Features
+
 - [ ] **Enhanced PR notifications**
   - Support for draft PR notifications (optional)
   - Threaded conversations for PR updates
@@ -51,6 +57,7 @@ This document tracks future improvements and technical debt identified during de
   - Notification for PR comments (not just reviews)
 
 ### User Experience
+
 - [ ] **Slack integration improvements**
   - Add interactive buttons for quick actions
   - Implement slash command autocomplete
@@ -58,6 +65,7 @@ This document tracks future improvements and technical debt identified during de
   - Support for private channel notifications
 
 ### Administrative Features
+
 - [ ] **Management & Monitoring**
   - Web dashboard for configuration
   - Usage analytics and reporting
@@ -65,6 +73,7 @@ This document tracks future improvements and technical debt identified during de
   - Metrics export for Prometheus/monitoring
 
 ### Multi-tenancy
+
 - [ ] **Organization support**
   - Support multiple GitHub organizations
   - Per-organization configuration
@@ -74,6 +83,7 @@ This document tracks future improvements and technical debt identified during de
 ## 🧪 Testing & Quality Assurance
 
 ### Test Coverage
+
 - [ ] **Add comprehensive test suite**
   - Unit tests for all services and handlers
   - Integration tests for GitHub/Slack APIs
@@ -81,6 +91,7 @@ This document tracks future improvements and technical debt identified during de
   - Mock implementations for external services
 
 ### Performance Testing
+
 - [ ] **Load testing**
   - Webhook processing under load
   - Database performance with large datasets
@@ -90,6 +101,7 @@ This document tracks future improvements and technical debt identified during de
 ## 📦 Deployment & Operations
 
 ### Infrastructure
+
 - [ ] **Production readiness**
   - Add health checks for dependencies
   - Implement graceful shutdown handling
@@ -97,6 +109,7 @@ This document tracks future improvements and technical debt identified during de
   - Set up monitoring and alerting
 
 ### CI/CD Pipeline
+
 - [ ] **Automated deployment**
   - GitHub Actions for testing and deployment
   - Automated security scanning
@@ -104,6 +117,7 @@ This document tracks future improvements and technical debt identified during de
   - Rollback mechanisms
 
 ### Documentation
+
 - [ ] **Comprehensive documentation**
   - API documentation with examples
   - Troubleshooting guide
@@ -113,6 +127,7 @@ This document tracks future improvements and technical debt identified during de
 ## 🔄 Refactoring Opportunities
 
 ### Code Structure
+
 - [ ] **Architectural improvements**
   - Separate business logic from HTTP handlers
   - Implement dependency injection container
@@ -120,6 +135,7 @@ This document tracks future improvements and technical debt identified during de
   - Consider hexagonal architecture pattern
 
 ### Configuration Management
+
 - [ ] **Environment-specific configs**
   - Support for multiple environments (dev/staging/prod)
   - Configuration validation at startup
@@ -129,6 +145,7 @@ This document tracks future improvements and technical debt identified during de
 ## 🐛 Known Issues & Technical Debt
 
 ### Current Limitations
+
 - [ ] **Message tracking limitations**
   - No handling of deleted/edited PR descriptions
   - Missing support for force-pushed PRs
@@ -136,6 +153,7 @@ This document tracks future improvements and technical debt identified during de
   - Limited error recovery for failed Slack messages
 
 ### Performance Considerations
+
 - [ ] **Scalability concerns**
   - Single-threaded webhook processing
   - No caching for frequently accessed data
@@ -145,6 +163,7 @@ This document tracks future improvements and technical debt identified during de
 ## 📊 Observability & Debugging
 
 ### Monitoring
+
 - [ ] **Add comprehensive observability**
   - Structured logging with correlation IDs
   - Metrics for webhook processing times
@@ -152,6 +171,7 @@ This document tracks future improvements and technical debt identified during de
   - Error tracking and alerting
 
 ### Debugging Tools
+
 - [ ] **Development experience**
   - Add debug mode with verbose logging
   - Webhook replay functionality for testing
@@ -161,6 +181,7 @@ This document tracks future improvements and technical debt identified during de
 ## 🎯 Future Integrations
 
 ### External Services
+
 - [ ] **Additional integrations**
   - Support for other Git providers (GitLab, Bitbucket)
   - Integration with other chat platforms (Discord, Teams)
@@ -168,6 +189,7 @@ This document tracks future improvements and technical debt identified during de
   - Integration with project management tools
 
 ### Extensibility
+
 - [ ] **Plugin architecture**
   - Support for custom notification formats
   - Pluggable authentication providers
@@ -179,6 +201,7 @@ This document tracks future improvements and technical debt identified during de
 ## 📝 Notes
 
 ### Lessons Learned
+
 - **Linting configuration**: Start with `enable-all` and disable selectively rather than enabling specific linters
 - **Error handling**: Always handle errors properly; use sentinel errors instead of `nil, nil` returns
 - **Security**: Add timeouts to HTTP servers and validate all inputs
@@ -186,6 +209,7 @@ This document tracks future improvements and technical debt identified during de
 - **Testing**: Set up testing infrastructure early to catch issues during development
 
 ### Best Practices Identified
+
 - Use structured logging with context
 - Implement graceful shutdown patterns
 - Add comprehensive error wrapping
@@ -194,11 +218,12 @@ This document tracks future improvements and technical debt identified during de
 - Add proper observability from the beginning
 
 ### Technical Decisions to Review
+
 - **Firestore vs PostgreSQL**: Consider if relational database might be better for complex queries
 - **Gin vs stdlib**: Evaluate if we need the extra dependencies
-- **Monolith vs microservices**: Current approach is appropriate for MVP, but consider splitting as features grow
 - **Polling vs webhooks**: Current webhook approach is correct, but consider backup polling for reliability
 
 ---
 
 *This document should be updated regularly as new issues are discovered and items are completed.*
+

@@ -21,6 +21,7 @@ A Go application that sends Slack notifications for GitHub pull request events.
 ### Initial Setup
 
 1. **Clone and setup infrastructure**:
+
    ```bash
    git clone <repo-url>
    cd github-slack-notifier
@@ -28,6 +29,7 @@ A Go application that sends Slack notifications for GitHub pull request events.
    ```
 
 2. **Configure environment**:
+
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
@@ -53,24 +55,7 @@ go run main.go
 
 ### Environment Variables
 
-Create `.env` file based on `.env.example`:
-
-```bash
-# Required
-FIRESTORE_PROJECT_ID=your-gcp-project-id
-SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
-GITHUB_WEBHOOK_SECRET=your-github-webhook-secret
-SLACK_SIGNING_SECRET=your-slack-signing-secret
-API_ADMIN_KEY=your-admin-api-key
-
-# Optional
-PORT=8080
-EMOJI_APPROVED=white_check_mark
-EMOJI_CHANGES_REQUESTED=arrows_counterclockwise
-EMOJI_COMMENTED=speech_balloon
-EMOJI_MERGED=tada
-EMOJI_CLOSED=x
-```
+Create `.env` file based on `.env.example`
 
 ### GitHub App Setup
 
@@ -113,6 +98,7 @@ EMOJI_CLOSED=x
 ### Post-Deployment Configuration
 
 1. **Set environment variables in Cloud Run**:
+
    ```bash
    gcloud run services update github-slack-notifier \
      --region=us-central1 \
@@ -121,6 +107,7 @@ EMOJI_CLOSED=x
    ```
 
 2. **Register repositories** (optional - repos can use default channels):
+
    ```bash
    curl -X POST https://your-domain/api/repos \
      -H "X-API-Key: your-admin-api-key" \
@@ -145,6 +132,7 @@ Users can configure their preferences in Slack:
 ### Channel Override
 
 Users can override the notification channel by adding this to their PR description:
+
 ```
 @slack-channel: #specific-channel
 ```
