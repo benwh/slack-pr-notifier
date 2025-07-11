@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ import (
 	"github-slack-notifier/services"
 )
 
+// App represents the main application structure with all services and handlers.
 type App struct {
 	firestoreService *services.FirestoreService
 	slackService     *services.SlackService
@@ -41,7 +43,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Firestore client: %v", err)
 	}
-	defer firestoreClient.Close()
+	defer func() {
+		if err := firestoreClient.Close(); err != nil {
+			log.Printf("Error closing Firestore client: %v", err)
+		}
+	}()
 
 	firestoreService := services.NewFirestoreService(firestoreClient)
 	slackService := services.NewSlackService(slack.New(slackToken))
@@ -69,7 +75,15 @@ func main() {
 	}
 
 	log.Printf("Starting server on port %s", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), router))
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%s", port),
+		Handler:      router,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (app *App) handleRepoRegistration(c *gin.Context) {

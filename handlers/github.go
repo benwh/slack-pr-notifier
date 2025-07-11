@@ -1,3 +1,4 @@
+// Package handlers provides HTTP handlers for GitHub and Slack webhooks.
 package handlers
 
 import (
@@ -6,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -16,12 +16,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GitHubHandler handles GitHub webhook events.
 type GitHubHandler struct {
 	firestoreService *services.FirestoreService
 	slackService     *services.SlackService
 	webhookSecret    string
 }
 
+// NewGitHubHandler creates a new GitHubHandler with the provided services and webhook secret.
 func NewGitHubHandler(fs *services.FirestoreService, slack *services.SlackService, secret string) *GitHubHandler {
 	return &GitHubHandler{
 		firestoreService: fs,
@@ -30,6 +32,7 @@ func NewGitHubHandler(fs *services.FirestoreService, slack *services.SlackServic
 	}
 }
 
+// GitHubWebhookPayload represents the structure of GitHub webhook events.
 type GitHubWebhookPayload struct {
 	Action      string `json:"action"`
 	PullRequest struct {
@@ -56,6 +59,7 @@ type GitHubWebhookPayload struct {
 	} `json:"review"`
 }
 
+// HandleWebhook processes incoming GitHub webhook events.
 func (gh *GitHubHandler) HandleWebhook(c *gin.Context) {
 	signature := c.GetHeader("X-Hub-Signature-256")
 	if signature == "" {
@@ -123,7 +127,8 @@ func (gh *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebh
 	}
 
 	var targetChannel string
-	if annotatedChannel := gh.slackService.ExtractChannelFromDescription(payload.PullRequest.Body); annotatedChannel != "" {
+	annotatedChannel := gh.slackService.ExtractChannelFromDescription(payload.PullRequest.Body)
+	if annotatedChannel != "" {
 		targetChannel = annotatedChannel
 	} else if user != nil && user.DefaultChannel != "" {
 		targetChannel = user.DefaultChannel
@@ -202,7 +207,7 @@ func (gh *GitHubHandler) handlePullRequestReviewEvent(ctx context.Context, paylo
 		}
 	}
 
-	message.LastStatus = fmt.Sprintf("review_%s", payload.Review.State)
+	message.LastStatus = "review_" + payload.Review.State
 	return gh.firestoreService.UpdateMessage(ctx, message)
 }
 

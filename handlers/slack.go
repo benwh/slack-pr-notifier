@@ -18,12 +18,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// SlackHandler handles Slack webhook events and slash commands.
 type SlackHandler struct {
 	firestoreService *services.FirestoreService
 	slackService     *services.SlackService
 	signingSecret    string
 }
 
+// NewSlackHandler creates a new SlackHandler with the provided services and signing secret.
 func NewSlackHandler(fs *services.FirestoreService, slack *services.SlackService, secret string) *SlackHandler {
 	return &SlackHandler{
 		firestoreService: fs,
@@ -32,6 +34,7 @@ func NewSlackHandler(fs *services.FirestoreService, slack *services.SlackService
 	}
 }
 
+// HandleWebhook processes incoming Slack webhook events and slash commands.
 func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 	signature := c.GetHeader("X-Slack-Signature")
 	timestamp := c.GetHeader("X-Slack-Request-Timestamp")
@@ -98,7 +101,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 	err := sh.slackService.ValidateChannel(channel)
 	if err != nil {
-		return fmt.Sprintf("Channel #%s not found or bot doesn't have access", channel), nil
+		return fmt.Sprintf("Channel #%s not found or bot doesn't have access", channel), err
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
@@ -120,7 +123,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 		return "", err
 	}
 
-	return fmt.Sprintf("✅ Default notification channel set to #%s", channel), nil
+	return "✅ Default notification channel set to #" + channel, nil
 }
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
@@ -152,7 +155,7 @@ func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, te
 		return "", err
 	}
 
-	return fmt.Sprintf("✅ GitHub username linked: %s", githubUsername), nil
+	return "✅ GitHub username linked: " + githubUsername, nil
 }
 
 func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (string, error) {
@@ -162,7 +165,8 @@ func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (
 	}
 
 	if user == nil {
-		return "❌ No configuration found. Use /notify-link to connect your GitHub account and /notify-channel to set your default channel.", nil
+		return "❌ No configuration found. Use /notify-link to connect your GitHub account " +
+			"and /notify-channel to set your default channel.", nil
 	}
 
 	status := "📊 *Your Configuration:*\n"
@@ -191,7 +195,8 @@ func (sh *SlackHandler) verifySignature(signature, timestamp string, body []byte
 		return false
 	}
 
-	if time.Now().Unix()-ts > 300 {
+	const maxTimestampAge = 300 // 5 minutes
+	if time.Now().Unix()-ts > maxTimestampAge {
 		return false
 	}
 

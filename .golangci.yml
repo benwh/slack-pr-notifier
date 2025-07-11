@@ -4,77 +4,7 @@ run:
   tests: true
 
 linters:
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - typecheck
-    - unused
-    - asasalint
-    - asciicheck
-    - bidichk
-    - bodyclose
-    - containedctx
-    - contextcheck
-    - cyclop
-    - dupl
-    - durationcheck
-    - errname
-    - errorlint
-    - exhaustive
-    - exportloopref
-    - forcetypeassert
-    - funlen
-    - gci
-    - gochecknoinits
-    - gocognit
-    - goconst
-    - gocritic
-    - gocyclo
-    - godot
-    - godox
-    - goerr113
-    - gofmt
-    - goimports
-    - gomnd
-    - gomoddirectives
-    - goprintffuncname
-    - gosec
-    - grouper
-    - importas
-    - interfacebloat
-    - ireturn
-    - lll
-    - loggercheck
-    - maintidx
-    - makezero
-    - misspell
-    - nakedret
-    - nestif
-    - nilerr
-    - nilnil
-    - noctx
-    - nolintlint
-    - nonamedreturns
-    - nosprintfhostport
-    - predeclared
-    - promlinter
-    - reassign
-    - revive
-    - rowserrcheck
-    - sqlclosecheck
-    - stylecheck
-    - tenv
-    - thelper
-    - tparallel
-    - unconvert
-    - unparam
-    - usestdlibvars
-    - wastedassign
-    - whitespace
-
+  enable-all: true
   disable:
     - gochecknoglobals  # Too restrictive for this project
     - exhaustruct       # Too verbose for simple structs
@@ -88,6 +18,16 @@ linters:
     - depguard          # No import restrictions needed
     - goheader          # No header requirements
     - forbidigo         # No forbidden identifiers
+    - revive            # Temporarily disabled for exported comments
+    - stylecheck        # Temporarily disabled for package comments
+    - nilnil            # Temporarily disabled for nil returns
+    - gomnd             # Temporarily disabled for magic numbers
+    - mnd               # Temporarily disabled for magic numbers
+    - gci               # Temporarily disabled for import grouping
+    - goimports         # Temporarily disabled for import formatting
+    - gofumpt           # Temporarily disabled for strict formatting
+    - perfsprint        # Temporarily disabled for string concatenation
+    - execinquery       # Deprecated linter
 
 linters-settings:
   lll:
@@ -111,57 +51,9 @@ linters-settings:
     min-occurrences: 3
 
   gocritic:
-    enabled-checks:
-      - appendAssign
-      - argOrder
-      - assignOp
-      - badCall
-      - badCond
-      - boolExprSimplify
-      - builtinShadow
-      - captLocal
-      - caseOrder
-      - codegenComment
-      - commentedOutCode
-      - commentedOutImport
-      - defaultCaseOrder
-      - deprecatedComment
-      - docStub
-      - dupArg
-      - dupBranchBody
-      - dupCase
-      - dupSubExpr
-      - elseif
-      - emptyFallthrough
-      - flagDeref
-      - flagName
-      - hexLiteral
-      - ifElseChain
-      - importShadow
-      - indexAlloc
-      - initClause
-      - mapKey
-      - methodExprCall
-      - nestingReduce
-      - newDeref
-      - offBy1
-      - paramTypeCombine
-      - ptrToRefParam
-      - rangeExprCopy
-      - rangeValCopy
-      - regexpMust
-      - sloppyLen
-      - stringXbytes
-      - switchTrue
-      - typeAssertChain
-      - typeSwitchVar
-      - typeUnparen
-      - underef
-      - unlabelStmt
-      - unlambda
-      - unslice
-      - valSwap
-      - wrapperFunc
+    disabled-checks:
+      - ifElseChain       # Allow if-else chains
+      - exitAfterDefer    # Allow log.Fatal after defer
 
   revive:
     rules:

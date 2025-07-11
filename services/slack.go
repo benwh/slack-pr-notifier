@@ -1,3 +1,4 @@
+// Package services provides business logic services for Slack and Firestore integration.
 package services
 
 import (
@@ -17,10 +18,13 @@ func NewSlackService(client *slack.Client) *SlackService {
 	return &SlackService{client: client}
 }
 
-func (s *SlackService) PostPRMessage(channel, repoName, prTitle, prAuthor, prDescription, prURL string) (string, error) {
+func (s *SlackService) PostPRMessage(
+	channel, repoName, prTitle, prAuthor, prDescription, prURL string,
+) (string, error) {
 	description := prDescription
-	if len(description) > 100 {
-		description = description[:100] + "..."
+	const maxDescriptionLength = 100
+	if len(description) > maxDescriptionLength {
+		description = description[:maxDescriptionLength] + "..."
 	}
 
 	text := fmt.Sprintf("🔗 *New PR in %s*\n*Title:* %s\n*Author:* %s\n*Description:* %s\n<%s|View Pull Request>",

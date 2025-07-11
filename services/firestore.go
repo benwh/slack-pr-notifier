@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -10,14 +11,24 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Sentinel errors for not found cases.
+var (
+	ErrUserNotFound    = errors.New("user not found")
+	ErrMessageNotFound = errors.New("message not found")
+	ErrRepoNotFound    = errors.New("repository not found")
+)
+
+// FirestoreService provides database operations for Firestore.
 type FirestoreService struct {
 	client *firestore.Client
 }
 
+// NewFirestoreService creates a new FirestoreService with the provided client.
 func NewFirestoreService(client *firestore.Client) *FirestoreService {
 	return &FirestoreService{client: client}
 }
 
+// GetUserBySlackID retrieves a user by their Slack user ID.
 func (fs *FirestoreService) GetUserBySlackID(ctx context.Context, slackUserID string) (*models.User, error) {
 	iter := fs.client.Collection("users").Where("slack_user_id", "==", slackUserID).Documents(ctx)
 	doc, err := iter.Next()
@@ -65,7 +76,11 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 	return err
 }
 
-func (fs *FirestoreService) GetMessage(ctx context.Context, repoFullName string, prNumber int) (*models.Message, error) {
+func (fs *FirestoreService) GetMessage(
+	ctx context.Context,
+	repoFullName string,
+	prNumber int,
+) (*models.Message, error) {
 	iter := fs.client.Collection("messages").
 		Where("repo_full_name", "==", repoFullName).
 		Where("pr_number", "==", prNumber).

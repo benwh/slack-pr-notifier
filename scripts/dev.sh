@@ -21,7 +21,9 @@ if [ ! -f ".env" ]; then
 fi
 
 # Load environment variables
-export $(cat .env | xargs)
+set -a
+source .env
+set +a
 
 # Start the Go application in the background
 echo "🔧 Starting Go application..."

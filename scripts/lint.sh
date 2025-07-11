@@ -7,7 +7,7 @@ echo "🔍 Running linters..."
 # Go linting
 echo "📝 Running Go linters..."
 if command -v golangci-lint &> /dev/null; then
-    golangci-lint run --enable-all --disable=gochecknoglobals,gochecknoinits,depguard,interfacer,maligned,scopelint,varcheck,deadcode,structcheck,nosnakecase,unused,ineffassign,revive,gosimple,goconst,gocyclo,gocognit,dupl,lll,funlen,cyclop,unparam,nlreturn,wsl,thelper,varnamelen,tagliatelle,exhaustive,forcetypeassert,errname,ireturn,contextcheck,containedctx,maintidx,gosmopolitan,asasalint,nilnil,exportloopref,exhaustruct,testpackage,paralleltest,tparallel,prealloc,predeclared,noctx,wrapcheck,nestif,goerr113,forbidigo,ifshort,gomoddirectives,grouper,decorder,gofmt,gci,unconvert,misspell,nolintlint,whitespace,goheader,godot,testifylint,mirror,usestdlibvars,loggercheck,dogsled,dupword,reassign,wastedassign,protogetter,perfsprint,sloglint,goconst,errorlint,ginkgolinter,spancheck,testableexamples,musttag,bodyclose,rowserrcheck,sqlclosecheck,durationcheck,nilerr,gocheckcompilerdirectives,gocritic ./...
+    golangci-lint run ./...
 else
     echo "⚠️  golangci-lint not found, using basic go tools"
     go fmt ./...
@@ -46,7 +46,7 @@ fi
 # YAML linting
 echo "📋 Running YAML linters..."
 if command -v yamllint &> /dev/null; then
-    find . -name "*.yaml" -o -name "*.yml" -exec yamllint {} \;
+    find . \( -name "*.yaml" -o -name "*.yml" \) -exec yamllint {} \;
 else
     echo "⚠️  yamllint not found, install with: pip install yamllint"
 fi

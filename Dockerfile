@@ -8,9 +8,9 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
-FROM alpine:latest
+FROM alpine:3.19
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates=20240226-r0
 WORKDIR /root/
 
 COPY --from=builder /app/main .
