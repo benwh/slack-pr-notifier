@@ -11,9 +11,20 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 FROM alpine:3.19
 
 RUN apk --no-cache add ca-certificates=20240226-r0
-WORKDIR /root/
+
+# Create non-root user
+RUN addgroup -g 1001 -S appuser && \
+    adduser -u 1001 -S appuser -G appuser
+
+WORKDIR /app
 
 COPY --from=builder /app/main .
+
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 EXPOSE 8080
 

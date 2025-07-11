@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -36,13 +37,13 @@ func (fs *FirestoreService) GetUserBySlackID(ctx context.Context, slackUserID st
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to query user by slack ID %s: %w", slackUserID, err)
 	}
 
 	var user models.User
 	err = doc.DataTo(&user)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal user data for slack ID %s: %w", slackUserID, err)
 	}
 
 	return &user, nil
@@ -54,13 +55,13 @@ func (fs *FirestoreService) GetUserByGitHubID(ctx context.Context, githubUserID 
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get user by github ID %s: %w", githubUserID, err)
 	}
 
 	var user models.User
 	err = doc.DataTo(&user)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal user data for github ID %s: %w", githubUserID, err)
 	}
 
 	return &user, nil
@@ -73,7 +74,10 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 	}
 
 	_, err := fs.client.Collection("users").Doc(user.ID).Set(ctx, user, firestore.MergeAll)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create or update user %s: %w", user.ID, err)
+	}
+	return nil
 }
 
 func (fs *FirestoreService) GetMessage(
@@ -91,13 +95,13 @@ func (fs *FirestoreService) GetMessage(
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to query message for repo %s PR %d: %w", repoFullName, prNumber, err)
 	}
 
 	var message models.Message
 	err = doc.DataTo(&message)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal message data for repo %s PR %d: %w", repoFullName, prNumber, err)
 	}
 
 	return &message, nil
@@ -109,12 +113,18 @@ func (fs *FirestoreService) CreateMessage(ctx context.Context, message *models.M
 	message.ID = docRef.ID
 
 	_, err := docRef.Set(ctx, message)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create message for repo %s PR %d: %w", message.RepoFullName, message.PRNumber, err)
+	}
+	return nil
 }
 
 func (fs *FirestoreService) UpdateMessage(ctx context.Context, message *models.Message) error {
 	_, err := fs.client.Collection("messages").Doc(message.ID).Set(ctx, message, firestore.MergeAll)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to update message %s: %w", message.ID, err)
+	}
+	return nil
 }
 
 func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*models.Repo, error) {
@@ -123,13 +133,13 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get repo %s: %w", repoFullName, err)
 	}
 
 	var repo models.Repo
 	err = doc.DataTo(&repo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal repo data for %s: %w", repoFullName, err)
 	}
 
 	return &repo, nil
@@ -138,5 +148,8 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) error {
 	repo.CreatedAt = time.Now()
 	_, err := fs.client.Collection("repos").Doc(repo.ID).Set(ctx, repo)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create repo %s: %w", repo.ID, err)
+	}
+	return nil
 }

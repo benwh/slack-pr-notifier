@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -13,6 +16,7 @@ import (
 	"github.com/slack-go/slack"
 
 	"github-slack-notifier/handlers"
+	"github-slack-notifier/middleware"
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
 )
@@ -27,25 +31,41 @@ type App struct {
 }
 
 func main() {
+	// Setup structured logging
+	var logger *slog.Logger
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	} else {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}))
+	}
+	slog.SetDefault(logger)
+
 	ctx := context.Background()
 
 	projectID := os.Getenv("FIRESTORE_PROJECT_ID")
 	if projectID == "" {
-		log.Fatal("FIRESTORE_PROJECT_ID environment variable is required")
+		slog.Error("FIRESTORE_PROJECT_ID environment variable is required", "component", "startup")
+		os.Exit(1)
 	}
 
 	slackToken := os.Getenv("SLACK_BOT_TOKEN")
 	if slackToken == "" {
-		log.Fatal("SLACK_BOT_TOKEN environment variable is required")
+		slog.Error("SLACK_BOT_TOKEN environment variable is required", "component", "startup")
+		os.Exit(1)
 	}
 
 	firestoreClient, err := firestore.NewClient(ctx, projectID)
 	if err != nil {
-		log.Fatalf("Failed to create Firestore client: %v", err)
+		slog.Error("Failed to create Firestore client", "component", "startup", "error", err)
+		os.Exit(1)
 	}
 	defer func() {
 		if err := firestoreClient.Close(); err != nil {
-			log.Printf("Error closing Firestore client: %v", err)
+			slog.Error("Error closing Firestore client", "component", "shutdown", "error", err)
 		}
 	}()
 
@@ -62,6 +82,9 @@ func main() {
 
 	router := gin.Default()
 
+	// Add middleware
+	router.Use(middleware.LoggingMiddleware())
+
 	router.POST("/webhooks/github", app.githubHandler.HandleWebhook)
 	router.POST("/webhooks/slack", app.slackHandler.HandleWebhook)
 	router.POST("/api/repos", app.handleRepoRegistration)
@@ -74,16 +97,40 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Starting server on port %s", port)
+	slog.Info("Starting server", "component", "server", "port", port)
+
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),
 		Handler:      router,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
+
+	// Start server in a goroutine
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("Server failed to start", "component", "server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("Shutting down server...", "component", "server")
+
+	// Give outstanding requests 30 seconds to complete
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("Server forced to shutdown", "component", "server", "error", err)
+		os.Exit(1)
 	}
+
+	slog.Info("Server exited gracefully", "component", "server")
 }
 
 func (app *App) handleRepoRegistration(c *gin.Context) {

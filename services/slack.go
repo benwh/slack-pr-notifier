@@ -32,7 +32,7 @@ func (s *SlackService) PostPRMessage(
 
 	_, timestamp, err := s.client.PostMessage(channel, slack.MsgOptionText(text, false))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to post PR message to channel %s for repo %s: %w", channel, repoName, err)
 	}
 
 	return timestamp, nil
@@ -40,14 +40,21 @@ func (s *SlackService) PostPRMessage(
 
 func (s *SlackService) AddReaction(channel, timestamp, emoji string) error {
 	msgRef := slack.NewRefToMessage(channel, timestamp)
-	return s.client.AddReaction(emoji, msgRef)
+	err := s.client.AddReaction(emoji, msgRef)
+	if err != nil {
+		return fmt.Errorf("failed to add reaction %s to message %s in channel %s: %w", emoji, timestamp, channel, err)
+	}
+	return nil
 }
 
 func (s *SlackService) ValidateChannel(channel string) error {
 	_, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
 		ChannelID: channel,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to validate channel %s: %w", channel, err)
+	}
+	return nil
 }
 
 func (s *SlackService) GetEmojiForReviewState(state string) string {
