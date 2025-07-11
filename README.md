@@ -60,18 +60,36 @@ Create `.env` file based on `.env.example`
 ### GitHub App Setup
 
 1. **Create GitHub App**:
-   - Go to GitHub Settings → Developer settings → GitHub Apps
-   - Click "New GitHub App"
-   - Set webhook URL to `https://your-domain/webhooks/github`
-   - Enable permissions: Pull requests (Read & Write)
+   - Go to <https://github.com/settings/apps/new>
+   - Name: Slack PR notifier
+   - Homepage URL: <https://example.com>
+   - Webhook URL: Retrieve from dev.sh output
+   - Secret: Use `pwgen -s 32 1`
+   - Enable permissions: Pull requests (Read Only)
    - Subscribe to events: Pull requests, Pull request reviews
-   - Generate webhook secret
 
 2. **Install GitHub App**:
    - Install the app on your repositories
    - Note the installation ID
 
 ### Slack App Setup
+
+**📋 Easy Setup with Manifest (Recommended)**
+
+1. **Create App from Manifest**:
+   - Go to [Slack API](https://api.slack.com/apps)
+   - Click "Create New App" → "From an app manifest"
+   - Choose your workspace and paste contents of `slack-app-manifest.yaml`
+   - See [detailed setup guide](docs/SLACK_APP_SETUP.md) for complete instructions
+
+2. **Get Bot Token**:
+   - Install app to workspace
+   - Copy Bot User OAuth Token from OAuth & Permissions
+
+**🔧 Manual Setup (Alternative)**
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
 
 1. **Create Slack App**:
    - Go to [Slack API](https://api.slack.com/apps)
@@ -80,11 +98,11 @@ Create `.env` file based on `.env.example`
 
 2. **Configure Bot Token**:
    - Go to OAuth & Permissions
-   - Add scopes: `chat:write`, `chat:write.public`, `reactions:read`, `commands`, `users:read`
+   - Add scopes: `chat:write`, `chat:write.public`, `reactions:write`, `channels:read`, `groups:read`
    - Install app to workspace
    - Copy Bot User OAuth Token
 
-3. **Add Slash Commands**:
+3. **Add Slash Commands** (optional):
    - Go to Slash Commands
    - Add each command with request URL `https://your-domain/webhooks/slack`:
      - `/notify-channel` - Set default notification channel
@@ -94,6 +112,8 @@ Create `.env` file based on `.env.example`
 4. **Configure Signing Secret**:
    - Go to Basic Information
    - Copy Signing Secret
+
+</details>
 
 ### Post-Deployment Configuration
 
