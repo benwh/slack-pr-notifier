@@ -22,6 +22,7 @@ fi
 
 # Load environment variables
 set -a
+# shellcheck disable=SC1091
 source .env
 set +a
 
