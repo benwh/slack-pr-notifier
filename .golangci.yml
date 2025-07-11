@@ -1,0 +1,203 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - cyclop
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forcetypeassert
+    - funlen
+    - gci
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - godox
+    - goerr113
+    - gofmt
+    - goimports
+    - gomnd
+    - gomoddirectives
+    - goprintffuncname
+    - gosec
+    - grouper
+    - importas
+    - interfacebloat
+    - ireturn
+    - lll
+    - loggercheck
+    - maintidx
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - predeclared
+    - promlinter
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - tenv
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+
+  disable:
+    - gochecknoglobals  # Too restrictive for this project
+    - exhaustruct       # Too verbose for simple structs
+    - testpackage       # Not always necessary
+    - paralleltest      # Not always applicable
+    - wrapcheck         # Too restrictive
+    - nlreturn          # Stylistic preference
+    - wsl               # Stylistic preference
+    - varnamelen        # Too restrictive
+    - tagliatelle       # Not needed for our use case
+    - depguard          # No import restrictions needed
+    - goheader          # No header requirements
+    - forbidigo         # No forbidden identifiers
+
+linters-settings:
+  lll:
+    line-length: 120
+
+  funlen:
+    lines: 80
+    statements: 50
+
+  cyclop:
+    max-complexity: 15
+
+  gocognit:
+    min-complexity: 20
+
+  nestif:
+    min-complexity: 5
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gocritic:
+    enabled-checks:
+      - appendAssign
+      - argOrder
+      - assignOp
+      - badCall
+      - badCond
+      - boolExprSimplify
+      - builtinShadow
+      - captLocal
+      - caseOrder
+      - codegenComment
+      - commentedOutCode
+      - commentedOutImport
+      - defaultCaseOrder
+      - deprecatedComment
+      - docStub
+      - dupArg
+      - dupBranchBody
+      - dupCase
+      - dupSubExpr
+      - elseif
+      - emptyFallthrough
+      - flagDeref
+      - flagName
+      - hexLiteral
+      - ifElseChain
+      - importShadow
+      - indexAlloc
+      - initClause
+      - mapKey
+      - methodExprCall
+      - nestingReduce
+      - newDeref
+      - offBy1
+      - paramTypeCombine
+      - ptrToRefParam
+      - rangeExprCopy
+      - rangeValCopy
+      - regexpMust
+      - sloppyLen
+      - stringXbytes
+      - switchTrue
+      - typeAssertChain
+      - typeSwitchVar
+      - typeUnparen
+      - underef
+      - unlabelStmt
+      - unlambda
+      - unslice
+      - valSwap
+      - wrapperFunc
+
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+issues:
+  exclude-use-default: false
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - funlen
+        - gocognit
+        - maintidx
+    - path: main\.go
+      linters:
+        - funlen
