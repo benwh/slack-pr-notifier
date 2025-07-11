@@ -11,43 +11,223 @@ A Go application that sends Slack notifications for GitHub pull request events.
 
 ## Quick Start
 
-1. **Deploy to GCP**:
+### Prerequisites
+
+- [Go 1.23+](https://golang.org/dl/)
+- [Docker](https://docs.docker.com/get-docker/)
+- [gcloud CLI](https://cloud.google.com/sdk/docs/install)
+- [ngrok](https://ngrok.com/) (for local development)
+
+### Initial Setup
+
+1. **Clone and setup infrastructure**:
    ```bash
-   ./deploy.sh
+   git clone <repo-url>
+   cd github-slack-notifier
+   ./scripts/setup-firestore.sh
    ```
 
-2. **Set environment variables** in Cloud Run console or via gcloud CLI
+2. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
 
-3. **Configure GitHub webhook** with the deployed URL
+### Local Development
 
-4. **Configure Slack app** with slash commands
+```bash
+# Run with ngrok tunnel
+./scripts/dev.sh
 
-## Slash Commands
+# Or run manually
+go run main.go
+```
 
-- `/notify-channel #channel-name` - Set your default notification channel
-- `/notify-link github-username` - Link your GitHub account
-- `/notify-status` - View your current configuration
+### Deploy to Production
 
-## Environment Variables
+```bash
+./scripts/deploy.sh
+```
 
-See `.env.example` for all required and optional environment variables.
+## Configuration
 
-## Architecture
+### Environment Variables
 
-- **Language**: Go 1.21
-- **Database**: Cloud Firestore
-- **Deployment**: Cloud Run
-- **Authentication**: GitHub webhook secrets, Slack signing secrets
+Create `.env` file based on `.env.example`:
+
+```bash
+# Required
+FIRESTORE_PROJECT_ID=your-gcp-project-id
+SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
+GITHUB_WEBHOOK_SECRET=your-github-webhook-secret
+SLACK_SIGNING_SECRET=your-slack-signing-secret
+API_ADMIN_KEY=your-admin-api-key
+
+# Optional
+PORT=8080
+EMOJI_APPROVED=white_check_mark
+EMOJI_CHANGES_REQUESTED=arrows_counterclockwise
+EMOJI_COMMENTED=speech_balloon
+EMOJI_MERGED=tada
+EMOJI_CLOSED=x
+```
+
+### GitHub App Setup
+
+1. **Create GitHub App**:
+   - Go to GitHub Settings → Developer settings → GitHub Apps
+   - Click "New GitHub App"
+   - Set webhook URL to `https://your-domain/webhooks/github`
+   - Enable permissions: Pull requests (Read & Write)
+   - Subscribe to events: Pull requests, Pull request reviews
+   - Generate webhook secret
+
+2. **Install GitHub App**:
+   - Install the app on your repositories
+   - Note the installation ID
+
+### Slack App Setup
+
+1. **Create Slack App**:
+   - Go to [Slack API](https://api.slack.com/apps)
+   - Click "Create New App" → "From scratch"
+   - Choose your workspace
+
+2. **Configure Bot Token**:
+   - Go to OAuth & Permissions
+   - Add scopes: `chat:write`, `chat:write.public`, `reactions:read`, `commands`, `users:read`
+   - Install app to workspace
+   - Copy Bot User OAuth Token
+
+3. **Add Slash Commands**:
+   - Go to Slash Commands
+   - Add each command with request URL `https://your-domain/webhooks/slack`:
+     - `/notify-channel` - Set default notification channel
+     - `/notify-link` - Link GitHub account
+     - `/notify-status` - View current settings
+
+4. **Configure Signing Secret**:
+   - Go to Basic Information
+   - Copy Signing Secret
+
+### Post-Deployment Configuration
+
+1. **Set environment variables in Cloud Run**:
+   ```bash
+   gcloud run services update github-slack-notifier \
+     --region=us-central1 \
+     --project=your-project-id \
+     --set-env-vars="SLACK_BOT_TOKEN=xoxb-...,GITHUB_WEBHOOK_SECRET=...,SLACK_SIGNING_SECRET=...,API_ADMIN_KEY=..."
+   ```
+
+2. **Register repositories** (optional - repos can use default channels):
+   ```bash
+   curl -X POST https://your-domain/api/repos \
+     -H "X-API-Key: your-admin-api-key" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "repo_full_name": "owner/repo",
+       "default_channel": "engineering",
+       "webhook_secret": "your-webhook-secret"
+     }'
+   ```
+
+## Usage
+
+### User Commands
+
+Users can configure their preferences in Slack:
+
+- `/notify-channel #engineering` - Set default channel for PR notifications
+- `/notify-link octocat` - Link GitHub username to Slack account
+- `/notify-status` - View current configuration
+
+### Channel Override
+
+Users can override the notification channel by adding this to their PR description:
+```
+@slack-channel: #specific-channel
+```
+
+### Notification Flow
+
+1. **PR Opened**: Posts message to determined channel (annotation > user default > repo default)
+2. **Reviews**: Adds emoji reactions (✅ approved, 🔄 changes requested, 💬 comments)
+3. **PR Closed**: Adds final emoji (🎉 merged, ❌ closed)
 
 ## Development
 
+### Scripts
+
+- `./scripts/dev.sh` - Start local development with ngrok
+- `./scripts/lint.sh` - Run all linters
+- `./scripts/deploy.sh` - Deploy to Cloud Run
+- `./scripts/setup-firestore.sh` - Setup GCP infrastructure
+
+### Linting
+
 ```bash
-# Install dependencies
-go mod download
+# Run all linters
+./scripts/lint.sh
 
-# Run locally
-go run main.go
+# Individual tools
+golangci-lint run
+hadolint Dockerfile
+shellcheck scripts/*.sh
+```
 
-# Build
+### Testing
+
+```bash
+# Run tests
+go test ./...
+
+# Test with coverage
+go test -cover ./...
+```
+
+### Building
+
+```bash
+# Build locally
 go build -o github-slack-notifier
+
+# Build Docker image
+docker build -t github-slack-notifier .
+```
+
+## Architecture
+
+- **Language**: Go 1.23
+- **Database**: Cloud Firestore
+- **Deployment**: Cloud Run
+- **Registry**: Artifact Registry
+- **Authentication**: GitHub webhook secrets, Slack signing secrets
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Firestore permission denied**:
+   - Ensure Cloud Run service account has Firestore permissions
+   - Check `FIRESTORE_PROJECT_ID` environment variable
+
+2. **Slack commands not working**:
+   - Verify webhook URL is correct
+   - Check Slack signing secret
+   - Ensure bot has required scopes
+
+3. **GitHub webhooks failing**:
+   - Verify webhook secret matches
+   - Check webhook URL is accessible
+   - Ensure app has correct permissions
+
+### Logs
+
+```bash
+# View Cloud Run logs
+gcloud logs tail --filter="resource.type=cloud_run_revision" --project=your-project-id
+
+# Local logs
+go run main.go
 ```

@@ -13,21 +13,21 @@ type User struct {
 }
 
 type Message struct {
-	ID              string    `firestore:"id"`
-	PRNumber        int       `firestore:"pr_number"`
-	RepoFullName    string    `firestore:"repo_full_name"`
-	SlackChannel    string    `firestore:"slack_channel"`
-	SlackMessageTS  string    `firestore:"slack_message_ts"`
-	GitHubPRURL     string    `firestore:"github_pr_url"`
-	AuthorGitHubID  string    `firestore:"author_github_id"`
-	CreatedAt       time.Time `firestore:"created_at"`
-	LastStatus      string    `firestore:"last_status"`
+	ID             string    `firestore:"id"`
+	PRNumber       int       `firestore:"pr_number"`
+	RepoFullName   string    `firestore:"repo_full_name"`
+	SlackChannel   string    `firestore:"slack_channel"`
+	SlackMessageTS string    `firestore:"slack_message_ts"`
+	GitHubPRURL    string    `firestore:"github_pr_url"`
+	AuthorGitHubID string    `firestore:"author_github_id"`
+	CreatedAt      time.Time `firestore:"created_at"`
+	LastStatus     string    `firestore:"last_status"`
 }
 
 type Repo struct {
-	ID            string    `firestore:"id"`
+	ID             string    `firestore:"id"`
 	DefaultChannel string    `firestore:"default_channel"`
-	WebhookSecret string    `firestore:"webhook_secret"`
-	Enabled       bool      `firestore:"enabled"`
-	CreatedAt     time.Time `firestore:"created_at"`
+	WebhookSecret  string    `firestore:"webhook_secret"`
+	Enabled        bool      `firestore:"enabled"`
+	CreatedAt      time.Time `firestore:"created_at"`
 }

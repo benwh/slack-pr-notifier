@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
+	"github.com/gin-gonic/gin"
 )
 
 type SlackHandler struct {

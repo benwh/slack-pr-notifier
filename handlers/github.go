@@ -10,11 +10,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
+	"github.com/gin-gonic/gin"
 )
 
 type GitHubHandler struct {
@@ -34,12 +33,12 @@ func NewGitHubHandler(fs *services.FirestoreService, slack *services.SlackServic
 type GitHubWebhookPayload struct {
 	Action      string `json:"action"`
 	PullRequest struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-		Draft  bool   `json:"draft"`
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		Draft   bool   `json:"draft"`
 		HTMLURL string `json:"html_url"`
-		User   struct {
+		User    struct {
 			ID    int    `json:"id"`
 			Login string `json:"login"`
 		} `json:"user"`

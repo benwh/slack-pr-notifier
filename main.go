@@ -6,12 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
-	"google.golang.org/api/option"
 
 	"github-slack-notifier/handlers"
 	"github-slack-notifier/models"

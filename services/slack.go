@@ -40,7 +40,9 @@ func (s *SlackService) AddReaction(channel, timestamp, emoji string) error {
 }
 
 func (s *SlackService) ValidateChannel(channel string) error {
-	_, err := s.client.GetConversationInfo(channel, false)
+	_, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
+		ChannelID: channel,
+	})
 	return err
 }
 

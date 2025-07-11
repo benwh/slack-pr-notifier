@@ -5,14 +5,35 @@ set -e
 PROJECT_ID="incident-io-dev-ben"
 SERVICE_NAME="github-slack-notifier"
 REGION="us-central1"
-IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
+REPO_NAME="github-slack-notifier"
+IMAGE_NAME="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${SERVICE_NAME}"
 
 echo "🚀 Deploying GitHub-Slack Notifier to GCP..."
+
+# Check if gcloud is installed
+if ! command -v gcloud &> /dev/null; then
+    echo "❌ gcloud CLI not found. Please install it:"
+    echo "   https://cloud.google.com/sdk/docs/install"
+    exit 1
+fi
+
+# Check if user is authenticated
+if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q .; then
+    echo "❌ Not authenticated with gcloud. Please run:"
+    echo "   gcloud auth login"
+    exit 1
+fi
+
+# Set the project
+gcloud config set project $PROJECT_ID
+
+# Configure Docker authentication
+gcloud auth configure-docker $REGION-docker.pkg.dev
 
 echo "📦 Building Docker image..."
 docker build -t ${IMAGE_NAME} .
 
-echo "🔄 Pushing image to Google Container Registry..."
+echo "🔄 Pushing image to Artifact Registry..."
 docker push ${IMAGE_NAME}
 
 echo "☁️  Deploying to Cloud Run..."
@@ -38,19 +59,4 @@ echo "🔗 Webhook URLs:"
 echo "   GitHub: ${SERVICE_URL}/webhooks/github"
 echo "   Slack:  ${SERVICE_URL}/webhooks/slack"
 echo ""
-echo "⚙️  Next steps:"
-echo "1. Set up your environment variables in Cloud Run:"
-echo "   gcloud run services update ${SERVICE_NAME} --region=${REGION} --project=${PROJECT_ID} \\"
-echo "     --set-env-vars=\"SLACK_BOT_TOKEN=xoxb-your-token,GITHUB_WEBHOOK_SECRET=your-secret,SLACK_SIGNING_SECRET=your-secret,API_ADMIN_KEY=your-key\""
-echo ""
-echo "2. Configure GitHub webhook:"
-echo "   - URL: ${SERVICE_URL}/webhooks/github"
-echo "   - Events: Pull requests, Pull request reviews"
-echo "   - Content type: application/json"
-echo ""
-echo "3. Configure Slack app:"
-echo "   - Add slash commands pointing to: ${SERVICE_URL}/webhooks/slack"
-echo "   - Commands: /notify-channel, /notify-link, /notify-status"
-echo ""
-echo "4. Enable Firestore in your GCP project if not already done"
-echo "5. Register repositories using the admin API"
+echo "ℹ️  See README.md for detailed setup instructions"
