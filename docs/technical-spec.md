@@ -8,13 +8,8 @@
 - Secret stored in environment variables
 
 ### Slack Authentication
-- Use Slack Bot tokens (xoxb-) for message posting
-- OAuth 2.0 flow for user identity linking
-- Scopes required: `chat:write`, `chat:write.public`, `reactions:read`
-
-### API Authentication
-- Service-to-service: API keys for admin endpoints
-- User endpoints: JWT tokens after Slack OAuth
+- Use Slack Bot tokens (xoxb-) for message posting and slash commands
+- Scopes required: `chat:write`, `chat:write.public`, `reactions:read`, `commands`, `users:read`
 
 ## Database Schema (Firestore)
 
@@ -78,51 +73,21 @@ Receives GitHub webhook events.
 - `400 Bad Request`: Invalid payload
 - `401 Unauthorized`: Invalid signature
 
-### Configuration APIs
-
-#### `POST /api/users/link`
-Link GitHub and Slack accounts.
-
-**Request:**
-```json
-{
-  "slack_code": "oauth_code_from_slack",
-  "github_username": "string"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "user_id": "github_user_id"
-}
-```
-
-#### `GET /api/users/me`
-Get current user's configuration.
+#### `POST /webhooks/slack`
+Receives Slack events (slash commands, interactive components).
 
 **Headers:**
-- `Authorization: Bearer {jwt_token}`
+- `X-Slack-Signature`: HMAC signature
+- `X-Slack-Request-Timestamp`: Request timestamp
+
+**Request Body:** Slack event payload
 
 **Response:**
-```json
-{
-  "github_username": "string",
-  "slack_username": "string",
-  "default_channel": "string"
-}
-```
+- `200 OK`: Command processed
+- `400 Bad Request`: Invalid payload
+- `401 Unauthorized`: Invalid signature
 
-#### `PUT /api/users/me/channel`
-Update default channel.
-
-**Request:**
-```json
-{
-  "default_channel": "string"
-}
-```
+### Admin APIs
 
 #### `POST /api/repos`
 Register a repository (admin only).
@@ -141,14 +106,16 @@ Register a repository (admin only).
 
 ## Event Processing Logic
 
-### PR Opened Event
+### GitHub Webhook Events
+
+#### PR Opened Event
 1. Check if PR is draft → ignore
 2. Look up author in users collection
 3. Determine target channel (PR annotation > user default > repo default)
 4. Post Slack message with PR details
 5. Store message info in database
 
-### Review Submitted Event
+#### Review Submitted Event
 1. Look up existing message in database
 2. Add emoji based on review state:
    - ✅ for approved
@@ -156,12 +123,34 @@ Register a repository (admin only).
    - 💬 for commented
 3. Update message status in database
 
-### PR Closed Event
+#### PR Closed Event
 1. Look up existing message in database
 2. Add emoji:
    - 🎉 if merged
    - ❌ if closed without merge
 3. Update final status in database
+
+### Slack Command Events
+
+#### `/notify-channel` Command
+**Usage:** `/notify-channel #channel-name`
+1. Validate channel exists and bot has access
+2. Look up user by slack_user_id
+3. Create or update user record with new default_channel
+4. Respond with confirmation message
+
+#### `/notify-link` Command
+**Usage:** `/notify-link github-username`
+1. Validate GitHub username exists
+2. Look up user by slack_user_id
+3. Create or update user record with GitHub username
+4. Respond with confirmation message
+
+#### `/notify-status` Command
+**Usage:** `/notify-status`
+1. Look up user by slack_user_id
+2. Return current configuration (GitHub username, default channel)
+3. Show recent PR notifications if any
 
 ## Slack Message Format
 
@@ -206,15 +195,27 @@ Default emoji set (customizable via environment):
 - `EMOJI_CLOSED`: ❌
 - `EMOJI_DISMISSED`: 👋 (user reaction to dismiss)
 
+## Slack App Configuration
+
+### Slash Commands
+- `/notify-channel` - Set default notification channel
+- `/notify-link` - Link GitHub username  
+- `/notify-status` - View current settings
+
+### Required Scopes
+- `chat:write` - Post messages
+- `chat:write.public` - Post to public channels
+- `reactions:read` - Read emoji reactions
+- `commands` - Handle slash commands
+- `users:read` - Get user info
+
 ## Environment Variables
 ```
 GITHUB_WEBHOOK_SECRET
 SLACK_BOT_TOKEN
-SLACK_CLIENT_ID
-SLACK_CLIENT_SECRET
+SLACK_SIGNING_SECRET
 FIRESTORE_PROJECT_ID
 API_ADMIN_KEY
-JWT_SECRET
 PORT (default: 8080)
 ```
 
