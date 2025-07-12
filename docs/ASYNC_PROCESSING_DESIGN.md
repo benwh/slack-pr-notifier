@@ -68,7 +68,7 @@ type WebhookJob struct {
     ID            string    `json:"id"`
     EventType     string    `json:"event_type"`
     DeliveryID    string    `json:"delivery_id"`
-    CorrelationID string    `json:"correlation_id"`
+    TraceID       string    `json:"trace_id"`
     Payload       []byte    `json:"payload"`
     ReceivedAt    time.Time `json:"received_at"`
     ProcessedAt   *time.Time `json:"processed_at,omitempty"`
@@ -148,7 +148,7 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *WebhookJo
                 Headers: map[string]string{
                     "Content-Type":       "application/json",
                     "X-Job-ID":          job.ID,
-                    "X-Correlation-ID":  job.CorrelationID,
+                    "X-Trace-ID":        job.TraceID,
                 },
                 Body: payload,
             },
@@ -200,10 +200,10 @@ func NewGitHubAsyncHandler(
 
 func (h *GitHubAsyncHandler) HandleWebhook(c *gin.Context) {
     startTime := time.Now()
-    correlationID := c.GetString("correlation_id")
+    traceID := c.GetString("trace_id")
     
     logger := slog.With(
-        "correlation_id", correlationID,
+        "trace_id", traceID,
         "remote_addr", c.ClientIP(),
         "user_agent", c.Request.UserAgent(),
     )
@@ -245,7 +245,7 @@ func (h *GitHubAsyncHandler) HandleWebhook(c *gin.Context) {
         ID:            uuid.New().String(),
         EventType:     eventType,
         DeliveryID:    deliveryID,
-        CorrelationID: correlationID,
+        TraceID:       traceID,
         Payload:       body,
         ReceivedAt:    time.Now(),
         Status:        "queued",
@@ -328,7 +328,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
     logger := slog.With(
         "job_id", job.ID,
         "event_type", job.EventType,
-        "correlation_id", job.CorrelationID,
+        "trace_id", job.TraceID,
         "retry_count", job.RetryCount,
     )
     
@@ -534,7 +534,7 @@ spec:
 - Webhook response time > 1 second
 
 ### 3. Logging
-- Structured logs with correlation IDs
+- Structured logs with trace IDs
 - Job lifecycle tracking (queued → processing → completed/failed)
 - Performance metrics for each processing stage
 

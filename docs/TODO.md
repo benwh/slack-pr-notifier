@@ -165,7 +165,7 @@ This document tracks future improvements and technical debt identified during de
 ### Monitoring
 
 - [ ] **Add comprehensive observability**
-  - Structured logging with correlation IDs
+  - Structured logging with trace IDs
   - Metrics for webhook processing times
   - Distributed tracing for request flows
   - Error tracking and alerting

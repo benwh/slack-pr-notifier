@@ -1,6 +1,15 @@
 package models
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrJobIDRequired     = errors.New("job ID is required")
+	ErrEventTypeRequired = errors.New("event type is required")
+	ErrPayloadRequired   = errors.New("payload is required")
+)
 
 type User struct {
 	ID             string    `firestore:"id"`
@@ -30,4 +39,30 @@ type Repo struct {
 	WebhookSecret  string    `firestore:"webhook_secret"`
 	Enabled        bool      `firestore:"enabled"`
 	CreatedAt      time.Time `firestore:"created_at"`
+}
+
+type WebhookJob struct {
+	ID          string     `firestore:"id"                     json:"id"`
+	EventType   string     `firestore:"event_type"             json:"event_type"`
+	DeliveryID  string     `firestore:"delivery_id"            json:"delivery_id"`
+	TraceID     string     `firestore:"trace_id"               json:"trace_id"`
+	Payload     []byte     `firestore:"payload"                json:"payload"`
+	ReceivedAt  time.Time  `firestore:"received_at"            json:"received_at"`
+	ProcessedAt *time.Time `firestore:"processed_at,omitempty" json:"processed_at,omitempty"`
+	Status      string     `firestore:"status"                 json:"status"`
+	RetryCount  int        `firestore:"retry_count"            json:"retry_count"`
+	LastError   string     `firestore:"last_error,omitempty"   json:"last_error,omitempty"`
+}
+
+func (wj *WebhookJob) Validate() error {
+	if wj.ID == "" {
+		return ErrJobIDRequired
+	}
+	if wj.EventType == "" {
+		return ErrEventTypeRequired
+	}
+	if len(wj.Payload) == 0 {
+		return ErrPayloadRequired
+	}
+	return nil
 }

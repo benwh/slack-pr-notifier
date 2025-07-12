@@ -35,6 +35,23 @@ func (s *SlackService) AddReaction(channel, timestamp, emoji string) error {
 	msgRef := slack.NewRefToMessage(channel, timestamp)
 	err := s.client.AddReaction(emoji, msgRef)
 	if err != nil {
+		// Handle "already_reacted" as success - this is the most common case for retries
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "already_reacted") {
+			// This is not an error - the reaction already exists, which is fine
+			return nil
+		}
+		
+		// Check for SlackErrorResponse type
+		if slackErr, ok := err.(*slack.SlackErrorResponse); ok {
+			if slackErr.Err == "already_reacted" {
+				return nil
+			}
+		}
+		
+		// Additional check: just to be thorough with any error containing the string
+		// This should catch it regardless of the exact error type
+		
 		return fmt.Errorf("failed to add reaction %s to message %s in channel %s: %w", emoji, timestamp, channel, err)
 	}
 	return nil

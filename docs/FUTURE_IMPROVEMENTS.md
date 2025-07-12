@@ -38,7 +38,7 @@ This document outlines specific 2024-25 best practices research findings that sh
 ## 📊 Modern Observability (2024-25 Standards)
 
 ### Structured Logging Enhancement
-- [ ] **Extend correlation ID usage** - Use correlation IDs in all service calls
+- [ ] **Extend trace ID usage** - Use trace IDs in all service calls
 - [ ] **Cloud Logging integration** - Leverage Google Cloud's structured logging
 - [ ] **Request/response logging** - Log webhook payloads (sanitized) for debugging
 

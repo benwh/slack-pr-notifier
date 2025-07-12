@@ -1,6 +1,6 @@
 # GitHub-Slack Notifier
 
-A Go application that sends Slack notifications for GitHub pull request events.
+A Go application that sends Slack notifications for GitHub pull request events with high-reliability async processing.
 
 ## Features
 
@@ -8,6 +8,8 @@ A Go application that sends Slack notifications for GitHub pull request events.
 - 📝 **Review Updates**: Adds emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬)
 - 🎉 **Closure Updates**: Adds emoji reactions when PRs are merged or closed
 - ⚙️ **Slack Configuration**: Use slash commands to configure your settings
+- 🚀 **Async Processing**: Uses Google Cloud Tasks for reliable webhook processing with automatic retries
+- 📊 **Observability**: Structured logging with trace IDs for full request tracking
 
 ## Quick Start
 
@@ -47,11 +49,44 @@ A Go application that sends Slack notifications for GitHub pull request events.
 ./scripts/deploy.sh
 ```
 
+## Architecture
+
+### Async Webhook Processing
+
+The application uses **async processing by default** for high reliability:
+
+- **Fast Response**: GitHub webhooks are acknowledged within ~100ms
+- **Reliable Processing**: Uses Google Cloud Tasks for guaranteed processing with automatic retries
+- **Error Handling**: Distinguishes between temporary and permanent errors for smart retry logic
+- **Observability**: Full trace ID tracking from webhook receipt to completion
+
+```
+GitHub Webhook → Fast Ingress → Cloud Tasks Queue → Worker Processing → Slack/Firestore
+     (100ms)        (immediate)      (reliable)        (retryable)
+```
+
+### Processing Modes
+
+1. **Async Mode** (Default/Recommended):
+   - Set `ENABLE_ASYNC_PROCESSING=true`
+   - Uses Cloud Tasks for reliable processing
+   - Handles GitHub's 10-second timeout requirement
+   - Automatic retries for transient failures
+
+2. **Sync Mode** (Legacy):
+   - Set `ENABLE_ASYNC_PROCESSING=false`
+   - Direct processing in webhook handler
+   - Risk of timeout failures with GitHub
+
 ## Configuration
 
 ### Environment Variables
 
 Create `.env` file based on `.env.example`
+
+**Required for Async Processing (Default Mode):**
+- `GOOGLE_CLOUD_PROJECT` - Your GCP project ID
+- `WEBHOOK_WORKER_URL` - Your deployed service URL with `/process-webhook` endpoint
 
 ### GitHub App Setup
 
@@ -238,6 +273,29 @@ docker build -t github-slack-notifier .
    - Check if you get `missing_scope` error in logs
    - Ensure `reactions:write` scope is added to your Slack app
    - Reinstall the app to workspace after adding the scope
+
+5. **Async processing issues**:
+   - Check Cloud Tasks queue status: `gcloud tasks queues describe webhook-processing --location=your-region`
+   - Verify `WEBHOOK_WORKER_URL` points to your deployed service
+   - Check worker endpoint logs for processing errors
+   - Monitor queue depth for backlog issues
+
+6. **"already_reacted" errors (now handled gracefully)**:
+   - These are no longer errors - reactions that already exist are silently ignored
+   - If you see retries for this, check your application version
+
+### Monitoring Async Processing
+
+```bash
+# Check queue status
+gcloud tasks queues describe webhook-processing --location=us-central1 --project=your-project
+
+# View failed tasks
+gcloud tasks list --queue=webhook-processing --location=us-central1 --project=your-project --filter="state:FAILED"
+
+# Monitor processing times
+gcloud logs read "resource.type=cloud_run_revision AND jsonPayload.msg=\"Webhook processed successfully\"" --project=your-project --format="value(jsonPayload.processing_time_ms)"
+```
 
 ### Logs
 

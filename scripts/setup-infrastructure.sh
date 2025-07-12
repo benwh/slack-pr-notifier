@@ -70,6 +70,7 @@ gcloud services enable firestore.googleapis.com --project="$PROJECT_ID"
 gcloud services enable cloudbuild.googleapis.com --project="$PROJECT_ID"
 gcloud services enable run.googleapis.com --project="$PROJECT_ID"
 gcloud services enable artifactregistry.googleapis.com --project="$PROJECT_ID"
+gcloud services enable cloudtasks.googleapis.com --project="$PROJECT_ID"
 
 # Create Firestore database
 echo "🗄️  Creating Firestore database..."
@@ -120,6 +121,36 @@ fi
 # Configure Docker authentication
 echo "🐳 Configuring Docker authentication..."
 gcloud auth configure-docker "$REGION-docker.pkg.dev" --project="$PROJECT_ID"
+
+# Create Cloud Tasks queue (for async processing)
+echo "📤 Creating Cloud Tasks queue..."
+
+# Set Cloud Tasks configuration from .env or defaults
+if [ -z "$CLOUD_TASKS_QUEUE" ]; then
+    CLOUD_TASKS_QUEUE="webhook-processing"
+fi
+
+# Use GCP_REGION for Cloud Tasks location (already set above)
+CLOUD_TASKS_LOCATION="$REGION"
+
+echo "   Queue name: $CLOUD_TASKS_QUEUE"
+echo "   Location: $CLOUD_TASKS_LOCATION"
+
+if gcloud tasks queues describe "$CLOUD_TASKS_QUEUE" --location="$CLOUD_TASKS_LOCATION" --project="$PROJECT_ID" 2>/dev/null; then
+    echo "✅ Cloud Tasks queue already exists"
+else
+    gcloud tasks queues create "$CLOUD_TASKS_QUEUE" \
+        --location="$CLOUD_TASKS_LOCATION" \
+        --max-attempts=5 \
+        --max-retry-duration=300s \
+        --min-backoff=1s \
+        --max-backoff=30s \
+        --max-doublings=5 \
+        --max-concurrent-dispatches=10 \
+        --max-dispatches-per-second=100 \
+        --project="$PROJECT_ID"
+    echo "✅ Cloud Tasks queue created"
+fi
 
 echo "🎉 GCP infrastructure setup complete!"
 echo ""
