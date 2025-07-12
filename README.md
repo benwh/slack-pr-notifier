@@ -240,6 +240,37 @@ go build -o github-slack-notifier
 docker build -t github-slack-notifier .
 ```
 
+## Project Structure
+
+```
+github-slack-notifier/
+├── cmd/github-slack-notifier/    # Application entry point
+│   └── main.go                   # HTTP server setup, dependency injection
+├── internal/                     # Private application code
+│   ├── handlers/                 # HTTP request handlers
+│   │   ├── github.go            # GitHub webhook handler
+│   │   ├── slack.go             # Slack command handler
+│   │   └── webhook_worker.go    # Async webhook processor
+│   ├── services/                 # Business logic and external integrations
+│   │   ├── firestore.go         # Database operations
+│   │   ├── slack.go             # Slack API operations
+│   │   └── cloud_tasks.go       # Task queue operations
+│   ├── models/                   # Data structures
+│   │   └── models.go            # User, Message, Repo, WebhookJob
+│   ├── middleware/               # HTTP middleware
+│   │   └── logging.go           # Request logging with trace IDs
+│   ├── config/                   # Configuration
+│   │   └── config.go            # Environment variable parsing
+│   └── log/                      # Logging utilities
+│       ├── context.go           # Context-aware logging
+│       └── logger.go            # Logger initialization
+├── scripts/                      # Development and deployment scripts
+├── docs/                         # Documentation
+└── CLAUDE.md                     # AI assistant guidelines
+```
+
+See [CLAUDE.md](CLAUDE.md#architecture-guidelines) for detailed architecture guidelines.
+
 ## Architecture
 
 - **Language**: Go 1.23

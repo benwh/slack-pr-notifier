@@ -9,6 +9,7 @@ This is a Go-based GitHub-Slack notifier that sends Slack notifications for GitH
 ## Development Commands
 
 ### Core Development
+
 ```bash
 # Start local development with ngrok tunnel
 ./scripts/dev.sh
@@ -24,6 +25,7 @@ go test -cover ./...
 ```
 
 ### Linting and Code Quality
+
 ```bash
 # Run all linters (preferred)
 ./scripts/lint.sh
@@ -36,6 +38,7 @@ staticcheck ./...
 ```
 
 ### Deployment
+
 ```bash
 # Deploy to Cloud Run
 ./scripts/deploy.sh
@@ -55,9 +58,98 @@ staticcheck ./...
 - **internal/middleware/**: HTTP middleware including structured logging with trace IDs
 - **internal/log/**: Custom logging utilities with context support
 
+### Architecture Guidelines
+
+#### What is a Service? (`internal/services/`)
+
+A **Service** encapsulates business logic and external integrations. Services should be created when:
+
+- **Managing state or connections**: Database connections, API clients, connection pools
+- **Complex business logic**: Operations that coordinate multiple steps or handle complex workflows
+- **External system integration**: Slack API, Firestore, Cloud Tasks, GitHub API
+- **Dependency injection needed**: When the component needs configuration or other services injected
+- **Shared functionality**: Logic used by multiple handlers or other services
+
+**Examples of good services:**
+
+- `SlackService`: Manages Slack API client and all Slack operations
+- `FirestoreService`: Handles database connections and CRUD operations
+- `CloudTasksService`: Manages task queue client and job creation
+
+**What should NOT be a service:**
+
+- Simple utility functions (e.g., string parsing, regex matching)
+- Pure functions without state or dependencies
+- Single-use helper functions
+
+#### What is a Handler? (`internal/handlers/`)
+
+A **Handler** is responsible for HTTP request/response processing. Handlers should:
+
+- **Parse and validate** incoming HTTP requests
+- **Call services** to perform business logic
+- **Format responses** and handle HTTP status codes
+- **Handle errors** and return appropriate error responses
+- **Add observability** (logging, metrics, tracing)
+
+**Handler responsibilities:**
+
+- Request parsing and validation
+- Authentication/authorization checks
+- Calling appropriate service methods
+- Response formatting
+- Error handling and status codes
+
+**Handlers should NOT:**
+
+- Contain business logic (use services)
+- Make direct database or API calls (use services)
+- Share state between requests
+
+#### What is a Model? (`internal/models/`)
+
+A **Model** represents data structures used throughout the application. Models should:
+
+- **Define data structures** with appropriate types and tags
+- **Document fields** with clear comments
+- **Use appropriate tags** for JSON, Firestore, validation
+- **Be simple DTOs** (Data Transfer Objects) without methods containing business logic
+
+**Examples of good models:**
+
+```go
+type User struct {
+    GitHubUsername string `firestore:"github_username" json:"github_username"`
+    SlackUserID    string `firestore:"slack_user_id" json:"slack_user_id"`
+    DefaultChannel string `firestore:"default_channel,omitempty" json:"default_channel,omitempty"`
+}
+```
+
+**Models should NOT:**
+
+- Contain business logic methods
+- Make database or API calls
+- Have complex initialization logic
+
+#### When to Create Utils (`internal/lib/something`)
+
+Utility functions are appropriate for:
+
+- Pure functions without state
+- Simple transformations or parsing
+- Shared helper functions
+- Functions that don't fit the service pattern
+
+**Examples:**
+
+- `ExtractPRLinks(text string) []PRLink` - Simple regex parsing
+- `ValidateWebhookSignature(payload, secret, signature) bool`
+- `FormatSlackMessage(pr PullRequest) string`
+
 ### Processing Architecture
 
 **Fast Path (< 100ms):**
+
 1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` → queues to Cloud Tasks → returns 200
 
 **Slow Path (reliable, retryable):**
@@ -66,7 +158,7 @@ staticcheck ./...
 ### Data Flow
 
 1. **GitHub Webhook** → Fast ingress handler → Cloud Tasks queue → Worker handler → Slack/Firestore
-2. **Slack Commands** → `handlers/slack.go` → validates signing secret → processes user configuration  
+2. **Slack Commands** → `handlers/slack.go` → validates signing secret → processes user configuration
 3. **Services Layer** → `services/firestore.go` for persistence, `services/slack.go` for messaging, `services/cloud_tasks.go` for queuing
 4. **Models** → Firestore documents and Cloud Tasks job payloads with struct tags
 
@@ -84,6 +176,7 @@ staticcheck ./...
 Required environment variables (configured in `.env` file):
 
 **Core Configuration:**
+
 - `FIRESTORE_PROJECT_ID`: GCP project ID
 - `FIRESTORE_DATABASE_ID`: Firestore database ID
 - `SLACK_BOT_TOKEN`: Slack bot token (xoxb-)
@@ -92,6 +185,7 @@ Required environment variables (configured in `.env` file):
 - `API_ADMIN_KEY`: Admin API key for repository registration
 
 **Async Processing:**
+
 - `GOOGLE_CLOUD_PROJECT`: GCP project ID for Cloud Tasks
 - `CLOUD_TASKS_QUEUE`: Queue name (defaults to `webhook-processing`)
 - `WEBHOOK_WORKER_URL`: Full URL to the `/process-webhook` endpoint of your deployed service
@@ -99,6 +193,7 @@ Required environment variables (configured in `.env` file):
 ### Slack App Configuration
 
 The Slack app requires the following OAuth scopes:
+
 - `channels:read`: Validate channel access for `/notify-channel` command
 - `chat:write`: Send PR notifications to channels
 - `commands`: Handle slash commands
@@ -114,6 +209,7 @@ The Slack app requires the following OAuth scopes:
 ## Testing Strategy
 
 Use Go's built-in testing framework:
+
 ```bash
 # Run all tests
 go test ./...
@@ -128,16 +224,19 @@ go test -v ./...
 ## Common Development Patterns
 
 ### Error Handling
+
 - Use structured logging with `slog` for error reporting
 - Return sentinel errors from services (e.g., `ErrUserNotFound`)
 - Validate webhook signatures before processing
 
 ### Security
+
 - Always validate GitHub webhook signatures using HMAC-SHA256
 - Validate Slack request signatures using signing secret
 - Use admin API key for repository registration endpoint
 
 ### Local Development
+
 - Use `./scripts/dev.sh` which sets up ngrok tunneling automatically
 - Environment variables loaded from `.env` file
 - Hot reload requires manual restart
@@ -152,7 +251,7 @@ go test -v ./...
 
 ### Slack App Setup
 
-1. Create a new Slack app at https://api.slack.com/apps
+1. Create a new Slack app at <https://api.slack.com/apps>
 2. Configure OAuth scopes under "OAuth & Permissions":
    - `channels:read`
    - `chat:write`
@@ -173,3 +272,4 @@ go test -v ./...
 - `GET /health`: Health check endpoint
 
 **Note:** The `/process-webhook` endpoint should not be exposed publicly - it's designed to be called only by Google Cloud Tasks with proper authentication.
+
