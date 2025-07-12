@@ -73,7 +73,7 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 		user.CreatedAt = time.Now()
 	}
 
-	_, err := fs.client.Collection("users").Doc(user.ID).Set(ctx, user, firestore.MergeAll)
+	_, err := fs.client.Collection("users").Doc(user.ID).Set(ctx, user)
 	if err != nil {
 		return fmt.Errorf("failed to create or update user %s: %w", user.ID, err)
 	}
@@ -120,7 +120,7 @@ func (fs *FirestoreService) CreateMessage(ctx context.Context, message *models.M
 }
 
 func (fs *FirestoreService) UpdateMessage(ctx context.Context, message *models.Message) error {
-	_, err := fs.client.Collection("messages").Doc(message.ID).Set(ctx, message, firestore.MergeAll)
+	_, err := fs.client.Collection("messages").Doc(message.ID).Set(ctx, message)
 	if err != nil {
 		return fmt.Errorf("failed to update message %s: %w", message.ID, err)
 	}
