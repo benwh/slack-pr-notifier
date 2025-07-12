@@ -10,7 +10,7 @@ go mod tidy
 if ! git diff --quiet go.mod go.sum; then
     echo "❌ go.mod/go.sum files have changes after running 'go mod tidy'"
     echo "   Please commit these changes:"
-    git diff go.mod go.sum
+    git --no-pager diff go.mod go.sum
     exit 1
 fi
 
