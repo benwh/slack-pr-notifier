@@ -46,17 +46,29 @@ Both endpoints will be handled by the existing `SlackHandler` to share dependenc
 - `links:read` - Read information about links shared in channels
 - `reactions:write` - Add reactions to messages (already have via `chat:write`)
 
-#### 2. PR Link Detection Service
+#### 2. PR Link Detection Utility
 
-**New Service**: `internal/services/link_detector.go`
+**New Utility Function**: `internal/utils/github.go` (or directly in the handler)
 
 ```go
-type LinkDetectorService struct {
-    githubURLPattern *regexp.Regexp
+// ExtractPRLinks parses GitHub PR URLs from message text
+func ExtractPRLinks(text string) []PRLink {
+    pattern := regexp.MustCompile(`https://github\.com/([^/]+)/([^/]+)/pull/(\d+)`)
+    matches := pattern.FindAllStringSubmatch(text, -1)
+    
+    var links []PRLink
+    for _, match := range matches {
+        prNumber, _ := strconv.Atoi(match[3])
+        links = append(links, PRLink{
+            URL:          match[0],
+            Owner:        match[1],
+            Repo:         match[2],
+            PRNumber:     prNumber,
+            FullRepoName: match[1] + "/" + match[2],
+        })
+    }
+    return links
 }
-
-// DetectPRLinks extracts GitHub PR URLs from message text
-func (s *LinkDetectorService) DetectPRLinks(text string) []PRLink
 
 type PRLink struct {
     URL          string
@@ -67,7 +79,11 @@ type PRLink struct {
 }
 ```
 
-**URL Pattern**: `https://github.com/([^/]+)/([^/]+)/pull/(\d+)`
+This is a simple utility function that doesn't need to be a service since it:
+- Has no state to manage
+- Requires no dependencies
+- Is purely functional (input → output)
+- Can be easily tested in isolation
 
 #### 3. Enhanced Message Tracking
 
@@ -236,7 +252,7 @@ Track:
 
 - [ ] Refactor routing: `/webhooks/slack` → `/webhooks/slack/slash-command`
 - [ ] Add `/webhooks/slack/events` endpoint in SlackHandler
-- [ ] Implement PR link detection service
+- [ ] Implement PR link detection utility function
 - [ ] Create TrackedMessage model and Firestore collection
 - [ ] Create manual link processing worker
 - [ ] Update webhook worker to handle multiple tracked messages
