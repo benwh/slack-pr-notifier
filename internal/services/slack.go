@@ -4,19 +4,23 @@ package services
 import (
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
+	"github-slack-notifier/internal/config"
 	"github.com/slack-go/slack"
 )
 
 type SlackService struct {
-	client *slack.Client
+	client      *slack.Client
+	emojiConfig config.EmojiConfig
 }
 
-func NewSlackService(client *slack.Client) *SlackService {
-	return &SlackService{client: client}
+func NewSlackService(client *slack.Client, emojiConfig config.EmojiConfig) *SlackService {
+	return &SlackService{
+		client:      client,
+		emojiConfig: emojiConfig,
+	}
 }
 
 func (s *SlackService) PostPRMessage(
@@ -71,11 +75,11 @@ func (s *SlackService) ValidateChannel(channel string) error {
 func (s *SlackService) GetEmojiForReviewState(state string) string {
 	switch state {
 	case "approved":
-		return getEnvOrDefault("EMOJI_APPROVED", "white_check_mark")
+		return s.emojiConfig.Approved
 	case "changes_requested":
-		return getEnvOrDefault("EMOJI_CHANGES_REQUESTED", "arrows_counterclockwise")
+		return s.emojiConfig.ChangesRequested
 	case "commented":
-		return getEnvOrDefault("EMOJI_COMMENTED", "speech_balloon")
+		return s.emojiConfig.Commented
 	default:
 		return ""
 	}
@@ -83,9 +87,9 @@ func (s *SlackService) GetEmojiForReviewState(state string) string {
 
 func (s *SlackService) GetEmojiForPRState(state string, merged bool) string {
 	if merged {
-		return getEnvOrDefault("EMOJI_MERGED", "tada")
+		return s.emojiConfig.Merged
 	}
-	return getEnvOrDefault("EMOJI_CLOSED", "x")
+	return s.emojiConfig.Closed
 }
 
 func (s *SlackService) ExtractChannelFromDescription(description string) string {
@@ -95,11 +99,4 @@ func (s *SlackService) ExtractChannelFromDescription(description string) string 
 		return strings.TrimPrefix(matches[1], "#")
 	}
 	return ""
-}
-
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

@@ -83,7 +83,7 @@ func main() {
 	}()
 
 	firestoreService := services.NewFirestoreService(firestoreClient)
-	slackService := services.NewSlackService(slack.New(cfg.SlackBotToken))
+	slackService := services.NewSlackService(slack.New(cfg.SlackBotToken), cfg.Emoji)
 
 	// Initialize Cloud Tasks service
 	cloudTasksConfig := services.CloudTasksConfig{

@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// EmojiConfig holds Slack emoji configuration for different PR states.
+type EmojiConfig struct {
+	Approved         string
+	ChangesRequested string
+	Commented        string
+	Merged           string
+	Closed           string
+	Dismissed        string
+}
+
 // Config holds all application configuration.
 type Config struct {
 	// Core settings
@@ -35,6 +45,9 @@ type Config struct {
 	// Processing settings
 	WebhookProcessingTimeout time.Duration
 	SlackTimestampMaxAge     time.Duration
+
+	// Emoji settings
+	Emoji EmojiConfig
 }
 
 // Load reads configuration from environment variables.
@@ -70,6 +83,16 @@ func Load() *Config {
 	cfg.ServerShutdownTimeout = getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second)
 	cfg.WebhookProcessingTimeout = getEnvDuration("WEBHOOK_PROCESSING_TIMEOUT", 5*time.Minute)
 	cfg.SlackTimestampMaxAge = getEnvDuration("SLACK_TIMESTAMP_MAX_AGE", 5*time.Minute)
+
+	// Parse emoji configuration
+	cfg.Emoji = EmojiConfig{
+		Approved:         getEnvDefault("EMOJI_APPROVED", "white_check_mark"),
+		ChangesRequested: getEnvDefault("EMOJI_CHANGES_REQUESTED", "arrows_counterclockwise"),
+		Commented:        getEnvDefault("EMOJI_COMMENTED", "speech_balloon"),
+		Merged:           getEnvDefault("EMOJI_MERGED", "tada"),
+		Closed:           getEnvDefault("EMOJI_CLOSED", "x"),
+		Dismissed:        getEnvDefault("EMOJI_DISMISSED", "wave"),
+	}
 
 	// Validate configuration
 	cfg.validate()
