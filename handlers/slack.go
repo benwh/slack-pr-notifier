@@ -210,6 +210,7 @@ func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (
 
 // parseChannelFromText extracts channel ID and display name from various Slack channel formats:
 // - "#channel-name" -> ("channel-name", "channel-name")
+// - "channel-name" -> ("channel-name", "channel-name") - automatically adds # prefix
 // - "<#C1234567890|channel-name>" -> ("C1234567890", "channel-name")
 // - "C1234567890" -> ("C1234567890", "C1234567890").
 func parseChannelFromText(text string) (string, string) {
@@ -234,8 +235,23 @@ func parseChannelFromText(text string) (string, string) {
 		return channelName, channelName
 	}
 
-	// Handle direct channel ID
+	// Handle direct channel ID (starts with C and is alphanumeric)
+	if len(text) > 1 && strings.HasPrefix(text, "C") && isAlphanumeric(text) {
+		return text, text
+	}
+
+	// Handle plain channel name without # prefix - automatically add it
 	return text, text
+}
+
+// isAlphanumeric checks if a string contains only alphanumeric characters (for channel ID detection).
+func isAlphanumeric(s string) bool {
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (sh *SlackHandler) verifySignature(signature, timestamp string, body []byte) bool {
