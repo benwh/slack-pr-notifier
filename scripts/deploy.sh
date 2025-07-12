@@ -1,15 +1,42 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-PROJECT_ID="incident-io-dev-ben"
-DATABASE_ID="github-slack-notifier"
+# Load environment variables from .env file
+if [ -f ".env" ]; then
+    echo "📋 Loading environment variables from .env..."
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+else
+    echo "❌ .env file not found. Please create it:"
+    echo "   cp .env.example .env"
+    echo "   # Edit .env with your configuration"
+    exit 1
+fi
+
+# Check required environment variables
+if [ -z "$FIRESTORE_PROJECT_ID" ]; then
+    echo "❌ FIRESTORE_PROJECT_ID must be set in .env file"
+    exit 1
+fi
+
+if [ -z "$FIRESTORE_DATABASE_ID" ]; then
+    echo "❌ FIRESTORE_DATABASE_ID must be set in .env file"
+    exit 1
+fi
+
+PROJECT_ID="$FIRESTORE_PROJECT_ID"
+DATABASE_ID="$FIRESTORE_DATABASE_ID"
 SERVICE_NAME="github-slack-notifier"
 REGION="us-central1"
 REPO_NAME="github-slack-notifier"
 IMAGE_NAME="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${SERVICE_NAME}"
 
 echo "🚀 Deploying GitHub-Slack Notifier to GCP..."
+echo "📊 Project: $PROJECT_ID"
+echo "📊 Database: $DATABASE_ID"
 
 # Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
@@ -26,20 +53,20 @@ if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q
 fi
 
 # Set the project
-gcloud config set project $PROJECT_ID
+gcloud config set project "$PROJECT_ID"
 
 # Configure Docker authentication
 gcloud auth configure-docker $REGION-docker.pkg.dev
 
 echo "📦 Building Docker image..."
-docker build -t ${IMAGE_NAME} .
+docker build -t "${IMAGE_NAME}" .
 
 echo "🔄 Pushing image to Artifact Registry..."
-docker push ${IMAGE_NAME}
+docker push "${IMAGE_NAME}"
 
 echo "☁️  Deploying to Cloud Run..."
 gcloud run deploy ${SERVICE_NAME} \
-  --image=${IMAGE_NAME} \
+  --image="${IMAGE_NAME}" \
   --platform=managed \
   --region=${REGION} \
   --allow-unauthenticated \
@@ -48,10 +75,10 @@ gcloud run deploy ${SERVICE_NAME} \
   --cpu=1 \
   --max-instances=10 \
   --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID}" \
-  --project=${PROJECT_ID}
+  --project="${PROJECT_ID}"
 
 echo "🔧 Getting service URL..."
-SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --platform=managed --region=${REGION} --format="value(status.url)" --project=${PROJECT_ID})
+SERVICE_URL=$(gcloud run services describe "${SERVICE_NAME}" --platform=managed --region="${REGION}" --format="value(status.url)" --project="${PROJECT_ID}")
 
 echo "✅ Deployment complete!"
 echo "📍 Service URL: ${SERVICE_URL}"

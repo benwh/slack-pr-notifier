@@ -62,7 +62,8 @@ func main() {
 
 	databaseID := os.Getenv("FIRESTORE_DATABASE_ID")
 	if databaseID == "" {
-		databaseID = "(default)" // Use default database if not specified
+		slog.Error("FIRESTORE_DATABASE_ID environment variable is required", "component", "startup")
+		os.Exit(1)
 	}
 
 	slackToken := os.Getenv("SLACK_BOT_TOKEN")

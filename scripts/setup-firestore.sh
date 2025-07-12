@@ -1,9 +1,34 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-PROJECT_ID="incident-io-dev-ben"
-DATABASE_ID="github-slack-notifier"
+# Load environment variables from .env file
+if [ -f ".env" ]; then
+    echo "📋 Loading environment variables from .env..."
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+else
+    echo "❌ .env file not found. Please create it:"
+    echo "   cp .env.example .env"
+    echo "   # Edit .env with your configuration"
+    exit 1
+fi
+
+# Check required environment variables
+if [ -z "$FIRESTORE_PROJECT_ID" ]; then
+    echo "❌ FIRESTORE_PROJECT_ID must be set in .env file"
+    exit 1
+fi
+
+if [ -z "$FIRESTORE_DATABASE_ID" ]; then
+    echo "❌ FIRESTORE_DATABASE_ID must be set in .env file"
+    exit 1
+fi
+
+PROJECT_ID="$FIRESTORE_PROJECT_ID"
+DATABASE_ID="$FIRESTORE_DATABASE_ID"
 
 echo "🔥 Setting up Firestore for project: $PROJECT_ID"
 echo "📊 Database ID: $DATABASE_ID"
@@ -24,7 +49,7 @@ fi
 
 # Set the project
 echo "📋 Setting project to $PROJECT_ID..."
-gcloud config set project $PROJECT_ID
+gcloud config set project "$PROJECT_ID"
 
 # Enable required APIs
 echo "🔧 Enabling required APIs..."
