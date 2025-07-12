@@ -77,8 +77,16 @@ Create `.env` file based on `.env.example`
    - Choose your workspace and paste contents of `slack-app-manifest.yaml`
    - See [detailed setup guide](docs/SLACK_APP_SETUP.md) for complete instructions
 
-2. **Get Bot Token**:
-   - Install app to workspace
+2. **Configure OAuth Scopes**:
+   - Go to OAuth & Permissions in the app sidebar
+   - Ensure these scopes are added:
+     - `channels:read` - Validate channel access
+     - `chat:write` - Send PR notifications
+     - `commands` - Handle slash commands
+     - `reactions:write` - Add emoji reactions to PRs
+
+3. **Get Bot Token**:
+   - Install app to workspace (or reinstall if adding new scopes)
    - Copy Bot User OAuth Token from OAuth & Permissions
 
 **🔧 Manual Setup (Alternative)**
@@ -93,7 +101,7 @@ Create `.env` file based on `.env.example`
 
 2. **Configure Bot Token**:
    - Go to OAuth & Permissions in the app sidebar
-   - Add scopes: `chat:write`, `chat:write.public`, `reactions:write`, `channels:read`, `groups:read`
+   - Add scopes: `chat:write`, `reactions:write`, `channels:read`, `commands`
    - Install app to workspace
    - Copy Bot User OAuth Token
 
@@ -225,6 +233,11 @@ docker build -t github-slack-notifier .
    - Verify webhook secret matches
    - Check webhook URL is accessible
    - Ensure app has correct permissions
+
+4. **Emoji reactions not working**:
+   - Check if you get `missing_scope` error in logs
+   - Ensure `reactions:write` scope is added to your Slack app
+   - Reinstall the app to workspace after adding the scope
 
 ### Logs
 

@@ -29,12 +29,10 @@ features:
 oauth_config:
   scopes:
     bot:
-      - chat:write              # Post messages in approved channels
-      - chat:write.public       # Send messages to channels the bot isn't a member of
       - channels:read           # View basic information about public channels
-      - groups:read             # View basic information about private channels
+      - chat:write              # Post messages in approved channels
+      - commands                # Handle slash commands
       - reactions:write         # Add emoji reactions to messages
-      - incoming-webhook        # Create incoming webhooks (if needed)
 
 settings:
   event_subscriptions:
