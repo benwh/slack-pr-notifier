@@ -66,7 +66,6 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 
 	if err := h.processWebhookPayload(ctx, &job); err != nil {
 		processingTime := time.Since(startTime)
-		
 		// Check if this is an "already_reacted" error that escaped the service layer
 		if strings.Contains(err.Error(), "already_reacted") {
 			logger.Info("Webhook processing completed (reaction already exists)",
@@ -79,7 +78,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 			})
 			return
 		}
-		
+
 		logger.Error("Failed to process webhook",
 			"error", err,
 			"processing_time_ms", processingTime.Milliseconds(),
@@ -114,9 +113,9 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 
 func (h *WebhookWorkerHandler) processWebhookPayload(ctx context.Context, job *models.WebhookJob) error {
 	switch job.EventType {
-	case "pull_request":
+	case EventTypePullRequest:
 		return h.processPullRequestEvent(ctx, job)
-	case "pull_request_review":
+	case EventTypePullRequestReview:
 		return h.processPullRequestReviewEvent(ctx, job)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedJobEventType, job.EventType)
@@ -136,9 +135,9 @@ func (h *WebhookWorkerHandler) processPullRequestEvent(ctx context.Context, job 
 	)
 
 	switch payload.Action {
-	case "opened":
+	case PRActionOpened:
 		return h.handlePROpened(ctx, &payload)
-	case "closed":
+	case PRActionClosed:
 		return h.handlePRClosed(ctx, &payload)
 	default:
 		slog.Warn("Pull request action not handled", "action", payload.Action)
@@ -152,7 +151,7 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 		return fmt.Errorf("failed to unmarshal pull request review payload: %w", err)
 	}
 
-	if payload.Action != "submitted" {
+	if payload.Action != PRReviewActionSubmitted {
 		return nil
 	}
 
@@ -245,7 +244,7 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		SlackMessageTS:       timestamp,
 		GitHubPRURL:          payload.PullRequest.HTMLURL,
 		AuthorGitHubUsername: authorUsername,
-		LastStatus:           "opened",
+		LastStatus:           PRActionOpened,
 	}
 
 	slog.Debug("Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
@@ -264,7 +263,7 @@ func (h *WebhookWorkerHandler) handlePRClosed(ctx context.Context, payload *GitH
 		return err
 	}
 
-	emoji := h.slackService.GetEmojiForPRState("closed", payload.PullRequest.Merged)
+	emoji := h.slackService.GetEmojiForPRState(PRActionClosed, payload.PullRequest.Merged)
 	if emoji != "" {
 		err = h.slackService.AddReaction(message.SlackChannel, message.SlackMessageTS, emoji)
 		if err != nil {
@@ -272,7 +271,7 @@ func (h *WebhookWorkerHandler) handlePRClosed(ctx context.Context, payload *GitH
 		}
 	}
 
-	message.LastStatus = "closed"
+	message.LastStatus = PRActionClosed
 	return h.firestoreService.UpdateMessage(ctx, message)
 }
 
@@ -287,7 +286,8 @@ func isRetryableError(err error) bool {
 	}
 
 	// Check for specific Slack errors that should be retried
-	if slackErrorResp, ok := err.(*slack.SlackErrorResponse); ok {
+	var slackErrorResp *slack.SlackErrorResponse
+	if errors.As(err, &slackErrorResp) {
 		switch slackErrorResp.Err {
 		case "already_reacted":
 			// This should have been handled in SlackService, but if it gets here, don't retry

@@ -17,6 +17,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	// GitHub PR action types.
+	PRActionOpened = "opened"
+	PRActionClosed = "closed"
+
+	// GitHub PR review action types.
+	PRReviewActionSubmitted = "submitted"
+
+	// GitHub event types.
+	EventTypePullRequest       = "pull_request"
+	EventTypePullRequestReview = "pull_request_review"
+)
+
 // GitHubHandler handles GitHub webhook events.
 type GitHubHandler struct {
 	firestoreService *services.FirestoreService
@@ -95,9 +108,9 @@ func (gh *GitHubHandler) HandleWebhook(c *gin.Context) {
 	)
 
 	switch eventType {
-	case "pull_request":
+	case EventTypePullRequest:
 		err = gh.handlePullRequestEvent(ctx, &payload)
-	case "pull_request_review":
+	case EventTypePullRequestReview:
 		err = gh.handlePullRequestReviewEvent(ctx, &payload)
 	default:
 		log.Debug(ctx, "Event type not handled", "event_type", eventType)
@@ -127,9 +140,9 @@ func (gh *GitHubHandler) handlePullRequestEvent(ctx context.Context, payload *Gi
 	)
 
 	switch payload.Action {
-	case "opened":
+	case PRActionOpened:
 		return gh.handlePROpened(ctx, payload)
-	case "closed":
+	case PRActionClosed:
 		return gh.handlePRClosed(ctx, payload)
 	default:
 		log.Warn(ctx, "Pull request action not handled", "action", payload.Action)
@@ -209,7 +222,7 @@ func (gh *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebh
 		SlackMessageTS:       timestamp,
 		GitHubPRURL:          payload.PullRequest.HTMLURL,
 		AuthorGitHubUsername: authorUsername,
-		LastStatus:           "opened",
+		LastStatus:           PRActionOpened,
 	}
 
 	log.Debug(ctx, "Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
@@ -228,7 +241,7 @@ func (gh *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebh
 		return err
 	}
 
-	emoji := gh.slackService.GetEmojiForPRState("closed", payload.PullRequest.Merged)
+	emoji := gh.slackService.GetEmojiForPRState(PRActionClosed, payload.PullRequest.Merged)
 	if emoji != "" {
 		err = gh.slackService.AddReaction(message.SlackChannel, message.SlackMessageTS, emoji)
 		if err != nil {
@@ -236,12 +249,12 @@ func (gh *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebh
 		}
 	}
 
-	message.LastStatus = "closed"
+	message.LastStatus = PRActionClosed
 	return gh.firestoreService.UpdateMessage(ctx, message)
 }
 
 func (gh *GitHubHandler) handlePullRequestReviewEvent(ctx context.Context, payload *GitHubWebhookPayload) error {
-	if payload.Action != "submitted" {
+	if payload.Action != PRReviewActionSubmitted {
 		return nil
 	}
 

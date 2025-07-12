@@ -2,6 +2,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -41,17 +42,17 @@ func (s *SlackService) AddReaction(channel, timestamp, emoji string) error {
 			// This is not an error - the reaction already exists, which is fine
 			return nil
 		}
-		
 		// Check for SlackErrorResponse type
-		if slackErr, ok := err.(*slack.SlackErrorResponse); ok {
+		var slackErr *slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
 			if slackErr.Err == "already_reacted" {
 				return nil
 			}
 		}
-		
+
 		// Additional check: just to be thorough with any error containing the string
 		// This should catch it regardless of the exact error type
-		
+
 		return fmt.Errorf("failed to add reaction %s to message %s in channel %s: %w", emoji, timestamp, channel, err)
 	}
 	return nil
