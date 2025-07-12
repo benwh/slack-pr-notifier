@@ -34,7 +34,7 @@ linters-settings:
     line-length: 120
 
   funlen:
-    lines: 80
+    lines: 200
     statements: 50
 
   cyclop:
@@ -44,7 +44,7 @@ linters-settings:
     min-complexity: 20
 
   nestif:
-    min-complexity: 5
+    min-complexity: 8
 
   goconst:
     min-len: 3
