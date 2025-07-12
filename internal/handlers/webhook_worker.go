@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -99,24 +98,25 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 		actualRetryCount = "0"
 	}
 
-	logger := slog.With(
-		"job_id", job.ID,
-		"event_type", job.EventType,
-		"trace_id", job.TraceID,
-		"retry_count", actualRetryCount,
-		"task_execution_count", c.GetHeader("X-Cloudtasks-Taskexecutioncount"),
-	)
-
-	logger.Info("Processing webhook job")
-
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.maxProcessingTime)
 	defer cancel()
+
+	// Add job metadata to context for all log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"job_id":               job.ID,
+		"event_type":           job.EventType,
+		"trace_id":             job.TraceID,
+		"retry_count":          actualRetryCount,
+		"task_execution_count": c.GetHeader("X-Cloudtasks-Taskexecutioncount"),
+	})
+
+	log.Debug(ctx, "Processing webhook job")
 
 	if err := h.processWebhookPayload(ctx, &job); err != nil {
 		processingTime := time.Since(startTime)
 		// Check if this is an "already_reacted" error that escaped the service layer
 		if strings.Contains(err.Error(), "already_reacted") {
-			logger.Info("Webhook processing completed (reaction already exists)",
+			log.Info(ctx, "Webhook processing completed (reaction already exists)",
 				"processing_time_ms", processingTime.Milliseconds(),
 			)
 			c.JSON(200, gin.H{
@@ -127,7 +127,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 			return
 		}
 
-		logger.Error("Failed to process webhook",
+		log.Error(ctx, "Failed to process webhook",
 			"error", err,
 			"processing_time_ms", processingTime.Milliseconds(),
 		)
@@ -149,7 +149,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 	}
 
 	processingTime := time.Since(startTime)
-	logger.Info("Webhook processed successfully",
+	log.Info(ctx, "Webhook processed successfully",
 		"processing_time_ms", processingTime.Milliseconds(),
 	)
 
@@ -181,9 +181,15 @@ func (h *WebhookWorkerHandler) processPullRequestEvent(ctx context.Context, job 
 		return fmt.Errorf("failed to unmarshal pull request payload: %w", err)
 	}
 
-	slog.Info("Handling pull request event",
-		"action", payload.Action,
-		"pr_number", payload.PullRequest.Number,
+	// Add PR metadata to context for all subsequent log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"pr_number": payload.PullRequest.Number,
+		"repo":      payload.Repository.FullName,
+		"author":    payload.PullRequest.User.Login,
+		"pr_action": payload.Action,
+	})
+
+	log.Info(ctx, "Handling pull request event",
 		"is_draft", payload.PullRequest.Draft,
 	)
 
@@ -193,7 +199,7 @@ func (h *WebhookWorkerHandler) processPullRequestEvent(ctx context.Context, job 
 	case PRActionClosed:
 		return h.handlePRClosed(ctx, &payload)
 	default:
-		slog.Warn("Pull request action not handled", "action", payload.Action)
+		log.Warn(ctx, "Pull request action not handled")
 	}
 	return nil
 }
@@ -208,6 +214,16 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 		)
 		return fmt.Errorf("failed to unmarshal pull request review payload: %w", err)
 	}
+
+	// Add PR metadata to context for all subsequent log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"pr_number":     payload.PullRequest.Number,
+		"repo":          payload.Repository.FullName,
+		"author":        payload.PullRequest.User.Login,
+		"reviewer":      payload.Review.User.Login,
+		"review_state":  payload.Review.State,
+		"review_action": payload.Action,
+	})
 
 	if payload.Action != PRReviewActionSubmitted {
 		return nil
@@ -266,18 +282,18 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 
 func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitHubWebhookPayload) error {
 	if payload.PullRequest.Draft {
-		slog.Debug("Skipping draft PR", "pr_number", payload.PullRequest.Number)
+		log.Debug(ctx, "Skipping draft PR")
 		return nil
 	}
 
-	slog.Debug("Processing PR opened",
+	log.Debug(ctx, "Processing PR opened",
 		"pr_number", payload.PullRequest.Number,
 		"author", payload.PullRequest.User.Login,
 		"title", payload.PullRequest.Title,
 	)
 
 	authorUsername := payload.PullRequest.User.Login
-	slog.Debug("Looking up user by GitHub username", "github_username", authorUsername)
+	log.Debug(ctx, "Looking up user by GitHub username", "github_username", authorUsername)
 	user, err := h.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
 	if err != nil {
 		log.Error(ctx, "Failed to lookup user by GitHub username",
@@ -288,18 +304,18 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		)
 		return err
 	}
-	slog.Debug("User lookup result", "user_found", user != nil)
+	log.Debug(ctx, "User lookup result", "user_found", user != nil)
 
 	var targetChannel string
 	annotatedChannel := h.slackService.ExtractChannelFromDescription(payload.PullRequest.Body)
-	slog.Debug("Channel determination", "annotated_channel", annotatedChannel)
+	log.Debug(ctx, "Channel determination", "annotated_channel", annotatedChannel)
 	if annotatedChannel != "" {
 		targetChannel = annotatedChannel
 	} else if user != nil && user.DefaultChannel != "" {
 		targetChannel = user.DefaultChannel
-		slog.Debug("Using user default channel", "channel", targetChannel)
+		log.Debug(ctx, "Using user default channel", "channel", targetChannel)
 	} else {
-		slog.Debug("Looking up repo default channel", "repo", payload.Repository.FullName)
+		log.Debug(ctx, "Looking up repo default channel", "repo", payload.Repository.FullName)
 		repo, err := h.firestoreService.GetRepo(ctx, payload.Repository.FullName)
 		if err != nil {
 			log.Error(ctx, "Failed to lookup repository configuration",
@@ -312,18 +328,18 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		}
 		if repo != nil {
 			targetChannel = repo.DefaultChannel
-			slog.Debug("Using repo default channel", "channel", targetChannel)
+			log.Debug(ctx, "Using repo default channel", "channel", targetChannel)
 		} else {
-			slog.Debug("No repo found in database", "repo", payload.Repository.FullName)
+			log.Debug(ctx, "No repo found in database", "repo", payload.Repository.FullName)
 		}
 	}
 
 	if targetChannel == "" {
-		slog.Info("No target channel determined, skipping notification")
+		log.Info(ctx, "No target channel determined, skipping notification")
 		return nil
 	}
 
-	slog.Info("Posting PR message to Slack", "channel", targetChannel)
+	log.Info(ctx, "Posting PR message to Slack", "channel", targetChannel)
 
 	timestamp, err := h.slackService.PostPRMessage(
 		ctx,
@@ -345,7 +361,12 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		)
 		return err
 	}
-	slog.Info("Posted PR notification to Slack", "channel", targetChannel, "pr_number", payload.PullRequest.Number)
+	log.Info(ctx, "Posted PR notification to Slack",
+		"channel", targetChannel,
+		"pr_number", payload.PullRequest.Number,
+		"repo", payload.Repository.FullName,
+		"author", payload.PullRequest.User.Login,
+	)
 
 	message := &models.Message{
 		PRNumber:             payload.PullRequest.Number,
@@ -357,7 +378,7 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		LastStatus:           PRActionOpened,
 	}
 
-	slog.Debug("Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
+	log.Debug(ctx, "Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
 	err = h.firestoreService.CreateMessage(ctx, message)
 	if err != nil {
 		log.Error(ctx, "Failed to save message to database",
@@ -370,7 +391,7 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		)
 		return err
 	}
-	slog.Debug("Successfully saved message to database")
+	log.Debug(ctx, "Successfully saved message to database")
 	return nil
 }
 

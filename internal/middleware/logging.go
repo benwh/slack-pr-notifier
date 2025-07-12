@@ -40,7 +40,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		// Log request
 		startTime := time.Now()
 		logger := log.WithTrace(c)
-		logger.Info("Request started",
+		logger.Debug("Request started",
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"user_agent", c.Request.UserAgent(),

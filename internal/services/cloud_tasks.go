@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	cloudtaskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
@@ -114,7 +113,7 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 		return fmt.Errorf("failed to create task: %w", err)
 	}
 
-	slog.Info("Webhook job queued",
+	log.Info(ctx, "Webhook job queued",
 		"job_id", job.ID,
 		"task_name", createdTask.GetName(),
 		"event_type", job.EventType,

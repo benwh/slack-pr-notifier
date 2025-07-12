@@ -55,12 +55,22 @@ func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoj
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "already_reacted") {
 			// This is not an error - the reaction already exists, which is fine
+			log.Info(ctx, "Reaction already exists on Slack message",
+				"channel", channel,
+				"message_timestamp", timestamp,
+				"emoji", emoji,
+			)
 			return nil
 		}
 		// Check for SlackErrorResponse type
 		var slackErr *slack.SlackErrorResponse
 		if errors.As(err, &slackErr) {
 			if slackErr.Err == "already_reacted" {
+				log.Info(ctx, "Reaction already exists on Slack message",
+					"channel", channel,
+					"message_timestamp", timestamp,
+					"emoji", emoji,
+				)
 				return nil
 			}
 		}

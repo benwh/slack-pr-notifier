@@ -70,15 +70,15 @@ func main() {
 
 	ctx := context.Background()
 
-	slog.Info("Connecting to Firestore", "project_id", cfg.FirestoreProjectID, "database_id", cfg.FirestoreDatabaseID)
+	log.Info(ctx, "Connecting to Firestore", "project_id", cfg.FirestoreProjectID, "database_id", cfg.FirestoreDatabaseID)
 	firestoreClient, err := firestore.NewClientWithDatabase(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
 	if err != nil {
-		slog.Error("Failed to create Firestore client", "component", "startup", "error", err)
+		log.Error(ctx, "Failed to create Firestore client", "component", "startup", "error", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := firestoreClient.Close(); err != nil {
-			slog.Error("Error closing Firestore client", "component", "shutdown", "error", err)
+			log.Error(context.Background(), "Error closing Firestore client", "component", "shutdown", "error", err)
 		}
 	}()
 
@@ -95,12 +95,12 @@ func main() {
 
 	cloudTasksService, err := services.NewCloudTasksService(cloudTasksConfig)
 	if err != nil {
-		slog.Error("Failed to create Cloud Tasks service", "error", err)
+		log.Error(ctx, "Failed to create Cloud Tasks service", "error", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := cloudTasksService.Close(); err != nil {
-			slog.Error("Error closing Cloud Tasks client", "error", err)
+			log.Error(context.Background(), "Error closing Cloud Tasks client", "error", err)
 		}
 	}()
 
@@ -135,7 +135,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
 
-	slog.Info("Starting server", "component", "server", "port", cfg.Port)
+	log.Info(ctx, "Starting server", "component", "server", "port", cfg.Port)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.Port),
@@ -147,7 +147,7 @@ func main() {
 	// Start server in a goroutine
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Server failed to start", "component", "server", "error", err)
+			log.Error(context.Background(), "Server failed to start", "component", "server", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -157,18 +157,18 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	slog.Info("Shutting down server...", "component", "server")
+	log.Info(context.Background(), "Shutting down server...", "component", "server")
 
 	// Give outstanding requests time to complete
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ServerShutdownTimeout)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("Server forced to shutdown", "component", "server", "error", err)
+		log.Error(ctx, "Server forced to shutdown", "component", "server", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("Server exited gracefully", "component", "server")
+	log.Info(context.Background(), "Server exited gracefully", "component", "server")
 }
 
 func (app *App) handleRepoRegistration(c *gin.Context) {

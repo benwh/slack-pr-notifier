@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -45,17 +45,21 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	startTime := time.Now()
 	traceID := c.GetString("trace_id")
 
-	logger := slog.With(
-		"trace_id", traceID,
-		"remote_addr", c.ClientIP(),
-		"user_agent", c.Request.UserAgent(),
-	)
-
 	eventType := c.GetHeader("X-GitHub-Event")
 	deliveryID := c.GetHeader("X-GitHub-Delivery")
 
+	ctx := c.Request.Context()
+	// Add request metadata to context for all log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"trace_id":        traceID,
+		"remote_addr":     c.ClientIP(),
+		"user_agent":      c.Request.UserAgent(),
+		"github_event":    eventType,
+		"github_delivery": deliveryID,
+	})
+
 	if eventType == "" || deliveryID == "" {
-		logger.Error("Missing required headers")
+		log.Error(ctx, "Missing required headers")
 		c.JSON(400, gin.H{"error": "missing required headers"})
 		return
 	}
@@ -68,13 +72,13 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 
 	payload, err := github.ValidatePayload(c.Request, secretToken)
 	if err != nil {
-		logger.Error("Invalid webhook payload or signature", "error", err)
+		log.Error(ctx, "Invalid webhook payload or signature", "error", err)
 		c.JSON(401, gin.H{"error": "invalid payload or signature"})
 		return
 	}
 
 	if err := h.validateWebhookPayload(eventType, payload); err != nil {
-		logger.Error("Invalid webhook payload", "error", err, "event_type", eventType)
+		log.Error(ctx, "Invalid webhook payload", "error", err, "event_type", eventType)
 		c.JSON(400, gin.H{"error": "invalid payload"})
 		return
 	}
@@ -90,14 +94,14 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		RetryCount: 0,
 	}
 
-	if err := h.cloudTasksService.EnqueueWebhook(c.Request.Context(), job); err != nil {
-		logger.Error("Failed to enqueue webhook", "error", err)
+	if err := h.cloudTasksService.EnqueueWebhook(ctx, job); err != nil {
+		log.Error(ctx, "Failed to enqueue webhook", "error", err)
 		c.JSON(500, gin.H{"error": "failed to queue webhook"})
 		return
 	}
 
 	processingTime := time.Since(startTime)
-	logger.Info("Webhook queued successfully",
+	log.Info(ctx, "Webhook queued successfully",
 		"job_id", job.ID,
 		"event_type", eventType,
 		"processing_time_ms", processingTime.Milliseconds(),
