@@ -106,7 +106,7 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 
 func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID, text string) (string, error) {
 	if text == "" {
-		return "📝 **Usage:** `/notify-channel #channel-name`\n\n" +
+		return "📝 *Usage:* `/notify-channel #channel-name`\n\n" +
 			"Set your default channel for GitHub PR notifications. Example: `/notify-channel #engineering`", nil
 	}
 
@@ -147,7 +147,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
 	if text == "" {
-		return "🔗 **Usage:** `/notify-link github-username`\n\n" +
+		return "🔗 *Usage:* `/notify-link github-username`\n\n" +
 			"Link your GitHub account to receive personalized PR notifications. Example: `/notify-link octocat`", nil
 	}
 
