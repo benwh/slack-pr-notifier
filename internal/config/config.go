@@ -1,25 +1,10 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
-)
-
-// Configuration validation errors.
-var (
-	ErrRequiredEnvVar           = errors.New("required environment variable not set")
-	ErrInvalidGinMode           = errors.New("invalid GIN_MODE")
-	ErrInvalidLogLevel          = errors.New("invalid LOG_LEVEL")
-	ErrInvalidReadTimeout       = errors.New("SERVER_READ_TIMEOUT must be positive")
-	ErrInvalidWriteTimeout      = errors.New("SERVER_WRITE_TIMEOUT must be positive")
-	ErrInvalidShutdownTimeout   = errors.New("SERVER_SHUTDOWN_TIMEOUT must be positive")
-	ErrInvalidProcessingTimeout = errors.New("WEBHOOK_PROCESSING_TIMEOUT must be positive")
-	ErrInvalidTimestampMaxAge   = errors.New("SLACK_TIMESTAMP_MAX_AGE must be positive")
-	ErrInvalidBool              = errors.New("invalid boolean value")
-	ErrInvalidDuration          = errors.New("invalid duration value")
 )
 
 // Config holds all application configuration.
@@ -53,8 +38,8 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables.
-func Load() (*Config, error) {
-	var err error
+// Panics if any required configuration is missing or invalid.
+func Load() *Config {
 	cfg := &Config{
 		// Core settings (required)
 		FirestoreProjectID:  getEnvRequired("FIRESTORE_PROJECT_ID"),
@@ -77,47 +62,24 @@ func Load() (*Config, error) {
 	}
 
 	// Parse boolean values
-	cfg.EnableAsyncProcessing, err = getEnvBool("ENABLE_ASYNC_PROCESSING", true)
-	if err != nil {
-		return nil, err
-	}
+	cfg.EnableAsyncProcessing = getEnvBool("ENABLE_ASYNC_PROCESSING", true)
 
 	// Parse duration values
-	cfg.ServerReadTimeout, err = getEnvDuration("SERVER_READ_TIMEOUT", 30*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg.ServerWriteTimeout, err = getEnvDuration("SERVER_WRITE_TIMEOUT", 30*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg.ServerShutdownTimeout, err = getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg.WebhookProcessingTimeout, err = getEnvDuration("WEBHOOK_PROCESSING_TIMEOUT", 5*time.Minute)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg.SlackTimestampMaxAge, err = getEnvDuration("SLACK_TIMESTAMP_MAX_AGE", 5*time.Minute)
-	if err != nil {
-		return nil, err
-	}
+	cfg.ServerReadTimeout = getEnvDuration("SERVER_READ_TIMEOUT", 30*time.Second)
+	cfg.ServerWriteTimeout = getEnvDuration("SERVER_WRITE_TIMEOUT", 30*time.Second)
+	cfg.ServerShutdownTimeout = getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second)
+	cfg.WebhookProcessingTimeout = getEnvDuration("WEBHOOK_PROCESSING_TIMEOUT", 5*time.Minute)
+	cfg.SlackTimestampMaxAge = getEnvDuration("SLACK_TIMESTAMP_MAX_AGE", 5*time.Minute)
 
 	// Validate configuration
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
+	cfg.validate()
 
-	return cfg, nil
+	return cfg
 }
 
 // validate checks that all required configuration is present and valid.
-func (c *Config) validate() error {
+// Panics if any validation fails.
+func (c *Config) validate() {
 	// Check required fields
 	required := map[string]string{
 		"FIRESTORE_PROJECT_ID":  c.FirestoreProjectID,
@@ -132,48 +94,42 @@ func (c *Config) validate() error {
 
 	for name, value := range required {
 		if value == "" {
-			return fmt.Errorf("%w: %s", ErrRequiredEnvVar, name)
+			panic(fmt.Sprintf("required environment variable %s is not set", name))
 		}
 	}
 
 	// Validate GIN_MODE
 	if c.GinMode != "debug" && c.GinMode != "release" && c.GinMode != "test" {
-		return fmt.Errorf("%w: %s (must be debug, release, or test)", ErrInvalidGinMode, c.GinMode)
+		panic(fmt.Sprintf("invalid GIN_MODE: %s (must be debug, release, or test)", c.GinMode))
 	}
 
 	// Validate log level
 	if c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warn" && c.LogLevel != "error" {
-		return fmt.Errorf("%w: %s (must be debug, info, warn, or error)", ErrInvalidLogLevel, c.LogLevel)
+		panic(fmt.Sprintf("invalid LOG_LEVEL: %s (must be debug, info, warn, or error)", c.LogLevel))
 	}
 
 	// Validate timeouts
 	if c.ServerReadTimeout <= 0 {
-		return ErrInvalidReadTimeout
+		panic("SERVER_READ_TIMEOUT must be positive")
 	}
 	if c.ServerWriteTimeout <= 0 {
-		return ErrInvalidWriteTimeout
+		panic("SERVER_WRITE_TIMEOUT must be positive")
 	}
 	if c.ServerShutdownTimeout <= 0 {
-		return ErrInvalidShutdownTimeout
+		panic("SERVER_SHUTDOWN_TIMEOUT must be positive")
 	}
 	if c.WebhookProcessingTimeout <= 0 {
-		return ErrInvalidProcessingTimeout
+		panic("WEBHOOK_PROCESSING_TIMEOUT must be positive")
 	}
 	if c.SlackTimestampMaxAge <= 0 {
-		return ErrInvalidTimestampMaxAge
+		panic("SLACK_TIMESTAMP_MAX_AGE must be positive")
 	}
-
-	return nil
 }
 
-// getEnvRequired gets an environment variable or panics if not set.
+// getEnvRequired gets an environment variable or returns empty string if not set.
+// The validate() function will panic if required values are missing.
 func getEnvRequired(key string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		// Don't panic here, let validate() handle the error
-		return ""
-	}
-	return value
+	return os.Getenv(key)
 }
 
 // getEnvDefault gets an environment variable with a default value.
@@ -185,27 +141,29 @@ func getEnvDefault(key, defaultValue string) string {
 }
 
 // getEnvBool gets a boolean environment variable with a default value.
-func getEnvBool(key string, defaultValue bool) (bool, error) {
+// Panics if the value cannot be parsed as a boolean.
+func getEnvBool(key string, defaultValue bool) bool {
 	value := os.Getenv(key)
 	if value == "" {
-		return defaultValue, nil
+		return defaultValue
 	}
 	b, err := strconv.ParseBool(value)
 	if err != nil {
-		return false, fmt.Errorf("%w for %s: %s", ErrInvalidBool, key, value)
+		panic(fmt.Sprintf("invalid boolean value for %s: %s", key, value))
 	}
-	return b, nil
+	return b
 }
 
 // getEnvDuration gets a duration environment variable with a default value.
-func getEnvDuration(key string, defaultValue time.Duration) (time.Duration, error) {
+// Panics if the value cannot be parsed as a duration.
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	value := os.Getenv(key)
 	if value == "" {
-		return defaultValue, nil
+		return defaultValue
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, fmt.Errorf("%w for %s: %s", ErrInvalidDuration, key, value)
+		panic(fmt.Sprintf("invalid duration value for %s: %s", key, value))
 	}
-	return d, nil
+	return d
 }

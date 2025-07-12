@@ -34,12 +34,8 @@ type App struct {
 }
 
 func main() {
-	// Load configuration
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
-		os.Exit(1)
-	}
+	// Load configuration (panics on invalid config)
+	cfg := config.Load()
 
 	// Setup structured logging
 	var logger *slog.Logger
