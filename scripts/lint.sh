@@ -4,6 +4,16 @@ set -euo pipefail
 
 echo "🔍 Running linters..."
 
+# Go module maintenance
+echo "📦 Checking Go modules..."
+go mod tidy
+if ! git diff --quiet go.mod go.sum; then
+    echo "❌ go.mod/go.sum files have changes after running 'go mod tidy'"
+    echo "   Please commit these changes:"
+    git diff go.mod go.sum
+    exit 1
+fi
+
 # Go linting
 echo "📝 Running Go linters..."
 if command -v golangci-lint &> /dev/null; then
