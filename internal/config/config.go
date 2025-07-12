@@ -20,13 +20,12 @@ type EmojiConfig struct {
 // Config holds all application configuration.
 type Config struct {
 	// Core settings
-	FirestoreProjectID    string
-	FirestoreDatabaseID   string
-	SlackBotToken         string
-	GitHubWebhookSecret   string
-	SlackSigningSecret    string
-	APIAdminKey           string
-	EnableAsyncProcessing bool
+	FirestoreProjectID  string
+	FirestoreDatabaseID string
+	SlackBotToken       string
+	GitHubWebhookSecret string
+	SlackSigningSecret  string
+	APIAdminKey         string
 
 	// Cloud Tasks settings
 	GoogleCloudProject string
@@ -72,9 +71,6 @@ func Load() *Config {
 		GinMode:  getEnvDefault("GIN_MODE", "debug"),
 		LogLevel: getEnvDefault("LOG_LEVEL", "info"),
 	}
-
-	// Parse boolean values
-	cfg.EnableAsyncProcessing = getEnvBool("ENABLE_ASYNC_PROCESSING", true)
 
 	// Parse duration values
 	cfg.ServerReadTimeout = getEnvDuration("SERVER_READ_TIMEOUT", 30*time.Second)
