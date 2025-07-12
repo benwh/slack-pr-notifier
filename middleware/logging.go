@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		c.Header("X-Correlation-ID", correlationID)
 
 		// Log request
+		startTime := time.Now()
 		slog.Info("Request started",
 			"correlation_id", correlationID,
 			"method", c.Request.Method,
@@ -33,11 +35,13 @@ func LoggingMiddleware() gin.HandlerFunc {
 		c.Next()
 
 		// Log response
+		duration := time.Since(startTime)
 		slog.Info("Request completed",
 			"correlation_id", correlationID,
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),
+			"duration_ms", duration.Milliseconds(),
 		)
 	}
 }
