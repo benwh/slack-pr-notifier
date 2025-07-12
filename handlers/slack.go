@@ -108,7 +108,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 			"Set your default channel for GitHub PR notifications. Example: `/notify-channel #engineering`", nil
 	}
 
-	channel := parseChannelFromText(text)
+	channel, displayName := parseChannelFromText(text)
 	if channel == "" {
 		return "❌ Please provide a valid channel name. Example: `/notify-channel #engineering`", nil
 	}
@@ -123,7 +123,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 		// Return user-friendly message for channel validation errors (user input error, not system error)
 		return fmt.Sprintf("❌ Channel `#%s` not found or bot doesn't have access. "+
-			"Make sure the channel exists and the bot has been invited to it.", channel), nil
+			"Make sure the channel exists and the bot has been invited to it.", displayName), nil
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
@@ -145,7 +145,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 		return "", err
 	}
 
-	return "✅ Default notification channel set to #" + channel, nil
+	return "✅ Default notification channel set to #" + displayName, nil
 }
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
@@ -208,11 +208,11 @@ func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (
 	return status, nil
 }
 
-// parseChannelFromText extracts channel ID from various Slack channel formats:
-// - "#channel-name" -> "channel-name"
-// - "<#C1234567890|channel-name>" -> "C1234567890"
-// - "C1234567890" -> "C1234567890".
-func parseChannelFromText(text string) string {
+// parseChannelFromText extracts channel ID and display name from various Slack channel formats:
+// - "#channel-name" -> ("channel-name", "channel-name")
+// - "<#C1234567890|channel-name>" -> ("C1234567890", "channel-name")
+// - "C1234567890" -> ("C1234567890", "C1234567890").
+func parseChannelFromText(text string) (string, string) {
 	text = strings.TrimSpace(text)
 
 	// Handle Slack's channel mention format: <#C1234567890|channel-name>
@@ -221,18 +221,21 @@ func parseChannelFromText(text string) string {
 		content := strings.TrimPrefix(text, "<#")
 		content = strings.TrimSuffix(content, ">")
 		if idx := strings.Index(content, "|"); idx != -1 {
-			return content[:idx] // Return the channel ID part
+			channelID := content[:idx]
+			displayName := content[idx+1:]
+			return channelID, displayName // Return both ID and display name
 		}
-		return content
+		return content, content
 	}
 
 	// Handle simple channel name format: #channel-name
 	if strings.HasPrefix(text, "#") {
-		return strings.TrimPrefix(text, "#")
+		channelName := strings.TrimPrefix(text, "#")
+		return channelName, channelName
 	}
 
 	// Handle direct channel ID
-	return text
+	return text, text
 }
 
 func (sh *SlackHandler) verifySignature(signature, timestamp string, body []byte) bool {
