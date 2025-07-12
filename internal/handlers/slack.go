@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
@@ -25,14 +26,16 @@ type SlackHandler struct {
 	firestoreService *services.FirestoreService
 	slackService     *services.SlackService
 	signingSecret    string
+	timestampMaxAge  time.Duration
 }
 
-// NewSlackHandler creates a new SlackHandler with the provided services and signing secret.
-func NewSlackHandler(fs *services.FirestoreService, slack *services.SlackService, secret string) *SlackHandler {
+// NewSlackHandler creates a new SlackHandler with the provided services and configuration.
+func NewSlackHandler(fs *services.FirestoreService, slack *services.SlackService, cfg *config.Config) *SlackHandler {
 	return &SlackHandler{
 		firestoreService: fs,
 		slackService:     slack,
-		signingSecret:    secret,
+		signingSecret:    cfg.SlackSigningSecret,
+		timestampMaxAge:  cfg.SlackTimestampMaxAge,
 	}
 }
 
@@ -264,8 +267,7 @@ func (sh *SlackHandler) verifySignature(signature, timestamp string, body []byte
 		return false
 	}
 
-	const maxTimestampAge = 300 // 5 minutes
-	if time.Now().Unix()-ts > maxTimestampAge {
+	if time.Now().Unix()-ts > int64(sh.timestampMaxAge.Seconds()) {
 		return false
 	}
 

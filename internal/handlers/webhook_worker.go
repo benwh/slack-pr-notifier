@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 
@@ -67,11 +68,12 @@ type WebhookWorkerHandler struct {
 func NewWebhookWorkerHandler(
 	firestoreService *services.FirestoreService,
 	slackService *services.SlackService,
+	cfg *config.Config,
 ) *WebhookWorkerHandler {
 	return &WebhookWorkerHandler{
 		firestoreService:  firestoreService,
 		slackService:      slackService,
-		maxProcessingTime: 5 * time.Minute,
+		maxProcessingTime: cfg.WebhookProcessingTimeout,
 	}
 }
 

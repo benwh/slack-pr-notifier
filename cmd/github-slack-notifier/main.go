@@ -33,7 +33,6 @@ type App struct {
 	slackHandler         *handlers.SlackHandler
 }
 
-//nolint:cyclop
 func main() {
 	// Load configuration
 	cfg, err := config.Load()
@@ -115,7 +114,7 @@ func main() {
 		validationService,
 		cfg.GitHubWebhookSecret,
 	)
-	webhookWorkerHandler := handlers.NewWebhookWorkerHandler(firestoreService, slackService)
+	webhookWorkerHandler := handlers.NewWebhookWorkerHandler(firestoreService, slackService, cfg)
 
 	app := &App{
 		config:               cfg,
@@ -125,7 +124,7 @@ func main() {
 		validationService:    validationService,
 		githubAsyncHandler:   githubAsyncHandler,
 		webhookWorkerHandler: webhookWorkerHandler,
-		slackHandler:         handlers.NewSlackHandler(firestoreService, slackService, cfg.SlackSigningSecret),
+		slackHandler:         handlers.NewSlackHandler(firestoreService, slackService, cfg),
 	}
 
 	router := gin.Default()
@@ -213,4 +212,3 @@ func (app *App) handleRepoRegistration(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Repository registered successfully"})
 }
-
