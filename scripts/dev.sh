@@ -6,7 +6,7 @@ set -euo pipefail
 cleanup() {
     echo ""
     echo "🧹 Cleaning up..."
-    kill $APP_PID $NGROK_PID 2>/dev/null || true
+    kill $WATCHEXEC_PID $NGROK_PID 2>/dev/null || true
     exit 0
 }
 
@@ -14,6 +14,14 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "🚀 Starting local development environment..."
+
+# Check if watchexec is installed
+if ! command -v watchexec &> /dev/null; then
+    echo "❌ watchexec not found. Please install it:"
+    echo "   brew install watchexec"
+    echo "   or download from https://github.com/watchexec/watchexec"
+    exit 1
+fi
 
 # Check if ngrok is installed
 if ! command -v ngrok &> /dev/null; then
@@ -54,37 +62,65 @@ if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
     sleep 2
 fi
 
-# Start the Go application in the background
-echo "🔧 Starting Go application on port $DEV_PORT..."
-if ! PORT=$DEV_PORT go run main.go & then
-    echo "❌ Failed to start Go application"
+# Start the Go application with hot-reload using watchexec
+echo "🔧 Starting Go application with hot-reload on port $DEV_PORT..."
+if ! watchexec \
+    --restart \
+    --watch . \
+    --exts go,mod \
+    --ignore .git \
+    --ignore tmp \
+    --ignore logs \
+    --ignore scripts \
+    --ignore README.md \
+    --ignore .env \
+    --ignore .env.example \
+    --ignore Dockerfile \
+    --ignore docker-compose.yml \
+    --ignore .dockerignore \
+    --ignore .gitignore \
+    --debounce 500ms \
+    --shell bash \
+    "echo '🔄 Rebuilding application...' && PORT=$DEV_PORT go run main.go" & then
+    echo "❌ Failed to start watchexec"
     exit 1
 fi
-APP_PID=$!
+WATCHEXEC_PID=$!
 
 # Wait for the application to start
-sleep 3
+echo "⏳ Waiting for application to start..."
+sleep 5
 
-# Check if the process is still running
-if ! kill -0 $APP_PID 2>/dev/null; then
-    echo "❌ Go application process died"
+# Check if watchexec process is still running
+if ! kill -0 $WATCHEXEC_PID 2>/dev/null; then
+    echo "❌ watchexec process died"
     exit 1
 fi
 
 # Check if application started successfully
-if ! curl -s "http://localhost:$DEV_PORT/health" > /dev/null; then
-    echo "❌ Application failed to start (health check failed)"
-    kill $APP_PID 2>/dev/null || true
+RETRIES=0
+MAX_RETRIES=10
+while [ $RETRIES -lt $MAX_RETRIES ]; do
+    if curl -s "http://localhost:$DEV_PORT/health" > /dev/null; then
+        echo "✅ Application started on port $DEV_PORT"
+        break
+    fi
+    echo "⏳ Waiting for application to be ready... (attempt $((RETRIES + 1))/$MAX_RETRIES)"
+    sleep 2
+    RETRIES=$((RETRIES + 1))
+done
+
+if [ $RETRIES -eq $MAX_RETRIES ]; then
+    echo "❌ Application failed to start (health check failed after $MAX_RETRIES attempts)"
+    kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
 fi
-
-echo "✅ Application started on port $DEV_PORT"
 
 # Start ngrok tunnel
 echo "🌐 Starting ngrok tunnel with domain $NGROK_DOMAIN..."
 if ! ngrok http "$DEV_PORT" --domain="$NGROK_DOMAIN" --log=stdout > /dev/null 2>&1 & then
     echo "❌ Failed to start ngrok"
-    kill $APP_PID 2>/dev/null || true
+    kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
 fi
 NGROK_PID=$!
@@ -95,7 +131,7 @@ sleep 3
 # Check if ngrok process is still running
 if ! kill -0 $NGROK_PID 2>/dev/null; then
     echo "❌ ngrok process died"
-    kill $APP_PID 2>/dev/null || true
+    kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -105,7 +141,7 @@ NGROK_URL="https://$NGROK_DOMAIN"
 # Verify the tunnel is working
 if ! curl -s "$NGROK_URL" > /dev/null; then
     echo "❌ ngrok tunnel not accessible at $NGROK_URL"
-    kill $APP_PID $NGROK_PID 2>/dev/null || true
+    kill $WATCHEXEC_PID $NGROK_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -118,6 +154,8 @@ echo "   GitHub: $NGROK_URL/webhooks/github"
 echo "   Slack:  $NGROK_URL/webhooks/slack"
 echo ""
 echo "📊 ngrok dashboard: http://localhost:4040"
+echo ""
+echo "🔄 Hot-reload is enabled - the app will automatically restart when you modify .go files"
 echo ""
 echo "Press Ctrl+C to stop..."
 
