@@ -16,6 +16,7 @@ import (
 
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -91,9 +92,12 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 			"user_id", userID,
 			"error", err,
 		)
-		
-		// Return user-friendly error message
-		c.JSON(http.StatusOK, gin.H{"text": "❌ Something went wrong. Please try again later."})
+
+		// Return user-friendly error message (always HTTP 200 per Slack docs)
+		c.JSON(http.StatusOK, gin.H{
+			"response_type": "ephemeral",
+			"text":          "❌ Something went wrong. Please try again later.",
+		})
 		return
 	}
 
@@ -102,17 +106,17 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 
 func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID, text string) (string, error) {
 	if text == "" {
-		return "Usage: /notify-channel #channel-name", nil
+		return "📝 **Usage:** `/notify-channel #channel-name`\n\nSet your default channel for GitHub PR notifications. Example: `/notify-channel #engineering`", nil
 	}
 
 	channel := strings.TrimPrefix(text, "#")
 	if channel == "" {
-		return "Please provide a valid channel name", nil
+		return "❌ Please provide a valid channel name. Example: `/notify-channel #engineering`", nil
 	}
 
 	err := sh.slackService.ValidateChannel(channel)
 	if err != nil {
-		return fmt.Sprintf("Channel #%s not found or bot doesn't have access", channel), nil
+		return fmt.Sprintf("❌ Channel #%s not found or bot doesn't have access. Make sure the channel exists and the bot has been invited to it.", channel), nil
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
@@ -139,12 +143,12 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
 	if text == "" {
-		return "Usage: /notify-link github-username", nil
+		return "🔗 **Usage:** `/notify-link github-username`\n\nLink your GitHub account to receive personalized PR notifications. Example: `/notify-link octocat`", nil
 	}
 
 	githubUsername := strings.TrimSpace(text)
 	if githubUsername == "" {
-		return "Please provide a valid GitHub username", nil
+		return "❌ Please provide a valid GitHub username. Example: `/notify-link octocat`", nil
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
