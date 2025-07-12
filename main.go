@@ -33,13 +33,21 @@ type App struct {
 func main() {
 	// Setup structured logging
 	var logger *slog.Logger
+	isDev := os.Getenv("GIN_MODE") != "release"
+	logLevel := slog.LevelInfo
 	if os.Getenv("LOG_LEVEL") == "debug" {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
+		logLevel = slog.LevelDebug
+	}
+	
+	if isDev {
+		// Use text format for development
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: logLevel,
 		}))
 	} else {
+		// Use JSON format for production
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+			Level: logLevel,
 		}))
 	}
 	slog.SetDefault(logger)
