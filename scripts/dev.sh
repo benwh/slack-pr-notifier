@@ -15,6 +15,13 @@ trap cleanup SIGINT SIGTERM
 
 echo "🚀 Starting local development environment..."
 
+# Create tmp directory if it doesn't exist
+mkdir -p tmp
+
+# Truncate the log file at startup
+> tmp/app.log
+echo "📝 Logging output to tmp/app.log"
+
 # Check if watchexec is installed
 if ! command -v watchexec &> /dev/null; then
     echo "❌ watchexec not found. Please install it:"
@@ -72,7 +79,7 @@ if ! watchexec \
     --ignore tmp/ \
     --ignore logs/ \
     --debounce 1s \
-    "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" & then
+    "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" 2>&1 | tee -a tmp/app.log & then
     echo "❌ Failed to start watchexec"
     exit 1
 fi
@@ -109,7 +116,7 @@ fi
 
 # Start ngrok tunnel
 echo "🌐 Starting ngrok tunnel with domain $NGROK_DOMAIN..."
-if ! ngrok http "$PORT" --domain="$NGROK_DOMAIN" --log=stdout > /dev/null 2>&1 & then
+if ! ngrok http "$PORT" --domain="$NGROK_DOMAIN" --log=stdout 2>&1 | tee -a tmp/app.log > /dev/null & then
     echo "❌ Failed to start ngrok"
     kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
