@@ -34,7 +34,7 @@ func (fs *FirestoreService) GetUserBySlackID(ctx context.Context, slackUserID st
 	iter := fs.client.Collection("users").Where("slack_user_id", "==", slackUserID).Documents(ctx)
 	doc, err := iter.Next()
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
+		if status.Code(err) == codes.NotFound || err.Error() == "no more items in iterator" {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query user by slack ID %s: %w", slackUserID, err)
@@ -92,7 +92,7 @@ func (fs *FirestoreService) GetMessage(
 
 	doc, err := iter.Next()
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
+		if status.Code(err) == codes.NotFound || err.Error() == "no more items in iterator" {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query message for repo %s PR %d: %w", repoFullName, prNumber, err)
