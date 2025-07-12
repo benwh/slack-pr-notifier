@@ -41,7 +41,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),
-			"duration_ms", duration.Milliseconds(),
+			"duration_seconds", duration.Seconds(),
 		)
 	}
 }
