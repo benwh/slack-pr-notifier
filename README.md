@@ -24,7 +24,7 @@ A Go application that sends Slack notifications for GitHub pull request events.
 
    ```bash
    cd github-slack-notifier
-   ./scripts/setup-firestore.sh
+   ./scripts/setup-infrastructure.sh
    ```
 
 2. **Configure environment**:
@@ -167,7 +167,7 @@ Users can override the notification channel by adding this to their PR descripti
 - `./scripts/dev.sh` - Start local development with ngrok
 - `./scripts/lint.sh` - Run all linters
 - `./scripts/deploy.sh` - Deploy to Cloud Run
-- `./scripts/setup-firestore.sh` - Setup GCP infrastructure
+- `./scripts/setup-infrastructure.sh` - Setup GCP infrastructure
 
 ### Linting
 

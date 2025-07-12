@@ -1,4 +1,11 @@
 #!/bin/bash
+#
+# Setup GCP infrastructure for GitHub-Slack Notifier
+# This script creates:
+# - Firestore database
+# - Artifact Registry repository  
+# - Required API enablements
+# - Docker authentication configuration
 
 set -euo pipefail
 
@@ -36,7 +43,7 @@ PROJECT_ID="$FIRESTORE_PROJECT_ID"
 DATABASE_ID="$FIRESTORE_DATABASE_ID"
 REGION="$GCP_REGION"
 
-echo "🔥 Setting up Firestore for project: $PROJECT_ID"
+echo "🏗️  Setting up GCP infrastructure for project: $PROJECT_ID"
 echo "📊 Database ID: $DATABASE_ID"
 echo "🌍 Region: $REGION"
 
@@ -128,7 +135,7 @@ fi
 echo "🐳 Configuring Docker authentication..."
 gcloud auth configure-docker "$REGION-docker.pkg.dev"
 
-echo "🎉 Firestore and infrastructure setup complete!"
+echo "🎉 GCP infrastructure setup complete!"
 echo ""
 echo "📝 Next steps:"
 echo "1. Configure your environment variables in .env"
