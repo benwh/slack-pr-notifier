@@ -215,7 +215,7 @@ docker build -t github-slack-notifier .
 
 1. **Firestore permission denied**:
    - Ensure Cloud Run service account has Firestore permissions
-   - Check `FIRESTORE_PROJECT_ID` environment variable
+   - Check `FIRESTORE_PROJECT_ID` and `FIRESTORE_DATABASE_ID` environment variables
 
 2. **Slack commands not working**:
    - Verify webhook URL is correct

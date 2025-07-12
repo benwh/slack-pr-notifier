@@ -3,8 +3,10 @@
 set -e
 
 PROJECT_ID="incident-io-dev-ben"
+DATABASE_ID="github-slack-notifier"
 
 echo "🔥 Setting up Firestore for project: $PROJECT_ID"
+echo "📊 Database ID: $DATABASE_ID"
 
 # Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
@@ -33,10 +35,10 @@ gcloud services enable artifactregistry.googleapis.com
 
 # Create Firestore database
 echo "🗄️  Creating Firestore database..."
-if gcloud firestore databases describe --location=us-central1 2>/dev/null; then
+if gcloud firestore databases describe --database="$DATABASE_ID" --location=us-central1 2>/dev/null; then
     echo "✅ Firestore database already exists"
 else
-    gcloud firestore databases create --location=us-central1 --type=firestore-native
+    gcloud firestore databases create --database="$DATABASE_ID" --location=us-central1 --type=firestore-native
     echo "✅ Firestore database created"
 fi
 
@@ -73,7 +75,7 @@ cat > firestore.indexes.json << EOF
 }
 EOF
 
-gcloud firestore indexes composite create --file=firestore.indexes.json
+gcloud firestore indexes composite create --database="$DATABASE_ID" --file=firestore.indexes.json
 rm firestore.indexes.json
 
 # Create Artifact Registry repository

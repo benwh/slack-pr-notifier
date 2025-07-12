@@ -3,6 +3,7 @@
 set -e
 
 PROJECT_ID="incident-io-dev-ben"
+DATABASE_ID="github-slack-notifier"
 SERVICE_NAME="github-slack-notifier"
 REGION="us-central1"
 REPO_NAME="github-slack-notifier"
@@ -46,7 +47,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --memory=1Gi \
   --cpu=1 \
   --max-instances=10 \
-  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID}" \
+  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID}" \
   --project=${PROJECT_ID}
 
 echo "🔧 Getting service URL..."

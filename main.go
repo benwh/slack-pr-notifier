@@ -60,13 +60,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	databaseID := os.Getenv("FIRESTORE_DATABASE_ID")
+	if databaseID == "" {
+		databaseID = "(default)" // Use default database if not specified
+	}
+
 	slackToken := os.Getenv("SLACK_BOT_TOKEN")
 	if slackToken == "" {
 		slog.Error("SLACK_BOT_TOKEN environment variable is required", "component", "startup")
 		os.Exit(1)
 	}
 
-	firestoreClient, err := firestore.NewClient(ctx, projectID)
+	slog.Info("Connecting to Firestore", "project_id", projectID, "database_id", databaseID)
+	firestoreClient, err := firestore.NewClientWithDatabase(ctx, projectID, databaseID)
 	if err != nil {
 		slog.Error("Failed to create Firestore client", "component", "startup", "error", err)
 		os.Exit(1)
