@@ -7,12 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Logger is the package-level logger instance.
-var Logger *slog.Logger
-
-//nolint:gochecknoinits
-func init() {
-	Logger = slog.Default()
+// Logger returns the current default logger instance.
+func Logger() *slog.Logger {
+	return slog.Default()
 }
 
 // WithTrace returns a logger that includes trace_id if available from context or gin context.
@@ -30,9 +27,9 @@ func WithTrace(ctx interface{}) *slog.Logger {
 	}
 
 	if traceID != "" {
-		return Logger.With("trace_id", traceID)
+		return Logger().With("trace_id", traceID)
 	}
-	return Logger
+	return Logger()
 }
 
 // Context-aware logging methods that automatically extract trace_id from context
