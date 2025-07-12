@@ -48,22 +48,19 @@ if [ -z "$NGROK_DOMAIN" ]; then
 fi
 
 # Check if port is already in use and kill the process
-if lsof -ti:$DEV_PORT >/dev/null 2>&1; then
+if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
     echo "🔄 Port $DEV_PORT is in use, killing existing processes..."
-    lsof -ti:$DEV_PORT | xargs kill -9 2>/dev/null || true
+    lsof -ti:"$DEV_PORT" | xargs kill -9 2>/dev/null || true
     sleep 2
 fi
 
 # Start the Go application in the background
 echo "🔧 Starting Go application on port $DEV_PORT..."
-PORT=$DEV_PORT go run main.go &
-APP_PID=$!
-
-# Check if the command succeeded
-if [ $? -ne 0 ]; then
+if ! PORT=$DEV_PORT go run main.go & then
     echo "❌ Failed to start Go application"
     exit 1
 fi
+APP_PID=$!
 
 # Wait for the application to start
 sleep 3
@@ -75,7 +72,7 @@ if ! kill -0 $APP_PID 2>/dev/null; then
 fi
 
 # Check if application started successfully
-if ! curl -s http://localhost:$DEV_PORT/health > /dev/null; then
+if ! curl -s "http://localhost:$DEV_PORT/health" > /dev/null; then
     echo "❌ Application failed to start (health check failed)"
     kill $APP_PID 2>/dev/null || true
     exit 1
@@ -85,15 +82,12 @@ echo "✅ Application started on port $DEV_PORT"
 
 # Start ngrok tunnel
 echo "🌐 Starting ngrok tunnel with domain $NGROK_DOMAIN..."
-ngrok http $DEV_PORT --domain=$NGROK_DOMAIN --log=stdout > /dev/null 2>&1 &
-NGROK_PID=$!
-
-# Check if the command succeeded
-if [ $? -ne 0 ]; then
+if ! ngrok http "$DEV_PORT" --domain="$NGROK_DOMAIN" --log=stdout > /dev/null 2>&1 & then
     echo "❌ Failed to start ngrok"
     kill $APP_PID 2>/dev/null || true
     exit 1
 fi
+NGROK_PID=$!
 
 # Wait for ngrok to start
 sleep 3
