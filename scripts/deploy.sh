@@ -80,7 +80,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --memory=1Gi \
   --cpu=1 \
   --max-instances=10 \
-  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID},GCP_REGION=${REGION}" \
+  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID},GCP_REGION=${REGION},GIN_MODE=release" \
   --project="${PROJECT_ID}"
 
 echo "🔧 Getting service URL..."
