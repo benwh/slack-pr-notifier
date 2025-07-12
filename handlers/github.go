@@ -9,11 +9,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strconv"
 
 	"github-slack-notifier/log"
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -88,12 +88,19 @@ func (gh *GitHubHandler) HandleWebhook(c *gin.Context) {
 	eventType := c.GetHeader("X-GitHub-Event")
 	ctx := context.Background()
 
+	log.Debug(ctx, "Processing GitHub webhook",
+		"event_type", eventType,
+		"repository", payload.Repository.FullName,
+		"action", payload.Action,
+	)
+
 	switch eventType {
 	case "pull_request":
 		err = gh.handlePullRequestEvent(ctx, &payload)
 	case "pull_request_review":
 		err = gh.handlePullRequestReviewEvent(ctx, &payload)
 	default:
+		log.Debug(ctx, "Event type not handled", "event_type", eventType)
 		c.JSON(http.StatusOK, gin.H{"message": "Event type not handled"})
 		return
 	}
@@ -113,45 +120,73 @@ func (gh *GitHubHandler) HandleWebhook(c *gin.Context) {
 }
 
 func (gh *GitHubHandler) handlePullRequestEvent(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Handling pull request event",
+		"action", payload.Action,
+		"pr_number", payload.PullRequest.Number,
+		"is_draft", payload.PullRequest.Draft,
+	)
+
 	switch payload.Action {
 	case "opened":
 		return gh.handlePROpened(ctx, payload)
 	case "closed":
 		return gh.handlePRClosed(ctx, payload)
+	default:
+		log.Warn(ctx, "Pull request action not handled", "action", payload.Action)
 	}
 	return nil
 }
 
 func (gh *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebhookPayload) error {
 	if payload.PullRequest.Draft {
+		log.Debug(ctx, "Skipping draft PR", "pr_number", payload.PullRequest.Number)
 		return nil
 	}
 
-	authorID := strconv.Itoa(payload.PullRequest.User.ID)
-	user, err := gh.firestoreService.GetUserByGitHubID(ctx, authorID)
+	log.Debug(ctx, "Processing PR opened",
+		"pr_number", payload.PullRequest.Number,
+		"author", payload.PullRequest.User.Login,
+		"title", payload.PullRequest.Title,
+	)
+
+	authorUsername := payload.PullRequest.User.Login
+	log.Debug(ctx, "Looking up user by GitHub username", "github_username", authorUsername)
+	user, err := gh.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
 	if err != nil {
+		log.Error(ctx, "Failed to lookup user", "github_username", authorUsername, "error", err)
 		return err
 	}
+	log.Debug(ctx, "User lookup result", "user_found", user != nil)
 
 	var targetChannel string
 	annotatedChannel := gh.slackService.ExtractChannelFromDescription(payload.PullRequest.Body)
+	log.Debug(ctx, "Channel determination", "annotated_channel", annotatedChannel)
 	if annotatedChannel != "" {
 		targetChannel = annotatedChannel
 	} else if user != nil && user.DefaultChannel != "" {
 		targetChannel = user.DefaultChannel
+		log.Debug(ctx, "Using user default channel", "channel", targetChannel)
 	} else {
+		log.Debug(ctx, "Looking up repo default channel", "repo", payload.Repository.FullName)
 		repo, err := gh.firestoreService.GetRepo(ctx, payload.Repository.FullName)
 		if err != nil {
+			log.Error(ctx, "Failed to lookup repo", "repo", payload.Repository.FullName, "error", err)
 			return err
 		}
 		if repo != nil {
 			targetChannel = repo.DefaultChannel
+			log.Debug(ctx, "Using repo default channel", "channel", targetChannel)
+		} else {
+			log.Debug(ctx, "No repo found in database", "repo", payload.Repository.FullName)
 		}
 	}
 
 	if targetChannel == "" {
+		log.Info(ctx, "No target channel determined, skipping notification")
 		return nil
 	}
+
+	log.Info(ctx, "Posting PR message to Slack", "channel", targetChannel)
 
 	timestamp, err := gh.slackService.PostPRMessage(
 		targetChannel,
@@ -162,20 +197,29 @@ func (gh *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebh
 		payload.PullRequest.HTMLURL,
 	)
 	if err != nil {
+		log.Error(ctx, "Failed to post PR message to Slack", "channel", targetChannel, "error", err)
 		return err
 	}
+	log.Info(ctx, "Posted PR notification to Slack", "channel", targetChannel, "pr_number", payload.PullRequest.Number)
 
 	message := &models.Message{
-		PRNumber:       payload.PullRequest.Number,
-		RepoFullName:   payload.Repository.FullName,
-		SlackChannel:   targetChannel,
-		SlackMessageTS: timestamp,
-		GitHubPRURL:    payload.PullRequest.HTMLURL,
-		AuthorGitHubID: authorID,
-		LastStatus:     "opened",
+		PRNumber:             payload.PullRequest.Number,
+		RepoFullName:         payload.Repository.FullName,
+		SlackChannel:         targetChannel,
+		SlackMessageTS:       timestamp,
+		GitHubPRURL:          payload.PullRequest.HTMLURL,
+		AuthorGitHubUsername: authorUsername,
+		LastStatus:           "opened",
 	}
 
-	return gh.firestoreService.CreateMessage(ctx, message)
+	log.Debug(ctx, "Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
+	err = gh.firestoreService.CreateMessage(ctx, message)
+	if err != nil {
+		log.Error(ctx, "Failed to save message to database", "error", err)
+		return err
+	}
+	log.Debug(ctx, "Successfully saved message to database")
+	return nil
 }
 
 func (gh *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebhookPayload) error {
