@@ -1,30 +1,46 @@
 package middleware
 
 import (
-	"log/slog"
+	"context"
+	"strings"
 	"time"
+
+	"github-slack-notifier/log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// LoggingMiddleware adds correlation IDs and structured logging to requests.
+// LoggingMiddleware adds trace IDs and structured logging to requests.
 func LoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Generate correlation ID
-		correlationID := c.GetHeader("X-Correlation-ID")
-		if correlationID == "" {
-			correlationID = uuid.New().String()
+		// Generate trace ID - check Cloud Run trace header first
+		traceID := c.GetHeader("X-Cloud-Trace-Context")
+		if traceID != "" {
+			// Extract trace ID from Cloud Run format: "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
+			if slashIndex := strings.Index(traceID, "/"); slashIndex != -1 {
+				traceID = traceID[:slashIndex]
+			}
+		} else {
+			// Fallback to X-Trace-ID header or generate new one
+			traceID = c.GetHeader("X-Trace-ID")
+			if traceID == "" {
+				traceID = uuid.New().String()
+			}
 		}
 
-		// Add correlation ID to context
-		c.Set("correlation_id", correlationID)
-		c.Header("X-Correlation-ID", correlationID)
+		// Add trace ID to gin context and request context
+		c.Set("trace_id", traceID)
+		c.Header("X-Trace-ID", traceID)
+
+		// Store trace_id in request context for downstream handlers
+		ctx := context.WithValue(c.Request.Context(), log.TraceIDKey, traceID)
+		c.Request = c.Request.WithContext(ctx)
 
 		// Log request
 		startTime := time.Now()
-		slog.Info("Request started",
-			"correlation_id", correlationID,
+		logger := log.WithTrace(c)
+		logger.Info("Request started",
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"user_agent", c.Request.UserAgent(),
@@ -36,8 +52,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 
 		// Log response
 		duration := time.Since(startTime)
-		slog.Info("Request completed",
-			"correlation_id", correlationID,
+		logger.Info("Request completed",
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),

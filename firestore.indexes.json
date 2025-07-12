@@ -1,0 +1,28 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "repo_full_name",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "pr_number",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "slack_user_id",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ]
+}

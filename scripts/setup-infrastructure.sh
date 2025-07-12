@@ -61,79 +61,65 @@ if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q
     exit 1
 fi
 
-# Set the project
-echo "📋 Setting project to $PROJECT_ID..."
-gcloud config set project "$PROJECT_ID"
+# Use project flag instead of setting global config
+echo "📋 Using project: $PROJECT_ID"
 
 # Enable required APIs
 echo "🔧 Enabling required APIs..."
-gcloud services enable firestore.googleapis.com
-gcloud services enable cloudbuild.googleapis.com
-gcloud services enable run.googleapis.com
-gcloud services enable artifactregistry.googleapis.com
+gcloud services enable firestore.googleapis.com --project="$PROJECT_ID"
+gcloud services enable cloudbuild.googleapis.com --project="$PROJECT_ID"
+gcloud services enable run.googleapis.com --project="$PROJECT_ID"
+gcloud services enable artifactregistry.googleapis.com --project="$PROJECT_ID"
 
 # Create Firestore database
 echo "🗄️  Creating Firestore database..."
-if gcloud firestore databases describe --database="$DATABASE_ID" --location="$REGION" 2>/dev/null; then
+if gcloud firestore databases describe --database="$DATABASE_ID" --project="$PROJECT_ID" 2>/dev/null; then
     echo "✅ Firestore database already exists"
 else
-    gcloud firestore databases create --database="$DATABASE_ID" --location="$REGION" --type=firestore-native
+    gcloud firestore databases create --database="$DATABASE_ID" --location="$REGION" --type=firestore-native --project="$PROJECT_ID"
     echo "✅ Firestore database created"
 fi
 
 # Create indexes
 echo "📚 Creating Firestore indexes..."
-cat > firestore.indexes.json << EOF
-{
-  "indexes": [
-    {
-      "collectionGroup": "messages",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "repo_full_name",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "pr_number",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "users",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "slack_user_id",
-          "order": "ASCENDING"
-        }
-      ]
-    }
-  ]
-}
-EOF
 
-gcloud firestore indexes composite create --database="$DATABASE_ID" --file=firestore.indexes.json
-rm firestore.indexes.json
+# Create composite index for messages collection
+echo "   Creating index for messages collection..."
+gcloud firestore indexes composite create \
+    --collection-group=messages \
+    --field-config=field-path=repo_full_name,order=ascending \
+    --field-config=field-path=pr_number,order=ascending \
+    --database="$DATABASE_ID" \
+    --project="$PROJECT_ID" \
+    --quiet || echo "   Index may already exist"
+
+# Create composite index for users collection  
+echo "   Creating index for users collection..."
+gcloud firestore indexes composite create \
+    --collection-group=users \
+    --field-config=field-path=slack_user_id,order=ascending \
+    --database="$DATABASE_ID" \
+    --project="$PROJECT_ID" \
+    --quiet || echo "   Index may already exist"
 
 # Create Artifact Registry repository
 echo "🏺 Creating Artifact Registry repository..."
 REPO_NAME="github-slack-notifier"
 
-if gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" 2>/dev/null; then
+if gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" --project="$PROJECT_ID" 2>/dev/null; then
     echo "✅ Artifact Registry repository already exists"
 else
     gcloud artifacts repositories create "$REPO_NAME" \
         --repository-format=docker \
         --location="$REGION" \
-        --description="Docker images for GitHub Slack Notifier"
+        --description="Docker images for GitHub Slack Notifier" \
+        --project="$PROJECT_ID"
     echo "✅ Artifact Registry repository created"
 fi
 
 # Configure Docker authentication
 echo "🐳 Configuring Docker authentication..."
-gcloud auth configure-docker "$REGION-docker.pkg.dev"
+gcloud auth configure-docker "$REGION-docker.pkg.dev" --project="$PROJECT_ID"
 
 echo "🎉 GCP infrastructure setup complete!"
 echo ""

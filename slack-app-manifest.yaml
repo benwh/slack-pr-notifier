@@ -6,14 +6,25 @@ _metadata:
   minor_version: 1
 
 display_information:
-  name: "GitHub PR Notifier"
-  description: "Automatically notify Slack channels about GitHub pull request events"
-  long_description: "This app receives GitHub webhook events and posts formatted notifications to Slack channels when pull requests are opened, reviewed, merged, or closed. It supports per-repository channel configuration and emoji reactions for review states."
+  name: GitHub PR Notifier
+  description: >
+    Automatically notify Slack channels about GitHub pull request events
+  long_description: >
+    This app receives GitHub webhook events and posts formatted notifications to Slack channels when pull requests are opened, reviewed, merged, or closed. It supports per-repository channel configuration and emoji reactions for review states."
   background_color: "#24292e"  # GitHub's dark color
 features:
   bot_user:
     display_name: "GitHub PR Bot"
     always_online: true
+  slash_commands:
+    - command: "/notify-channel"
+      description: "Set your default channel for GitHub PR notifications"
+      usage_hint: "#channel-name"
+    - command: "/notify-link"
+      description: "Link your GitHub account to receive personalized PR notifications"
+      usage_hint: "github-username"
+    - command: "/notify-status"
+      description: "View your current notification configuration"
 
 oauth_config:
   scopes:

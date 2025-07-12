@@ -7,13 +7,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github-slack-notifier/log"
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
 
@@ -68,7 +68,7 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 	teamID := values.Get("team_id")
 	text := values.Get("text")
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	var response string
 
 	switch command {
@@ -85,9 +85,7 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 
 	if err != nil {
 		// Log the actual error for debugging
-		correlationID := c.GetString("correlation_id")
-		slog.Error("Slack command failed",
-			"correlation_id", correlationID,
+		log.Error(ctx, "Slack command failed",
 			"command", command,
 			"user_id", userID,
 			"error", err,
@@ -117,9 +115,14 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 	err := sh.slackService.ValidateChannel(channel)
 	if err != nil {
+		// Log the actual Slack API error for debugging
+		log.Error(ctx, "Channel validation failed",
+			"channel", channel,
+			"slack_api_error", err,
+		)
+
 		// Return user-friendly message for channel validation errors (user input error, not system error)
-		//nolint:nilerr
-		return fmt.Sprintf("❌ Channel #%s not found or bot doesn't have access. "+
+		return fmt.Sprintf("❌ Channel `#%s` not found or bot doesn't have access. "+
 			"Make sure the channel exists and the bot has been invited to it.", channel), nil
 	}
 
