@@ -66,7 +66,6 @@ Create `.env` file based on `.env.example`
 
 2. **Install GitHub App**:
    - Install the app on your repositories
-   - Note the installation ID
 
 ### Slack App Setup
 

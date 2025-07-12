@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github-slack-notifier/log"
 	"github-slack-notifier/models"
 	"github-slack-notifier/services"
 	"github.com/gin-gonic/gin"
@@ -98,7 +99,13 @@ func (gh *GitHubHandler) HandleWebhook(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Error(ctx, "GitHub webhook processing failed",
+			"event_type", eventType,
+			"repository", payload.Repository.FullName,
+			"action", payload.Action,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process webhook event"})
 		return
 	}
 

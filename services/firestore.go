@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -128,7 +129,7 @@ func (fs *FirestoreService) UpdateMessage(ctx context.Context, message *models.M
 }
 
 func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*models.Repo, error) {
-	doc, err := fs.client.Collection("repos").Doc(repoFullName).Get(ctx)
+	doc, err := fs.client.Collection("repos").Doc(fs.encodeRepoName(repoFullName)).Get(ctx)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
@@ -147,9 +148,15 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 
 func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) error {
 	repo.CreatedAt = time.Now()
-	_, err := fs.client.Collection("repos").Doc(repo.ID).Set(ctx, repo)
+	_, err := fs.client.Collection("repos").Doc(fs.encodeRepoName(repo.ID)).Set(ctx, repo)
 	if err != nil {
 		return fmt.Errorf("failed to create repo %s: %w", repo.ID, err)
 	}
 	return nil
+}
+
+// encodeRepoName encodes a repository full name to be safe for use as a Firestore document ID.
+// Forward slashes are not allowed in document IDs, so we URL encode the name.
+func (fs *FirestoreService) encodeRepoName(repoFullName string) string {
+	return url.QueryEscape(repoFullName)
 }
