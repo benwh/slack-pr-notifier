@@ -76,34 +76,14 @@ The application uses **async processing** via Google Cloud Tasks for reliable we
 
 ### Environment Variables
 
-Create `.env` file based on `.env.example`. All configuration is centralized in `internal/config/config.go`.
+Create a `.env` file based on `.env.example`:
 
-**Core Configuration (required):**
-- `FIRESTORE_PROJECT_ID` - GCP project ID for Firestore
-- `FIRESTORE_DATABASE_ID` - Firestore database ID
-- `SLACK_BOT_TOKEN` - Slack bot OAuth token (xoxb-)
-- `GITHUB_WEBHOOK_SECRET` - Secret for GitHub webhook validation
-- `SLACK_SIGNING_SECRET` - Secret for Slack request validation
-- `API_ADMIN_KEY` - Admin API key for repository registration
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
 
-**Cloud Tasks Configuration (required for async processing):**
-- `GOOGLE_CLOUD_PROJECT` - GCP project ID
-- `WEBHOOK_WORKER_URL` - Your deployed service URL with `/process-webhook` endpoint
-- `GCP_REGION` - GCP region (default: `europe-west1`)
-- `CLOUD_TASKS_QUEUE` - Cloud Tasks queue name (default: `webhook-processing`)
-
-**Server Configuration (optional):**
-- `PORT` - Server port (default: `8080`)
-- `GIN_MODE` - Gin framework mode: debug, release, test (default: `debug`)
-- `LOG_LEVEL` - Logging level: debug, info, warn, error (default: `info`)
-- `SERVER_READ_TIMEOUT` - HTTP server read timeout (default: `30s`)
-- `SERVER_WRITE_TIMEOUT` - HTTP server write timeout (default: `30s`)
-- `SERVER_SHUTDOWN_TIMEOUT` - Graceful shutdown timeout (default: `30s`)
-
-**Processing Configuration (optional):**
-- `ENABLE_ASYNC_PROCESSING` - Enable async webhook processing (default: `true`)
-- `WEBHOOK_PROCESSING_TIMEOUT` - Max time for webhook processing (default: `5m`)
-- `SLACK_TIMESTAMP_MAX_AGE` - Max age for Slack request timestamps (default: `5m`)
+See [`.env.example`](.env.example) for all available configuration options with descriptions and defaults. All configuration is centralized in `internal/config/config.go`.
 
 ### GitHub App Setup
 

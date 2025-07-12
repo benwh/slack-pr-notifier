@@ -46,7 +46,7 @@ source .env
 set +a
 
 # Set default port if not specified
-DEV_PORT=${DEV_PORT:-5005}
+PORT=${PORT:-8080}
 
 # Check if ngrok domain is specified
 if [ -z "$NGROK_DOMAIN" ]; then
@@ -56,14 +56,14 @@ if [ -z "$NGROK_DOMAIN" ]; then
 fi
 
 # Check if port is already in use and kill the process
-if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
-    echo "🔄 Port $DEV_PORT is in use, killing existing processes..."
-    lsof -ti:"$DEV_PORT" | xargs kill -9 2>/dev/null || true
+if lsof -ti:"$PORT" >/dev/null 2>&1; then
+    echo "🔄 Port $PORT is in use, killing existing processes..."
+    lsof -ti:"$PORT" | xargs kill -9 2>/dev/null || true
     sleep 2
 fi
 
 # Start the Go application with hot-reload using watchexec
-echo "🔧 Starting Go application with hot-reload on port $DEV_PORT..."
+echo "🔧 Starting Go application with hot-reload on port $PORT..."
 if ! watchexec \
     --restart \
     --watch . \
@@ -81,7 +81,7 @@ if ! watchexec \
     --ignore .gitignore \
     --debounce 500ms \
     --shell bash \
-    "echo '🔄 Rebuilding application...' && PORT=$DEV_PORT go run ./cmd/github-slack-notifier" & then
+    "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" & then
     echo "❌ Failed to start watchexec"
     exit 1
 fi
@@ -101,8 +101,8 @@ fi
 RETRIES=0
 MAX_RETRIES=10
 while [ $RETRIES -lt $MAX_RETRIES ]; do
-    if curl -s "http://localhost:$DEV_PORT/health" > /dev/null; then
-        echo "✅ Application started on port $DEV_PORT"
+    if curl -s "http://localhost:$PORT/health" > /dev/null; then
+        echo "✅ Application started on port $PORT"
         break
     fi
     echo "⏳ Waiting for application to be ready... (attempt $((RETRIES + 1))/$MAX_RETRIES)"
@@ -118,7 +118,7 @@ fi
 
 # Start ngrok tunnel
 echo "🌐 Starting ngrok tunnel with domain $NGROK_DOMAIN..."
-if ! ngrok http "$DEV_PORT" --domain="$NGROK_DOMAIN" --log=stdout > /dev/null 2>&1 & then
+if ! ngrok http "$PORT" --domain="$NGROK_DOMAIN" --log=stdout > /dev/null 2>&1 & then
     echo "❌ Failed to start ngrok"
     kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
@@ -146,7 +146,7 @@ if ! curl -s "$NGROK_URL" > /dev/null; then
 fi
 
 echo "🎉 Development environment ready!"
-echo "📍 Local URL:  http://localhost:$DEV_PORT"
+echo "📍 Local URL:  http://localhost:$PORT"
 echo "🌍 Public URL: $NGROK_URL"
 echo ""
 echo "🔗 Webhook URLs:"
