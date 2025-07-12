@@ -68,19 +68,10 @@ if ! watchexec \
     --restart \
     --watch . \
     --exts go,mod \
-    --ignore .git \
-    --ignore tmp \
-    --ignore logs \
-    --ignore scripts \
-    --ignore README.md \
-    --ignore .env \
-    --ignore .env.example \
-    --ignore Dockerfile \
-    --ignore docker-compose.yml \
-    --ignore .dockerignore \
-    --ignore .gitignore \
-    --debounce 500ms \
-    --shell bash \
+    --ignore .git/ \
+    --ignore tmp/ \
+    --ignore logs/ \
+    --debounce 1s \
     "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" & then
     echo "❌ Failed to start watchexec"
     exit 1
