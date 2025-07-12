@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -82,7 +83,17 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"text": fmt.Sprintf("Error: %v", err)})
+		// Log the actual error for debugging
+		correlationID := c.GetString("correlation_id")
+		slog.Error("Slack command failed",
+			"correlation_id", correlationID,
+			"command", command,
+			"user_id", userID,
+			"error", err,
+		)
+		
+		// Return user-friendly error message
+		c.JSON(http.StatusOK, gin.H{"text": "❌ Something went wrong. Please try again later."})
 		return
 	}
 
@@ -101,7 +112,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 	err := sh.slackService.ValidateChannel(channel)
 	if err != nil {
-		return fmt.Sprintf("Channel #%s not found or bot doesn't have access", channel), err
+		return fmt.Sprintf("Channel #%s not found or bot doesn't have access", channel), nil
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
