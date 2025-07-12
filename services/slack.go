@@ -21,14 +21,7 @@ func NewSlackService(client *slack.Client) *SlackService {
 func (s *SlackService) PostPRMessage(
 	channel, repoName, prTitle, prAuthor, prDescription, prURL string,
 ) (string, error) {
-	description := prDescription
-	const maxDescriptionLength = 100
-	if len(description) > maxDescriptionLength {
-		description = description[:maxDescriptionLength] + "..."
-	}
-
-	text := fmt.Sprintf("🔗 *New PR in %s*\n*Title:* %s\n*Author:* %s\n*Description:* %s\n<%s|View Pull Request>",
-		repoName, prTitle, prAuthor, description, prURL)
+	text := fmt.Sprintf("🐜 <%s|%s by %s>", prURL, prTitle, prAuthor)
 
 	_, timestamp, err := s.client.PostMessage(channel, slack.MsgOptionText(text, false))
 	if err != nil {
