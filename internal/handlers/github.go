@@ -1,21 +1,17 @@
 package handlers
 
 import (
-	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"time"
 
 	"github-slack-notifier/internal/models"
-	"github-slack-notifier/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/go-github/v73/github"
 	"github.com/google/uuid"
 )
 
@@ -25,13 +21,18 @@ var (
 	ErrMissingRepository    = errors.New("missing required field: repository")
 )
 
+// CloudTasksServiceInterface defines the interface for cloud tasks operations
+type CloudTasksServiceInterface interface {
+	EnqueueWebhook(ctx context.Context, job *models.WebhookJob) error
+}
+
 type GitHubHandler struct {
-	cloudTasksService *services.CloudTasksService
+	cloudTasksService CloudTasksServiceInterface
 	webhookSecret     string
 }
 
 func NewGitHubHandler(
-	cloudTasksService *services.CloudTasksService,
+	cloudTasksService CloudTasksServiceInterface,
 	webhookSecret string,
 ) *GitHubHandler {
 	return &GitHubHandler{
@@ -59,20 +60,20 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	if !h.validateSignature(c) {
-		logger.Error("Invalid webhook signature")
-		c.JSON(401, gin.H{"error": "invalid signature"})
-		return
+	// Use go-github library to validate payload and signature
+	var secretToken []byte
+	if h.webhookSecret != "" {
+		secretToken = []byte(h.webhookSecret)
 	}
 
-	body, err := io.ReadAll(c.Request.Body)
+	payload, err := github.ValidatePayload(c.Request, secretToken)
 	if err != nil {
-		logger.Error("Failed to read request body", "error", err)
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		logger.Error("Invalid webhook payload or signature", "error", err)
+		c.JSON(401, gin.H{"error": "invalid payload or signature"})
 		return
 	}
 
-	if err := h.validateWebhookPayload(eventType, body); err != nil {
+	if err := h.validateWebhookPayload(eventType, payload); err != nil {
 		logger.Error("Invalid webhook payload", "error", err, "event_type", eventType)
 		c.JSON(400, gin.H{"error": "invalid payload"})
 		return
@@ -83,7 +84,7 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		EventType:  eventType,
 		DeliveryID: deliveryID,
 		TraceID:    traceID,
-		Payload:    body,
+		Payload:    payload,
 		ReceivedAt: time.Now(),
 		Status:     "queued",
 		RetryCount: 0,
@@ -109,28 +110,6 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	})
 }
 
-func (h *GitHubHandler) validateSignature(c *gin.Context) bool {
-	signature := c.GetHeader("X-Hub-Signature-256")
-	if signature == "" {
-		return h.webhookSecret == ""
-	}
-
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		return false
-	}
-
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
-
-	expectedSignature := "sha256=" + h.computeHMAC256(body, h.webhookSecret)
-	return hmac.Equal([]byte(signature), []byte(expectedSignature))
-}
-
-func (h *GitHubHandler) computeHMAC256(data []byte, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(data)
-	return hex.EncodeToString(mac.Sum(nil))
-}
 
 func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte) error {
 	switch eventType {

@@ -1,11 +1,14 @@
 module github-slack-notifier
 
-go 1.23
+go 1.23.0
+
+toolchain go1.23.8
 
 require (
 	cloud.google.com/go/cloudtasks v1.12.4
 	cloud.google.com/go/firestore v1.14.0
 	github.com/gin-gonic/gin v1.9.1
+	github.com/google/go-github/v73 v73.0.0
 	github.com/google/uuid v1.6.0
 	github.com/slack-go/slack v0.12.3
 	github.com/stretchr/testify v1.8.3
@@ -31,6 +34,7 @@ require (
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect

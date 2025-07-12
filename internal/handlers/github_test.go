@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,135 +12,127 @@ import (
 	"strings"
 	"testing"
 
+	"github-slack-notifier/internal/models"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestGitHubHandler_validateSignature tests the HMAC-SHA256 signature validation logic
-// for GitHub webhooks. This ensures our custom signature validation correctly implements
-// the GitHub webhook signature verification algorithm.
-func TestGitHubHandler_validateSignature(t *testing.T) {
+// mockCloudTasksService is a mock implementation for testing
+type mockCloudTasksService struct{}
+
+func (m *mockCloudTasksService) EnqueueWebhook(ctx context.Context, job *models.WebhookJob) error {
+	return nil
+}
+
+// TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration tests our integration with the go-github library.
+// We focus on testing that our code correctly passes requests to the library and handles responses,
+// rather than re-testing the library's internal validation logic.
+func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name           string
 		webhookSecret  string
 		body           string
-		signature      string
-		expectedResult bool
+		setupHeaders   func() http.Header
+		expectedStatus int
+		expectError    bool
 	}{
 		{
-			name:           "Valid signature",
-			webhookSecret:  "test-secret",
-			body:           `{"action":"opened","repository":{"name":"test"}}`,
-			signature:      "",
-			expectedResult: true,
+			name:          "Valid webhook with proper signature",
+			webhookSecret: "test-secret",
+			body:          `{"action":"opened","repository":{"name":"test"}}`,
+			setupHeaders: func() http.Header {
+				body := `{"action":"opened","repository":{"name":"test"}}`
+				mac := hmac.New(sha256.New, []byte("test-secret"))
+				mac.Write([]byte(body))
+				signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+				header := http.Header{}
+				header.Set("X-Hub-Signature-256", signature)
+				header.Set("X-GitHub-Event", "pull_request")
+				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("Content-Type", "application/json")
+				return header
+			},
+			expectedStatus: 200,
+			expectError:    false,
 		},
 		{
-			name:           "Invalid signature",
-			webhookSecret:  "test-secret",
-			body:           `{"action":"opened","repository":{"name":"test"}}`,
-			signature:      "sha256=invalid-signature",
-			expectedResult: false,
+			name:          "Invalid signature",
+			webhookSecret: "test-secret",
+			body:          `{"action":"opened","repository":{"name":"test"}}`,
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-Hub-Signature-256", "sha256=invalid-signature")
+				header.Set("X-GitHub-Event", "pull_request")
+				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("Content-Type", "application/json")
+				return header
+			},
+			expectedStatus: 401,
+			expectError:    true,
 		},
 		{
-			name:           "Missing signature with empty secret",
-			webhookSecret:  "",
-			body:           `{"action":"opened","repository":{"name":"test"}}`,
-			signature:      "",
-			expectedResult: true,
+			name:          "Missing signature with webhook secret",
+			webhookSecret: "test-secret",
+			body:          `{"action":"opened","repository":{"name":"test"}}`,
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-GitHub-Event", "pull_request")
+				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("Content-Type", "application/json")
+				return header
+			},
+			expectedStatus: 401,
+			expectError:    true,
 		},
 		{
-			name:           "Missing signature with non-empty secret",
-			webhookSecret:  "test-secret",
-			body:           `{"action":"opened","repository":{"name":"test"}}`,
-			signature:      "DO_NOT_SET", // Special value to indicate no signature
-			expectedResult: false,
-		},
-		{
-			name:           "Empty body",
-			webhookSecret:  "test-secret",
-			body:           "",
-			signature:      "",
-			expectedResult: true,
+			name:          "Empty webhook secret bypasses signature validation",
+			webhookSecret: "",
+			body:          `{"action":"opened","repository":{"name":"test"}}`,
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-GitHub-Event", "pull_request")
+				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("Content-Type", "application/json")
+				return header
+			},
+			expectedStatus: 200,
+			expectError:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create handler
-			handler := NewGitHubHandler(
-				nil, // Not needed for signature validation
-				tt.webhookSecret,
-			)
+			// Use mock service for success case, nil for error cases to test early validation
+			var cloudTasksService CloudTasksServiceInterface
+			if !tt.expectError {
+				cloudTasksService = &mockCloudTasksService{}
+			}
+			
+			handler := NewGitHubHandler(cloudTasksService, tt.webhookSecret)
 
-			// Calculate correct signature if not provided
-			if tt.signature == "" && tt.webhookSecret != "" {
-				mac := hmac.New(sha256.New, []byte(tt.webhookSecret))
-				mac.Write([]byte(tt.body))
-				tt.signature = "sha256=" + hex.EncodeToString(mac.Sum(nil))
+			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(tt.body))
+			for key, values := range tt.setupHeaders() {
+				for _, value := range values {
+					req.Header.Set(key, value)
+				}
 			}
 
-			// Create request
-			req, _ := http.NewRequest(http.MethodPost, "/webhook", bytes.NewBufferString(tt.body))
-			if tt.signature != "" && tt.signature != "DO_NOT_SET" {
-				req.Header.Set("X-Hub-Signature-256", tt.signature)
-			}
-
-			// Create response recorder
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Request = req
+			c.Set("trace_id", "test-trace-id")
 
-			// Test signature validation
-			result := handler.validateSignature(c)
-			assert.Equal(t, tt.expectedResult, result)
-		})
-	}
-}
+			handler.HandleWebhook(c)
 
-// TestGitHubHandler_computeHMAC256 tests the HMAC-SHA256 computation helper function.
-// This verifies that our HMAC calculation produces the expected hash values for various inputs.
-func TestGitHubHandler_computeHMAC256(t *testing.T) {
-	testCases := []struct {
-		name     string
-		data     string
-		secret   string
-		expected string
-	}{
-		{
-			name:     "Simple payload",
-			data:     `{"test":"data"}`,
-			secret:   "secret",
-			expected: "a8a71ac4dd9cc7a21cdc63a095c9c6df5c81c2b5000e6b96e7fb05a13fde11b5",
-		},
-		{
-			name:     "Empty payload",
-			data:     "",
-			secret:   "secret",
-			expected: "f9320baf0249169e73850cd6156ded0106e2bb6ad8cab01b7bbbebe6d1065317",
-		},
-		{
-			name:     "GitHub-like payload",
-			data:     `{"action":"opened","repository":{"name":"test"}}`,
-			secret:   "my-secret",
-			expected: "5c28bdc7c9ad5bbf4c5c1033bef1b38b7e1e5c2b91a5c71c8e6b6f6b4e4e2e2e",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Create a new handler with the test secret
-			handler := NewGitHubHandler(nil, tc.secret)
-			result := handler.computeHMAC256([]byte(tc.data), tc.secret)
-
-			// Calculate expected result
-			mac := hmac.New(sha256.New, []byte(tc.secret))
-			mac.Write([]byte(tc.data))
-			expected := hex.EncodeToString(mac.Sum(nil))
-
-			assert.Equal(t, expected, result)
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			if tt.expectError {
+				assert.Contains(t, w.Body.String(), "error")
+			}
 		})
 	}
 }
@@ -152,39 +145,50 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		headers        map[string]string
+		setupHeaders   func() http.Header
 		expectedStatus int
 		expectedError  string
 	}{
 		{
 			name: "Missing X-GitHub-Event header",
-			headers: map[string]string{
-				"X-GitHub-Delivery": "12345",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("Content-Type", "application/json")
+				return header
 			},
 			expectedStatus: 400,
 			expectedError:  "missing required headers",
 		},
 		{
 			name: "Missing X-GitHub-Delivery header",
-			headers: map[string]string{
-				"X-GitHub-Event": "pull_request",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-GitHub-Event", "pull_request")
+				header.Set("Content-Type", "application/json")
+				return header
 			},
 			expectedStatus: 400,
 			expectedError:  "missing required headers",
 		},
 		{
 			name: "Missing both required headers",
-			headers: map[string]string{
-				"Content-Type": "application/json",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("Content-Type", "application/json")
+				return header
 			},
 			expectedStatus: 400,
 			expectedError:  "missing required headers",
 		},
 		{
 			name: "Empty header values",
-			headers: map[string]string{
-				"X-GitHub-Event":    "",
-				"X-GitHub-Delivery": "",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-GitHub-Event", "")
+				header.Set("X-GitHub-Delivery", "")
+				header.Set("Content-Type", "application/json")
+				return header
 			},
 			expectedStatus: 400,
 			expectedError:  "missing required headers",
@@ -193,92 +197,25 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create handler with empty secret to bypass signature validation
 			handler := NewGitHubHandler(nil, "")
 
-			// Create request
-			req, _ := http.NewRequest(http.MethodPost, "/webhook", bytes.NewBufferString(`{"test":"data"}`))
-			for key, value := range tt.headers {
-				req.Header.Set(key, value)
+			body := `{"action":"opened","repository":{"name":"test"}}`
+			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(body))
+			for key, values := range tt.setupHeaders() {
+				for _, value := range values {
+					req.Header.Set(key, value)
+				}
 			}
 
-			// Create response recorder and context
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Request = req
 			c.Set("trace_id", "test-trace-id")
 
-			// Handle webhook
 			handler.HandleWebhook(c)
 
-			// Assert response
 			assert.Equal(t, tt.expectedStatus, w.Code)
-			if tt.expectedError != "" {
-				assert.Contains(t, w.Body.String(), tt.expectedError)
-			}
-		})
-	}
-}
-
-// TestGitHubHandler_HandleWebhook_SignatureValidation tests the signature validation
-// integration in the full HTTP request handler. This verifies that invalid signatures
-// are properly rejected with appropriate HTTP responses.
-func TestGitHubHandler_HandleWebhook_SignatureValidation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	tests := []struct {
-		name           string
-		body           string
-		webhookSecret  string
-		signature      string
-		expectedStatus int
-		expectedError  string
-	}{
-		{
-			name:           "Invalid signature with valid headers",
-			body:           `{"action":"opened","repository":{"name":"test"}}`,
-			webhookSecret:  "test-secret",
-			signature:      "sha256=invalid-signature",
-			expectedStatus: 401,
-			expectedError:  "invalid signature",
-		},
-		{
-			name:           "Missing signature with non-empty secret",
-			body:           `{"action":"opened","repository":{"name":"test"}}`,
-			webhookSecret:  "test-secret",
-			signature:      "",
-			expectedStatus: 401,
-			expectedError:  "invalid signature",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create handler
-			handler := NewGitHubHandler(nil, tt.webhookSecret)
-
-			// Create request
-			req, _ := http.NewRequest(http.MethodPost, "/webhook", bytes.NewBufferString(tt.body))
-			req.Header.Set("X-Github-Event", "pull_request")
-			req.Header.Set("X-Github-Delivery", "12345")
-			if tt.signature != "" {
-				req.Header.Set("X-Hub-Signature-256", tt.signature)
-			}
-
-			// Create response recorder and context
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			c.Request = req
-			c.Set("trace_id", "test-trace-id")
-
-			// Handle webhook
-			handler.HandleWebhook(c)
-
-			// Assert response
-			assert.Equal(t, tt.expectedStatus, w.Code)
-			if tt.expectedError != "" {
-				assert.Contains(t, w.Body.String(), tt.expectedError)
-			}
+			assert.Contains(t, w.Body.String(), tt.expectedError)
 		})
 	}
 }
@@ -289,13 +226,13 @@ func TestGitHubHandler_HandleWebhook_SignatureValidation(t *testing.T) {
 func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Create handler with empty secret to bypass signature validation
 	handler := NewGitHubHandler(nil, "")
 
-	// Create request with body that fails to read (simulate error)
-	req, _ := http.NewRequest(http.MethodPost, "/webhook", &errorReader{})
-	req.Header.Set("X-Github-Event", "pull_request")
-	req.Header.Set("X-Github-Delivery", "12345")
+	// Create request with body that causes read error
+	req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", &errorReader{})
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-GitHub-Delivery", "test-delivery-id")
+	req.Header.Set("Content-Type", "application/json")
 
 	// Create response recorder and context
 	w := httptest.NewRecorder()
@@ -307,8 +244,8 @@ func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 	handler.HandleWebhook(c)
 
 	// Assert response
-	assert.Equal(t, 400, w.Code)
-	assert.Contains(t, w.Body.String(), "failed to read body")
+	assert.Equal(t, 401, w.Code)
+	assert.Contains(t, w.Body.String(), "error")
 }
 
 // errorReader simulates an error when reading the request body.
