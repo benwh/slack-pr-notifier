@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github-slack-notifier/models"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -63,6 +64,25 @@ func (fs *FirestoreService) GetUserByGitHubID(ctx context.Context, githubUserID 
 	err = doc.DataTo(&user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal user data for github ID %s: %w", githubUserID, err)
+	}
+
+	return &user, nil
+}
+
+func (fs *FirestoreService) GetUserByGitHubUsername(ctx context.Context, githubUsername string) (*models.User, error) {
+	iter := fs.client.Collection("users").Where("github_username", "==", githubUsername).Documents(ctx)
+	doc, err := iter.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get user by github username %s: %w", githubUsername, err)
+	}
+
+	var user models.User
+	err = doc.DataTo(&user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal user data for github username %s: %w", githubUsername, err)
 	}
 
 	return &user, nil
