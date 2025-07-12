@@ -27,16 +27,22 @@ if [ -z "$FIRESTORE_DATABASE_ID" ]; then
     exit 1
 fi
 
+# Set default region if not specified
+if [ -z "$GCP_REGION" ]; then
+    GCP_REGION="europe-west1"
+fi
+
 PROJECT_ID="$FIRESTORE_PROJECT_ID"
 DATABASE_ID="$FIRESTORE_DATABASE_ID"
+REGION="$GCP_REGION"
 SERVICE_NAME="github-slack-notifier"
-REGION="us-central1"
 REPO_NAME="github-slack-notifier"
 IMAGE_NAME="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${SERVICE_NAME}"
 
 echo "🚀 Deploying GitHub-Slack Notifier to GCP..."
 echo "📊 Project: $PROJECT_ID"
 echo "📊 Database: $DATABASE_ID"
+echo "🌍 Region: $REGION"
 
 # Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
@@ -56,7 +62,7 @@ fi
 gcloud config set project "$PROJECT_ID"
 
 # Configure Docker authentication
-gcloud auth configure-docker $REGION-docker.pkg.dev
+gcloud auth configure-docker "$REGION-docker.pkg.dev"
 
 echo "📦 Building Docker image..."
 docker build -t "${IMAGE_NAME}" .
@@ -65,16 +71,16 @@ echo "🔄 Pushing image to Artifact Registry..."
 docker push "${IMAGE_NAME}"
 
 echo "☁️  Deploying to Cloud Run..."
-gcloud run deploy ${SERVICE_NAME} \
+gcloud run deploy "${SERVICE_NAME}" \
   --image="${IMAGE_NAME}" \
   --platform=managed \
-  --region=${REGION} \
+  --region="${REGION}" \
   --allow-unauthenticated \
   --port=8080 \
   --memory=1Gi \
   --cpu=1 \
   --max-instances=10 \
-  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID}" \
+  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID},GCP_REGION=${REGION}" \
   --project="${PROJECT_ID}"
 
 echo "🔧 Getting service URL..."

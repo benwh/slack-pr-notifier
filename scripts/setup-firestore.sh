@@ -27,11 +27,18 @@ if [ -z "$FIRESTORE_DATABASE_ID" ]; then
     exit 1
 fi
 
+# Set default region if not specified
+if [ -z "$GCP_REGION" ]; then
+    GCP_REGION="europe-west1"
+fi
+
 PROJECT_ID="$FIRESTORE_PROJECT_ID"
 DATABASE_ID="$FIRESTORE_DATABASE_ID"
+REGION="$GCP_REGION"
 
 echo "🔥 Setting up Firestore for project: $PROJECT_ID"
 echo "📊 Database ID: $DATABASE_ID"
+echo "🌍 Region: $REGION"
 
 # Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
@@ -60,10 +67,10 @@ gcloud services enable artifactregistry.googleapis.com
 
 # Create Firestore database
 echo "🗄️  Creating Firestore database..."
-if gcloud firestore databases describe --database="$DATABASE_ID" --location=us-central1 2>/dev/null; then
+if gcloud firestore databases describe --database="$DATABASE_ID" --location="$REGION" 2>/dev/null; then
     echo "✅ Firestore database already exists"
 else
-    gcloud firestore databases create --database="$DATABASE_ID" --location=us-central1 --type=firestore-native
+    gcloud firestore databases create --database="$DATABASE_ID" --location="$REGION" --type=firestore-native
     echo "✅ Firestore database created"
 fi
 
@@ -105,22 +112,21 @@ rm firestore.indexes.json
 
 # Create Artifact Registry repository
 echo "🏺 Creating Artifact Registry repository..."
-REGION="us-central1"
 REPO_NAME="github-slack-notifier"
 
-if gcloud artifacts repositories describe $REPO_NAME --location=$REGION 2>/dev/null; then
+if gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" 2>/dev/null; then
     echo "✅ Artifact Registry repository already exists"
 else
-    gcloud artifacts repositories create $REPO_NAME \
+    gcloud artifacts repositories create "$REPO_NAME" \
         --repository-format=docker \
-        --location=$REGION \
+        --location="$REGION" \
         --description="Docker images for GitHub Slack Notifier"
     echo "✅ Artifact Registry repository created"
 fi
 
 # Configure Docker authentication
 echo "🐳 Configuring Docker authentication..."
-gcloud auth configure-docker $REGION-docker.pkg.dev
+gcloud auth configure-docker "$REGION-docker.pkg.dev"
 
 echo "🎉 Firestore and infrastructure setup complete!"
 echo ""

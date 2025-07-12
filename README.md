@@ -118,7 +118,7 @@ Create `.env` file based on `.env.example`
 
    ```bash
    gcloud run services update github-slack-notifier \
-     --region=us-central1 \
+     --region=europe-west1 \
      --project=your-project-id \
      --set-env-vars="SLACK_BOT_TOKEN=xoxb-...,GITHUB_WEBHOOK_SECRET=...,SLACK_SIGNING_SECRET=...,API_ADMIN_KEY=..."
    ```
