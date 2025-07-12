@@ -23,7 +23,6 @@ A Go application that sends Slack notifications for GitHub pull request events.
 1. **Clone and setup infrastructure**:
 
    ```bash
-   git clone <repo-url>
    cd github-slack-notifier
    ./scripts/setup-firestore.sh
    ```
@@ -32,7 +31,7 @@ A Go application that sends Slack notifications for GitHub pull request events.
 
    ```bash
    cp .env.example .env
-   # Edit .env with your configuration
+   # Now edit .env with your configuration
    ```
 
 ### Local Development
@@ -40,9 +39,6 @@ A Go application that sends Slack notifications for GitHub pull request events.
 ```bash
 # Run with ngrok tunnel
 ./scripts/dev.sh
-
-# Or run manually
-go run main.go
 ```
 
 ### Deploy to Production
@@ -61,7 +57,7 @@ Create `.env` file based on `.env.example`
 
 1. **Create GitHub App**:
    - Go to <https://github.com/settings/apps/new>
-   - Name: Slack PR notifier
+   - Name (make it unique): Slack PR notifier
    - Homepage URL: <https://example.com>
    - Webhook URL: Retrieve from dev.sh output
    - Secret: Use `pwgen -s 32 1`
@@ -97,14 +93,15 @@ Create `.env` file based on `.env.example`
    - Choose your workspace
 
 2. **Configure Bot Token**:
-   - Go to OAuth & Permissions
+   - Go to OAuth & Permissions in the app sidebar
    - Add scopes: `chat:write`, `chat:write.public`, `reactions:write`, `channels:read`, `groups:read`
    - Install app to workspace
    - Copy Bot User OAuth Token
 
-3. **Add Slash Commands** (optional):
+3. **Add Slash Commands**:
    - Go to Slash Commands
-   - Add each command with request URL `https://your-domain/webhooks/slack`:
+   - Add each command with request URL `https://your-domain/webhooks/slack`, and tick
+   'Escape ... sent to your app':
      - `/notify-channel` - Set default notification channel
      - `/notify-link` - Link GitHub account
      - `/notify-status` - View current settings
