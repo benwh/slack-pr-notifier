@@ -5,6 +5,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -16,25 +19,28 @@ import (
 	"github.com/google/uuid"
 )
 
-type GitHubAsyncHandler struct {
+var (
+	ErrUnsupportedEventType = errors.New("unsupported event type")
+	ErrMissingAction        = errors.New("missing required field: action")
+	ErrMissingRepository    = errors.New("missing required field: repository")
+)
+
+type GitHubHandler struct {
 	cloudTasksService *services.CloudTasksService
-	validationService *services.ValidationService
 	webhookSecret     string
 }
 
-func NewGitHubAsyncHandler(
+func NewGitHubHandler(
 	cloudTasksService *services.CloudTasksService,
-	validationService *services.ValidationService,
 	webhookSecret string,
-) *GitHubAsyncHandler {
-	return &GitHubAsyncHandler{
+) *GitHubHandler {
+	return &GitHubHandler{
 		cloudTasksService: cloudTasksService,
-		validationService: validationService,
 		webhookSecret:     webhookSecret,
 	}
 }
 
-func (h *GitHubAsyncHandler) HandleWebhook(c *gin.Context) {
+func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	startTime := time.Now()
 	traceID := c.GetString("trace_id")
 
@@ -66,7 +72,7 @@ func (h *GitHubAsyncHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	if err := h.validationService.ValidateWebhookPayload(eventType, body); err != nil {
+	if err := h.validateWebhookPayload(eventType, body); err != nil {
 		logger.Error("Invalid webhook payload", "error", err, "event_type", eventType)
 		c.JSON(400, gin.H{"error": "invalid payload"})
 		return
@@ -103,7 +109,7 @@ func (h *GitHubAsyncHandler) HandleWebhook(c *gin.Context) {
 	})
 }
 
-func (h *GitHubAsyncHandler) validateSignature(c *gin.Context) bool {
+func (h *GitHubHandler) validateSignature(c *gin.Context) bool {
 	signature := c.GetHeader("X-Hub-Signature-256")
 	if signature == "" {
 		return h.webhookSecret == ""
@@ -120,8 +126,34 @@ func (h *GitHubAsyncHandler) validateSignature(c *gin.Context) bool {
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
 }
 
-func (h *GitHubAsyncHandler) computeHMAC256(data []byte, secret string) string {
+func (h *GitHubHandler) computeHMAC256(data []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(data)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte) error {
+	switch eventType {
+	case "pull_request", "pull_request_review":
+		return h.validateGitHubPayload(payload)
+	default:
+		return fmt.Errorf("%w: %s", ErrUnsupportedEventType, eventType)
+	}
+}
+
+func (h *GitHubHandler) validateGitHubPayload(payload []byte) error {
+	var githubPayload map[string]interface{}
+	if err := json.Unmarshal(payload, &githubPayload); err != nil {
+		return fmt.Errorf("invalid JSON payload: %w", err)
+	}
+
+	if _, exists := githubPayload["action"]; !exists {
+		return ErrMissingAction
+	}
+
+	if _, exists := githubPayload["repository"]; !exists {
+		return ErrMissingRepository
+	}
+
+	return nil
 }

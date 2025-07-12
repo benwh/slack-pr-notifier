@@ -27,8 +27,7 @@ type App struct {
 	firestoreService     *services.FirestoreService
 	slackService         *services.SlackService
 	cloudTasksService    *services.CloudTasksService
-	validationService    *services.ValidationService
-	githubAsyncHandler   *handlers.GitHubAsyncHandler
+	githubHandler        *handlers.GitHubHandler
 	webhookWorkerHandler *handlers.WebhookWorkerHandler
 	slackHandler         *handlers.SlackHandler
 }
@@ -104,10 +103,8 @@ func main() {
 		}
 	}()
 
-	validationService := services.NewValidationService()
-	githubAsyncHandler := handlers.NewGitHubAsyncHandler(
+	githubHandler := handlers.NewGitHubHandler(
 		cloudTasksService,
-		validationService,
 		cfg.GitHubWebhookSecret,
 	)
 	webhookWorkerHandler := handlers.NewWebhookWorkerHandler(firestoreService, slackService, cfg)
@@ -117,8 +114,7 @@ func main() {
 		firestoreService:     firestoreService,
 		slackService:         slackService,
 		cloudTasksService:    cloudTasksService,
-		validationService:    validationService,
-		githubAsyncHandler:   githubAsyncHandler,
+		githubHandler:        githubHandler,
 		webhookWorkerHandler: webhookWorkerHandler,
 		slackHandler:         handlers.NewSlackHandler(firestoreService, slackService, cfg),
 	}
@@ -129,7 +125,7 @@ func main() {
 	router.Use(middleware.LoggingMiddleware())
 
 	// Configure webhook routes
-	router.POST("/webhooks/github", app.githubAsyncHandler.HandleWebhook)
+	router.POST("/webhooks/github", app.githubHandler.HandleWebhook)
 	router.POST("/process-webhook", app.webhookWorkerHandler.ProcessWebhook)
 
 	router.POST("/webhooks/slack", app.slackHandler.HandleWebhook)

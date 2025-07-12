@@ -8,16 +8,18 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestGitHubAsyncHandler_validateSignature tests the HMAC-SHA256 signature validation logic
+// TestGitHubHandler_validateSignature tests the HMAC-SHA256 signature validation logic
 // for GitHub webhooks. This ensures our custom signature validation correctly implements
 // the GitHub webhook signature verification algorithm.
-func TestGitHubAsyncHandler_validateSignature(t *testing.T) {
+func TestGitHubHandler_validateSignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -67,8 +69,7 @@ func TestGitHubAsyncHandler_validateSignature(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create handler
-			handler := NewGitHubAsyncHandler(
-				nil, // Not needed for signature validation
+			handler := NewGitHubHandler(
 				nil, // Not needed for signature validation
 				tt.webhookSecret,
 			)
@@ -98,9 +99,9 @@ func TestGitHubAsyncHandler_validateSignature(t *testing.T) {
 	}
 }
 
-// TestGitHubAsyncHandler_computeHMAC256 tests the HMAC-SHA256 computation helper function.
+// TestGitHubHandler_computeHMAC256 tests the HMAC-SHA256 computation helper function.
 // This verifies that our HMAC calculation produces the expected hash values for various inputs.
-func TestGitHubAsyncHandler_computeHMAC256(t *testing.T) {
+func TestGitHubHandler_computeHMAC256(t *testing.T) {
 	testCases := []struct {
 		name     string
 		data     string
@@ -130,7 +131,7 @@ func TestGitHubAsyncHandler_computeHMAC256(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a new handler with the test secret
-			handler := NewGitHubAsyncHandler(nil, nil, tc.secret)
+			handler := NewGitHubHandler(nil, tc.secret)
 			result := handler.computeHMAC256([]byte(tc.data), tc.secret)
 
 			// Calculate expected result
@@ -143,10 +144,10 @@ func TestGitHubAsyncHandler_computeHMAC256(t *testing.T) {
 	}
 }
 
-// TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders tests the HTTP-level header validation
+// TestGitHubHandler_HandleWebhook_SecurityHeaders tests the HTTP-level header validation
 // in the GitHub webhook handler. This ensures required headers (X-GitHub-Event, X-GitHub-Delivery)
 // are present and properly validated before processing.
-func TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
+func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -193,7 +194,7 @@ func TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create handler with empty secret to bypass signature validation
-			handler := NewGitHubAsyncHandler(nil, nil, "")
+			handler := NewGitHubHandler(nil, "")
 
 			// Create request
 			req, _ := http.NewRequest(http.MethodPost, "/webhook", bytes.NewBufferString(`{"test":"data"}`))
@@ -219,10 +220,10 @@ func TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 	}
 }
 
-// TestGitHubAsyncHandler_HandleWebhook_SignatureValidation tests the signature validation
+// TestGitHubHandler_HandleWebhook_SignatureValidation tests the signature validation
 // integration in the full HTTP request handler. This verifies that invalid signatures
 // are properly rejected with appropriate HTTP responses.
-func TestGitHubAsyncHandler_HandleWebhook_SignatureValidation(t *testing.T) {
+func TestGitHubHandler_HandleWebhook_SignatureValidation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -254,7 +255,7 @@ func TestGitHubAsyncHandler_HandleWebhook_SignatureValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create handler
-			handler := NewGitHubAsyncHandler(nil, nil, tt.webhookSecret)
+			handler := NewGitHubHandler(nil, tt.webhookSecret)
 
 			// Create request
 			req, _ := http.NewRequest(http.MethodPost, "/webhook", bytes.NewBufferString(tt.body))
@@ -282,14 +283,14 @@ func TestGitHubAsyncHandler_HandleWebhook_SignatureValidation(t *testing.T) {
 	}
 }
 
-// TestGitHubAsyncHandler_HandleWebhook_BodyReading tests the HTTP request body reading
+// TestGitHubHandler_HandleWebhook_BodyReading tests the HTTP request body reading
 // and error handling. This ensures that malformed requests are properly handled
 // and return appropriate error responses.
-func TestGitHubAsyncHandler_HandleWebhook_BodyReading(t *testing.T) {
+func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Create handler with empty secret to bypass signature validation
-	handler := NewGitHubAsyncHandler(nil, nil, "")
+	handler := NewGitHubHandler(nil, "")
 
 	// Create request with body that fails to read (simulate error)
 	req, _ := http.NewRequest(http.MethodPost, "/webhook", &errorReader{})
@@ -315,4 +316,122 @@ type errorReader struct{}
 
 func (e *errorReader) Read(p []byte) (int, error) {
 	return 0, io.ErrUnexpectedEOF
+}
+
+// TestGitHubHandler_validateWebhookPayload tests the webhook payload validation logic
+// for GitHub events. This verifies that we properly validate event types, JSON structure,
+// and required fields in webhook payloads.
+func TestGitHubHandler_validateWebhookPayload(t *testing.T) {
+	handler := &GitHubHandler{}
+
+	tests := []struct {
+		name        string
+		eventType   string
+		payload     []byte
+		expectedErr string
+	}{
+		{
+			name:        "Valid pull_request event",
+			eventType:   "pull_request",
+			payload:     []byte(`{"action":"opened","repository":{"name":"test"}}`),
+			expectedErr: "",
+		},
+		{
+			name:        "Valid pull_request_review event",
+			eventType:   "pull_request_review",
+			payload:     []byte(`{"action":"submitted","repository":{"name":"test"}}`),
+			expectedErr: "",
+		},
+		{
+			name:        "Unsupported event type",
+			eventType:   "push",
+			payload:     []byte(`{"ref":"refs/heads/main"}`),
+			expectedErr: "unsupported event type: push",
+		},
+		{
+			name:        "Invalid JSON payload",
+			eventType:   "pull_request",
+			payload:     []byte(`{"invalid":"json"`),
+			expectedErr: "invalid JSON payload",
+		},
+		{
+			name:        "Missing action field",
+			eventType:   "pull_request",
+			payload:     []byte(`{"repository":{"name":"test"}}`),
+			expectedErr: "missing required field: action",
+		},
+		{
+			name:        "Missing repository field",
+			eventType:   "pull_request",
+			payload:     []byte(`{"action":"opened"}`),
+			expectedErr: "missing required field: repository",
+		},
+		{
+			name:        "Empty payload",
+			eventType:   "pull_request",
+			payload:     []byte(`{}`),
+			expectedErr: "missing required field: action",
+		},
+		{
+			name:        "Null action field",
+			eventType:   "pull_request",
+			payload:     []byte(`{"action":null,"repository":{"name":"test"}}`),
+			expectedErr: "",
+		},
+		{
+			name:        "Null repository field",
+			eventType:   "pull_request",
+			payload:     []byte(`{"action":"opened","repository":null}`),
+			expectedErr: "",
+		},
+		{
+			name:        "Very large payload",
+			eventType:   "pull_request",
+			payload:     []byte(`{"action":"opened","repository":{"name":"` + strings.Repeat("a", 1000) + `"}}`),
+			expectedErr: "",
+		},
+		{
+			name:        "Empty event type",
+			eventType:   "",
+			payload:     []byte(`{"action":"opened","repository":{"name":"test"}}`),
+			expectedErr: "unsupported event type: ",
+		},
+		{
+			name:        "Whitespace in event type",
+			eventType:   " pull_request ",
+			payload:     []byte(`{"action":"opened","repository":{"name":"test"}}`),
+			expectedErr: "unsupported event type:  pull_request ",
+		},
+		{
+			name:        "Case sensitive event type",
+			eventType:   "Pull_Request",
+			payload:     []byte(`{"action":"opened","repository":{"name":"test"}}`),
+			expectedErr: "unsupported event type: Pull_Request",
+		},
+		{
+			name:        "Nil payload",
+			eventType:   "pull_request",
+			payload:     nil,
+			expectedErr: "invalid JSON payload",
+		},
+		{
+			name:        "Empty payload bytes",
+			eventType:   "pull_request",
+			payload:     []byte{},
+			expectedErr: "invalid JSON payload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := handler.validateWebhookPayload(tt.eventType, tt.payload)
+
+			if tt.expectedErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			}
+		})
+	}
 }

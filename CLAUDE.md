@@ -49,16 +49,16 @@ staticcheck ./...
 ### Core Components
 
 - **cmd/github-slack-notifier/main.go**: Application entry point with HTTP server setup, graceful shutdown, and dependency injection
-- **internal/handlers/**: HTTP handlers for async GitHub webhooks (`github_async.go`), webhook workers (`webhook_worker.go`), and Slack webhooks (`slack.go`)
-- **internal/services/**: Business logic layer with `FirestoreService`, `SlackService`, `CloudTasksService`, and `ValidationService`
+- **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`), webhook workers (`webhook_worker.go`), and Slack webhooks (`slack.go`)
+- **internal/services/**: Business logic layer with `FirestoreService`, `SlackService`, and `CloudTasksService`
 - **internal/models/**: Data structures for `User`, `Message`, `Repo`, and `WebhookJob` entities
 - **internal/middleware/**: HTTP middleware including structured logging with trace IDs
 - **internal/log/**: Custom logging utilities with context support
 
-### Async Processing Architecture
+### Processing Architecture
 
 **Fast Path (< 100ms):**
-1. **GitHub Webhook** → `handlers/github_async.go` → validates signature & payload → creates `WebhookJob` → queues to Cloud Tasks → returns 200
+1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` → queues to Cloud Tasks → returns 200
 
 **Slow Path (reliable, retryable):**
 2. **Cloud Tasks** → `handlers/webhook_worker.go` → processes business logic → updates Firestore → sends Slack notifications
