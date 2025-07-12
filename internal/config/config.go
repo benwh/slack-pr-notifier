@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -152,20 +151,6 @@ func getEnvDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-// getEnvBool gets a boolean environment variable with a default value.
-// Panics if the value cannot be parsed as a boolean.
-func getEnvBool(key string, defaultValue bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	b, err := strconv.ParseBool(value)
-	if err != nil {
-		panic(fmt.Sprintf("invalid boolean value for %s: %s", key, value))
-	}
-	return b
 }
 
 // getEnvDuration gets a duration environment variable with a default value.
