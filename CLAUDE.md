@@ -14,7 +14,7 @@ This is a Go-based GitHub-Slack notifier that sends Slack notifications for GitH
 ./scripts/dev.sh
 
 # Build the application
-go build -o github-slack-notifier
+go build -o github-slack-notifier ./cmd/github-slack-notifier
 
 # Run tests
 go test ./...
@@ -48,11 +48,12 @@ staticcheck ./...
 
 ### Core Components
 
-- **main.go**: Application entry point with HTTP server setup, graceful shutdown, and dependency injection
-- **handlers/**: HTTP handlers for GitHub webhooks (`github.go`) and Slack webhooks (`slack.go`)
-- **services/**: Business logic layer with `FirestoreService` for database operations and `SlackService` for Slack API interactions
-- **models/**: Data structures for `User`, `Message`, and `Repo` entities
-- **middleware/**: HTTP middleware including structured logging
+- **cmd/github-slack-notifier/main.go**: Application entry point with HTTP server setup, graceful shutdown, and dependency injection
+- **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`) and Slack webhooks (`slack.go`)
+- **internal/services/**: Business logic layer with `FirestoreService` for database operations and `SlackService` for Slack API interactions
+- **internal/models/**: Data structures for `User`, `Message`, and `Repo` entities
+- **internal/middleware/**: HTTP middleware including structured logging
+- **internal/log/**: Custom logging utilities with context support
 
 ### Data Flow
 
@@ -101,7 +102,7 @@ Use Go's built-in testing framework:
 go test ./...
 
 # Test specific package
-go test ./handlers
+go test ./internal/handlers
 
 # Test with verbose output
 go test -v ./...

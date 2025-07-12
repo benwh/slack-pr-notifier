@@ -81,7 +81,7 @@ if ! watchexec \
     --ignore .gitignore \
     --debounce 500ms \
     --shell bash \
-    "echo '🔄 Rebuilding application...' && PORT=$DEV_PORT go run main.go" & then
+    "echo '🔄 Rebuilding application...' && PORT=$DEV_PORT go run ./cmd/github-slack-notifier" & then
     echo "❌ Failed to start watchexec"
     exit 1
 fi

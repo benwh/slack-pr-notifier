@@ -10,9 +10,9 @@ import (
 	"io"
 	"net/http"
 
-	"github-slack-notifier/log"
-	"github-slack-notifier/models"
-	"github-slack-notifier/services"
+	"github-slack-notifier/internal/log"
+	"github-slack-notifier/internal/models"
+	"github-slack-notifier/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
