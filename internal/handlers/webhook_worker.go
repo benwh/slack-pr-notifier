@@ -175,7 +175,6 @@ func (h *WebhookWorkerHandler) processPullRequestEvent(ctx context.Context, job 
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		log.Error(ctx, "Failed to unmarshal pull request payload",
 			"error", err,
-			"job_id", job.ID,
 			"payload_size", len(job.Payload),
 		)
 		return fmt.Errorf("failed to unmarshal pull request payload: %w", err)
@@ -209,7 +208,6 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		log.Error(ctx, "Failed to unmarshal pull request review payload",
 			"error", err,
-			"job_id", job.ID,
 			"payload_size", len(job.Payload),
 		)
 		return fmt.Errorf("failed to unmarshal pull request review payload: %w", err)
@@ -233,20 +231,11 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 	if err != nil {
 		log.Error(ctx, "Failed to get message for PR review reaction",
 			"error", err,
-			"repo", payload.Repository.FullName,
-			"pr_number", payload.PullRequest.Number,
-			"reviewer", payload.Review.User.Login,
-			"review_state", payload.Review.State,
 		)
 		return err
 	}
 	if message == nil {
-		log.Warn(ctx, "No message found for PR review reaction",
-			"repo", payload.Repository.FullName,
-			"pr_number", payload.PullRequest.Number,
-			"reviewer", payload.Review.User.Login,
-			"review_state", payload.Review.State,
-		)
+		log.Warn(ctx, "No message found for PR review reaction")
 		return nil
 	}
 
@@ -259,8 +248,6 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 				"channel", message.SlackChannel,
 				"message_ts", message.SlackMessageTS,
 				"emoji", emoji,
-				"reviewer", payload.Review.User.Login,
-				"review_state", payload.Review.State,
 			)
 			return err
 		}
@@ -273,7 +260,6 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 			"error", err,
 			"message_id", message.ID,
 			"new_status", message.LastStatus,
-			"reviewer", payload.Review.User.Login,
 		)
 		return err
 	}
@@ -287,8 +273,6 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 	}
 
 	log.Debug(ctx, "Processing PR opened",
-		"pr_number", payload.PullRequest.Number,
-		"author", payload.PullRequest.User.Login,
 		"title", payload.PullRequest.Title,
 	)
 
@@ -299,8 +283,6 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		log.Error(ctx, "Failed to lookup user by GitHub username",
 			"error", err,
 			"github_username", authorUsername,
-			"pr_number", payload.PullRequest.Number,
-			"repo", payload.Repository.FullName,
 		)
 		return err
 	}
@@ -315,14 +297,11 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		targetChannel = user.DefaultChannel
 		log.Debug(ctx, "Using user default channel", "channel", targetChannel)
 	} else {
-		log.Debug(ctx, "Looking up repo default channel", "repo", payload.Repository.FullName)
+		log.Debug(ctx, "Looking up repo default channel")
 		repo, err := h.firestoreService.GetRepo(ctx, payload.Repository.FullName)
 		if err != nil {
 			log.Error(ctx, "Failed to lookup repository configuration",
 				"error", err,
-				"repo", payload.Repository.FullName,
-				"pr_number", payload.PullRequest.Number,
-				"author", authorUsername,
 			)
 			return err
 		}
@@ -330,7 +309,7 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 			targetChannel = repo.DefaultChannel
 			log.Debug(ctx, "Using repo default channel", "channel", targetChannel)
 		} else {
-			log.Debug(ctx, "No repo found in database", "repo", payload.Repository.FullName)
+			log.Debug(ctx, "No repo found in database")
 		}
 	}
 
@@ -354,18 +333,13 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		log.Error(ctx, "Failed to post PR message to Slack",
 			"error", err,
 			"channel", targetChannel,
-			"repo", payload.Repository.Name,
-			"pr_number", payload.PullRequest.Number,
-			"author", payload.PullRequest.User.Login,
+			"repo_name", payload.Repository.Name,
 			"pr_title", payload.PullRequest.Title,
 		)
 		return err
 	}
 	log.Info(ctx, "Posted PR notification to Slack",
 		"channel", targetChannel,
-		"pr_number", payload.PullRequest.Number,
-		"repo", payload.Repository.FullName,
-		"author", payload.PullRequest.User.Login,
 	)
 
 	message := &models.Message{
@@ -378,16 +352,13 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		LastStatus:           PRActionOpened,
 	}
 
-	log.Debug(ctx, "Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
+	log.Debug(ctx, "Saving message to database", "channel", message.SlackChannel)
 	err = h.firestoreService.CreateMessage(ctx, message)
 	if err != nil {
 		log.Error(ctx, "Failed to save message to database",
 			"error", err,
-			"pr_number", message.PRNumber,
-			"repo", message.RepoFullName,
 			"channel", message.SlackChannel,
 			"message_ts", message.SlackMessageTS,
-			"author", message.AuthorGitHubUsername,
 		)
 		return err
 	}
@@ -400,16 +371,12 @@ func (h *WebhookWorkerHandler) handlePRClosed(ctx context.Context, payload *GitH
 	if err != nil {
 		log.Error(ctx, "Failed to get message for PR closed reaction",
 			"error", err,
-			"repo", payload.Repository.FullName,
-			"pr_number", payload.PullRequest.Number,
 			"merged", payload.PullRequest.Merged,
 		)
 		return err
 	}
 	if message == nil {
 		log.Warn(ctx, "No message found for PR closed reaction",
-			"repo", payload.Repository.FullName,
-			"pr_number", payload.PullRequest.Number,
 			"merged", payload.PullRequest.Merged,
 		)
 		return nil

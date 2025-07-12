@@ -78,7 +78,7 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	}
 
 	if err := h.validateWebhookPayload(eventType, payload); err != nil {
-		log.Error(ctx, "Invalid webhook payload", "error", err, "event_type", eventType)
+		log.Error(ctx, "Invalid webhook payload", "error", err)
 		c.JSON(400, gin.H{"error": "invalid payload"})
 		return
 	}
@@ -103,7 +103,6 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	processingTime := time.Since(startTime)
 	log.Info(ctx, "Webhook queued successfully",
 		"job_id", job.ID,
-		"event_type", eventType,
 		"processing_time_ms", processingTime.Milliseconds(),
 	)
 
