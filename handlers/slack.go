@@ -106,7 +106,8 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 
 func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID, text string) (string, error) {
 	if text == "" {
-		return "📝 **Usage:** `/notify-channel #channel-name`\n\nSet your default channel for GitHub PR notifications. Example: `/notify-channel #engineering`", nil
+		return "📝 **Usage:** `/notify-channel #channel-name`\n\n" +
+			"Set your default channel for GitHub PR notifications. Example: `/notify-channel #engineering`", nil
 	}
 
 	channel := strings.TrimPrefix(text, "#")
@@ -116,7 +117,10 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 	err := sh.slackService.ValidateChannel(channel)
 	if err != nil {
-		return fmt.Sprintf("❌ Channel #%s not found or bot doesn't have access. Make sure the channel exists and the bot has been invited to it.", channel), nil
+		// Return user-friendly message for channel validation errors (user input error, not system error)
+		//nolint:nilerr
+		return fmt.Sprintf("❌ Channel #%s not found or bot doesn't have access. "+
+			"Make sure the channel exists and the bot has been invited to it.", channel), nil
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
@@ -143,7 +147,8 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
 	if text == "" {
-		return "🔗 **Usage:** `/notify-link github-username`\n\nLink your GitHub account to receive personalized PR notifications. Example: `/notify-link octocat`", nil
+		return "🔗 **Usage:** `/notify-link github-username`\n\n" +
+			"Link your GitHub account to receive personalized PR notifications. Example: `/notify-link octocat`", nil
 	}
 
 	githubUsername := strings.TrimSpace(text)

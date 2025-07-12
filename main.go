@@ -38,7 +38,7 @@ func main() {
 	if os.Getenv("LOG_LEVEL") == "debug" {
 		logLevel = slog.LevelDebug
 	}
-	
+
 	if isDev {
 		// Use text format for development
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{

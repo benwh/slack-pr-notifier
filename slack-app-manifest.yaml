@@ -10,7 +10,6 @@ display_information:
   description: "Automatically notify Slack channels about GitHub pull request events"
   long_description: "This app receives GitHub webhook events and posts formatted notifications to Slack channels when pull requests are opened, reviewed, merged, or closed. It supports per-repository channel configuration and emoji reactions for review states."
   background_color: "#24292e"  # GitHub's dark color
-  
 features:
   bot_user:
     display_name: "GitHub PR Bot"
@@ -31,11 +30,9 @@ settings:
     # We don't need to subscribe to Slack events since we're webhook-driven
     # But we might want to handle app mentions or direct messages in the future
     bot_events: []
-  
   interactivity:
     # Enable if you want interactive components in the future
     is_enabled: false
-    
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
