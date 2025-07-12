@@ -8,6 +8,7 @@ import (
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	cloudtaskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -31,6 +32,13 @@ func NewCloudTasksService(config CloudTasksConfig) (*CloudTasksService, error) {
 	ctx := context.Background()
 	client, err := cloudtasks.NewClient(ctx)
 	if err != nil {
+		log.Error(ctx, "Failed to create Cloud Tasks client",
+			"error", err,
+			"project_id", config.ProjectID,
+			"location", config.Location,
+			"queue_name", config.QueueName,
+			"operation", "create_cloud_tasks_client",
+		)
 		return nil, fmt.Errorf("failed to create Cloud Tasks client: %w", err)
 	}
 
@@ -49,11 +57,23 @@ func (cts *CloudTasksService) Close() error {
 
 func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.WebhookJob) error {
 	if err := job.Validate(); err != nil {
+		log.Error(ctx, "Invalid webhook job for Cloud Tasks",
+			"error", err,
+			"job_id", job.ID,
+			"event_type", job.EventType,
+			"operation", "validate_webhook_job",
+		)
 		return fmt.Errorf("invalid job: %w", err)
 	}
 
 	payload, err := json.Marshal(job)
 	if err != nil {
+		log.Error(ctx, "Failed to marshal webhook job for Cloud Tasks",
+			"error", err,
+			"job_id", job.ID,
+			"event_type", job.EventType,
+			"operation", "marshal_webhook_job",
+		)
 		return fmt.Errorf("failed to marshal job: %w", err)
 	}
 
@@ -83,6 +103,14 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 
 	createdTask, err := cts.client.CreateTask(ctx, req)
 	if err != nil {
+		log.Error(ctx, "Failed to create Cloud Tasks task",
+			"error", err,
+			"job_id", job.ID,
+			"event_type", job.EventType,
+			"queue_path", queuePath,
+			"worker_url", cts.workerURL,
+			"operation", "create_cloud_tasks_task",
+		)
 		return fmt.Errorf("failed to create task: %w", err)
 	}
 

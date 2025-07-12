@@ -110,7 +110,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 		return "❌ Please provide a valid channel name. Example: `/notify-channel #engineering`", nil
 	}
 
-	err := sh.slackService.ValidateChannel(channel)
+	err := sh.slackService.ValidateChannel(ctx, channel)
 	if err != nil {
 		// Log the actual Slack API error for debugging
 		log.Error(ctx, "Channel validation failed",

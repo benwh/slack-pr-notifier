@@ -16,6 +16,7 @@ import (
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/handlers"
+	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/middleware"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
@@ -184,6 +185,12 @@ func (app *App) handleRepoRegistration(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		ctx := c.Request.Context()
+		log.Error(ctx, "Invalid JSON in repository registration request",
+			"error", err,
+			"content_type", c.ContentType(),
+			"content_length", c.Request.ContentLength,
+		)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
@@ -195,9 +202,15 @@ func (app *App) handleRepoRegistration(c *gin.Context) {
 		Enabled:        true,
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	err := app.firestoreService.CreateRepo(ctx, repo)
 	if err != nil {
+		log.Error(ctx, "Failed to create repository registration",
+			"error", err,
+			"repo_full_name", req.RepoFullName,
+			"default_channel", req.DefaultChannel,
+			"operation", "register_repository",
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -39,12 +40,22 @@ func (fs *FirestoreService) GetUserBySlackID(ctx context.Context, slackUserID st
 		if status.Code(err) == codes.NotFound || err.Error() == "no more items in iterator" {
 			return nil, nil
 		}
+		log.Error(ctx, "Failed to query user by Slack ID",
+			"error", err,
+			"slack_user_id", slackUserID,
+			"operation", "query_user_by_slack_id",
+		)
 		return nil, fmt.Errorf("failed to query user by slack ID %s: %w", slackUserID, err)
 	}
 
 	var user models.User
 	err = doc.DataTo(&user)
 	if err != nil {
+		log.Error(ctx, "Failed to unmarshal user data by Slack ID",
+			"error", err,
+			"slack_user_id", slackUserID,
+			"operation", "unmarshal_user_data",
+		)
 		return nil, fmt.Errorf("failed to unmarshal user data for slack ID %s: %w", slackUserID, err)
 	}
 
@@ -57,12 +68,22 @@ func (fs *FirestoreService) GetUserByGitHubID(ctx context.Context, githubUserID 
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
+		log.Error(ctx, "Failed to get user by GitHub ID",
+			"error", err,
+			"github_user_id", githubUserID,
+			"operation", "get_user_by_github_id",
+		)
 		return nil, fmt.Errorf("failed to get user by github ID %s: %w", githubUserID, err)
 	}
 
 	var user models.User
 	err = doc.DataTo(&user)
 	if err != nil {
+		log.Error(ctx, "Failed to unmarshal user data by GitHub ID",
+			"error", err,
+			"github_user_id", githubUserID,
+			"operation", "unmarshal_user_data",
+		)
 		return nil, fmt.Errorf("failed to unmarshal user data for github ID %s: %w", githubUserID, err)
 	}
 
@@ -76,12 +97,22 @@ func (fs *FirestoreService) GetUserByGitHubUsername(ctx context.Context, githubU
 		if errors.Is(err, iterator.Done) {
 			return nil, nil
 		}
+		log.Error(ctx, "Failed to get user by GitHub username",
+			"error", err,
+			"github_username", githubUsername,
+			"operation", "query_user_by_github_username",
+		)
 		return nil, fmt.Errorf("failed to get user by github username %s: %w", githubUsername, err)
 	}
 
 	var user models.User
 	err = doc.DataTo(&user)
 	if err != nil {
+		log.Error(ctx, "Failed to unmarshal user data by GitHub username",
+			"error", err,
+			"github_username", githubUsername,
+			"operation", "unmarshal_user_data",
+		)
 		return nil, fmt.Errorf("failed to unmarshal user data for github username %s: %w", githubUsername, err)
 	}
 
@@ -96,6 +127,13 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 
 	_, err := fs.client.Collection("users").Doc(user.ID).Set(ctx, user)
 	if err != nil {
+		log.Error(ctx, "Failed to create or update user",
+			"error", err,
+			"user_id", user.ID,
+			"slack_user_id", user.SlackUserID,
+			"github_username", user.GitHubUsername,
+			"operation", "create_or_update_user",
+		)
 		return fmt.Errorf("failed to create or update user %s: %w", user.ID, err)
 	}
 	return nil
@@ -116,12 +154,24 @@ func (fs *FirestoreService) GetMessage(
 		if status.Code(err) == codes.NotFound || err.Error() == "no more items in iterator" {
 			return nil, nil
 		}
+		log.Error(ctx, "Failed to query message",
+			"error", err,
+			"repo", repoFullName,
+			"pr_number", prNumber,
+			"operation", "query_message",
+		)
 		return nil, fmt.Errorf("failed to query message for repo %s PR %d: %w", repoFullName, prNumber, err)
 	}
 
 	var message models.Message
 	err = doc.DataTo(&message)
 	if err != nil {
+		log.Error(ctx, "Failed to unmarshal message data",
+			"error", err,
+			"repo", repoFullName,
+			"pr_number", prNumber,
+			"operation", "unmarshal_message_data",
+		)
 		return nil, fmt.Errorf("failed to unmarshal message data for repo %s PR %d: %w", repoFullName, prNumber, err)
 	}
 
@@ -135,6 +185,14 @@ func (fs *FirestoreService) CreateMessage(ctx context.Context, message *models.M
 
 	_, err := docRef.Set(ctx, message)
 	if err != nil {
+		log.Error(ctx, "Failed to create message",
+			"error", err,
+			"repo", message.RepoFullName,
+			"pr_number", message.PRNumber,
+			"slack_channel", message.SlackChannel,
+			"author", message.AuthorGitHubUsername,
+			"operation", "create_message",
+		)
 		return fmt.Errorf("failed to create message for repo %s PR %d: %w", message.RepoFullName, message.PRNumber, err)
 	}
 	return nil
@@ -143,6 +201,14 @@ func (fs *FirestoreService) CreateMessage(ctx context.Context, message *models.M
 func (fs *FirestoreService) UpdateMessage(ctx context.Context, message *models.Message) error {
 	_, err := fs.client.Collection("messages").Doc(message.ID).Set(ctx, message)
 	if err != nil {
+		log.Error(ctx, "Failed to update message",
+			"error", err,
+			"message_id", message.ID,
+			"repo", message.RepoFullName,
+			"pr_number", message.PRNumber,
+			"last_status", message.LastStatus,
+			"operation", "update_message",
+		)
 		return fmt.Errorf("failed to update message %s: %w", message.ID, err)
 	}
 	return nil
@@ -154,12 +220,22 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
+		log.Error(ctx, "Failed to get repository",
+			"error", err,
+			"repo", repoFullName,
+			"operation", "get_repo",
+		)
 		return nil, fmt.Errorf("failed to get repo %s: %w", repoFullName, err)
 	}
 
 	var repo models.Repo
 	err = doc.DataTo(&repo)
 	if err != nil {
+		log.Error(ctx, "Failed to unmarshal repository data",
+			"error", err,
+			"repo", repoFullName,
+			"operation", "unmarshal_repo_data",
+		)
 		return nil, fmt.Errorf("failed to unmarshal repo data for %s: %w", repoFullName, err)
 	}
 
@@ -170,6 +246,12 @@ func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) e
 	repo.CreatedAt = time.Now()
 	_, err := fs.client.Collection("repos").Doc(fs.encodeRepoName(repo.ID)).Set(ctx, repo)
 	if err != nil {
+		log.Error(ctx, "Failed to create repository",
+			"error", err,
+			"repo", repo.ID,
+			"default_channel", repo.DefaultChannel,
+			"operation", "create_repo",
+		)
 		return fmt.Errorf("failed to create repo %s: %w", repo.ID, err)
 	}
 	return nil

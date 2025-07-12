@@ -2,12 +2,14 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github-slack-notifier/internal/config"
+	"github-slack-notifier/internal/log"
 	"github.com/slack-go/slack"
 )
 
@@ -24,19 +26,28 @@ func NewSlackService(client *slack.Client, emojiConfig config.EmojiConfig) *Slac
 }
 
 func (s *SlackService) PostPRMessage(
-	channel, repoName, prTitle, prAuthor, prDescription, prURL string,
+	ctx context.Context, channel, repoName, prTitle, prAuthor, prDescription, prURL string,
 ) (string, error) {
 	text := fmt.Sprintf("🐜 <%s|%s by %s>", prURL, prTitle, prAuthor)
 
 	_, timestamp, err := s.client.PostMessage(channel, slack.MsgOptionText(text, false))
 	if err != nil {
+		log.Error(ctx, "Failed to post PR message to Slack",
+			"error", err,
+			"channel", channel,
+			"repo_name", repoName,
+			"pr_title", prTitle,
+			"pr_author", prAuthor,
+			"pr_url", prURL,
+			"operation", "post_pr_message",
+		)
 		return "", fmt.Errorf("failed to post PR message to channel %s for repo %s: %w", channel, repoName, err)
 	}
 
 	return timestamp, nil
 }
 
-func (s *SlackService) AddReaction(channel, timestamp, emoji string) error {
+func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoji string) error {
 	msgRef := slack.NewRefToMessage(channel, timestamp)
 	err := s.client.AddReaction(emoji, msgRef)
 	if err != nil {
@@ -57,16 +68,28 @@ func (s *SlackService) AddReaction(channel, timestamp, emoji string) error {
 		// Additional check: just to be thorough with any error containing the string
 		// This should catch it regardless of the exact error type
 
+		log.Error(ctx, "Failed to add reaction to Slack message",
+			"error", err,
+			"channel", channel,
+			"message_timestamp", timestamp,
+			"emoji", emoji,
+			"operation", "add_reaction",
+		)
 		return fmt.Errorf("failed to add reaction %s to message %s in channel %s: %w", emoji, timestamp, channel, err)
 	}
 	return nil
 }
 
-func (s *SlackService) ValidateChannel(channel string) error {
+func (s *SlackService) ValidateChannel(ctx context.Context, channel string) error {
 	_, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
 		ChannelID: channel,
 	})
 	if err != nil {
+		log.Error(ctx, "Failed to validate Slack channel",
+			"error", err,
+			"channel", channel,
+			"operation", "validate_channel",
+		)
 		return fmt.Errorf("failed to validate channel %s: %w", channel, err)
 	}
 	return nil

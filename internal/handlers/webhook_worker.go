@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github-slack-notifier/internal/config"
+	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 
@@ -79,10 +80,15 @@ func NewWebhookWorkerHandler(
 
 func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 	startTime := time.Now()
+	ctx := c.Request.Context()
 
 	var job models.WebhookJob
 	if err := c.ShouldBindJSON(&job); err != nil {
-		slog.Error("Invalid job payload", "error", err)
+		log.Error(ctx, "Invalid job payload - JSON binding failed",
+			"error", err,
+			"content_type", c.ContentType(),
+			"content_length", c.Request.ContentLength,
+		)
 		c.JSON(400, gin.H{"error": "invalid job payload"})
 		return
 	}
@@ -167,6 +173,11 @@ func (h *WebhookWorkerHandler) processWebhookPayload(ctx context.Context, job *m
 func (h *WebhookWorkerHandler) processPullRequestEvent(ctx context.Context, job *models.WebhookJob) error {
 	var payload GitHubWebhookPayload
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		log.Error(ctx, "Failed to unmarshal pull request payload",
+			"error", err,
+			"job_id", job.ID,
+			"payload_size", len(job.Payload),
+		)
 		return fmt.Errorf("failed to unmarshal pull request payload: %w", err)
 	}
 
@@ -190,6 +201,11 @@ func (h *WebhookWorkerHandler) processPullRequestEvent(ctx context.Context, job 
 func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context, job *models.WebhookJob) error {
 	var payload GitHubWebhookPayload
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		log.Error(ctx, "Failed to unmarshal pull request review payload",
+			"error", err,
+			"job_id", job.ID,
+			"payload_size", len(job.Payload),
+		)
 		return fmt.Errorf("failed to unmarshal pull request review payload: %w", err)
 	}
 
@@ -198,20 +214,54 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 	}
 
 	message, err := h.firestoreService.GetMessage(ctx, payload.Repository.FullName, payload.PullRequest.Number)
-	if err != nil || message == nil {
+	if err != nil {
+		log.Error(ctx, "Failed to get message for PR review reaction",
+			"error", err,
+			"repo", payload.Repository.FullName,
+			"pr_number", payload.PullRequest.Number,
+			"reviewer", payload.Review.User.Login,
+			"review_state", payload.Review.State,
+		)
 		return err
+	}
+	if message == nil {
+		log.Warn(ctx, "No message found for PR review reaction",
+			"repo", payload.Repository.FullName,
+			"pr_number", payload.PullRequest.Number,
+			"reviewer", payload.Review.User.Login,
+			"review_state", payload.Review.State,
+		)
+		return nil
 	}
 
 	emoji := h.slackService.GetEmojiForReviewState(payload.Review.State)
 	if emoji != "" {
-		err = h.slackService.AddReaction(message.SlackChannel, message.SlackMessageTS, emoji)
+		err = h.slackService.AddReaction(ctx, message.SlackChannel, message.SlackMessageTS, emoji)
 		if err != nil {
+			log.Error(ctx, "Failed to add review reaction to Slack message",
+				"error", err,
+				"channel", message.SlackChannel,
+				"message_ts", message.SlackMessageTS,
+				"emoji", emoji,
+				"reviewer", payload.Review.User.Login,
+				"review_state", payload.Review.State,
+			)
 			return err
 		}
 	}
 
 	message.LastStatus = "review_" + payload.Review.State
-	return h.firestoreService.UpdateMessage(ctx, message)
+	err = h.firestoreService.UpdateMessage(ctx, message)
+	if err != nil {
+		log.Error(ctx, "Failed to update message status after review reaction",
+			"error", err,
+			"message_id", message.ID,
+			"new_status", message.LastStatus,
+			"reviewer", payload.Review.User.Login,
+		)
+		return err
+	}
+	return nil
 }
 
 func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitHubWebhookPayload) error {
@@ -230,7 +280,12 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 	slog.Debug("Looking up user by GitHub username", "github_username", authorUsername)
 	user, err := h.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
 	if err != nil {
-		slog.Error("Failed to lookup user", "github_username", authorUsername, "error", err)
+		log.Error(ctx, "Failed to lookup user by GitHub username",
+			"error", err,
+			"github_username", authorUsername,
+			"pr_number", payload.PullRequest.Number,
+			"repo", payload.Repository.FullName,
+		)
 		return err
 	}
 	slog.Debug("User lookup result", "user_found", user != nil)
@@ -247,7 +302,12 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		slog.Debug("Looking up repo default channel", "repo", payload.Repository.FullName)
 		repo, err := h.firestoreService.GetRepo(ctx, payload.Repository.FullName)
 		if err != nil {
-			slog.Error("Failed to lookup repo", "repo", payload.Repository.FullName, "error", err)
+			log.Error(ctx, "Failed to lookup repository configuration",
+				"error", err,
+				"repo", payload.Repository.FullName,
+				"pr_number", payload.PullRequest.Number,
+				"author", authorUsername,
+			)
 			return err
 		}
 		if repo != nil {
@@ -266,6 +326,7 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 	slog.Info("Posting PR message to Slack", "channel", targetChannel)
 
 	timestamp, err := h.slackService.PostPRMessage(
+		ctx,
 		targetChannel,
 		payload.Repository.Name,
 		payload.PullRequest.Title,
@@ -274,7 +335,14 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		payload.PullRequest.HTMLURL,
 	)
 	if err != nil {
-		slog.Error("Failed to post PR message to Slack", "channel", targetChannel, "error", err)
+		log.Error(ctx, "Failed to post PR message to Slack",
+			"error", err,
+			"channel", targetChannel,
+			"repo", payload.Repository.Name,
+			"pr_number", payload.PullRequest.Number,
+			"author", payload.PullRequest.User.Login,
+			"pr_title", payload.PullRequest.Title,
+		)
 		return err
 	}
 	slog.Info("Posted PR notification to Slack", "channel", targetChannel, "pr_number", payload.PullRequest.Number)
@@ -292,7 +360,14 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 	slog.Debug("Saving message to database", "pr_number", message.PRNumber, "channel", message.SlackChannel)
 	err = h.firestoreService.CreateMessage(ctx, message)
 	if err != nil {
-		slog.Error("Failed to save message to database", "error", err)
+		log.Error(ctx, "Failed to save message to database",
+			"error", err,
+			"pr_number", message.PRNumber,
+			"repo", message.RepoFullName,
+			"channel", message.SlackChannel,
+			"message_ts", message.SlackMessageTS,
+			"author", message.AuthorGitHubUsername,
+		)
 		return err
 	}
 	slog.Debug("Successfully saved message to database")
@@ -301,20 +376,51 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 
 func (h *WebhookWorkerHandler) handlePRClosed(ctx context.Context, payload *GitHubWebhookPayload) error {
 	message, err := h.firestoreService.GetMessage(ctx, payload.Repository.FullName, payload.PullRequest.Number)
-	if err != nil || message == nil {
+	if err != nil {
+		log.Error(ctx, "Failed to get message for PR closed reaction",
+			"error", err,
+			"repo", payload.Repository.FullName,
+			"pr_number", payload.PullRequest.Number,
+			"merged", payload.PullRequest.Merged,
+		)
 		return err
+	}
+	if message == nil {
+		log.Warn(ctx, "No message found for PR closed reaction",
+			"repo", payload.Repository.FullName,
+			"pr_number", payload.PullRequest.Number,
+			"merged", payload.PullRequest.Merged,
+		)
+		return nil
 	}
 
 	emoji := h.slackService.GetEmojiForPRState(PRActionClosed, payload.PullRequest.Merged)
 	if emoji != "" {
-		err = h.slackService.AddReaction(message.SlackChannel, message.SlackMessageTS, emoji)
+		err = h.slackService.AddReaction(ctx, message.SlackChannel, message.SlackMessageTS, emoji)
 		if err != nil {
+			log.Error(ctx, "Failed to add PR closed reaction to Slack message",
+				"error", err,
+				"channel", message.SlackChannel,
+				"message_ts", message.SlackMessageTS,
+				"emoji", emoji,
+				"merged", payload.PullRequest.Merged,
+			)
 			return err
 		}
 	}
 
 	message.LastStatus = PRActionClosed
-	return h.firestoreService.UpdateMessage(ctx, message)
+	err = h.firestoreService.UpdateMessage(ctx, message)
+	if err != nil {
+		log.Error(ctx, "Failed to update message status after PR closed",
+			"error", err,
+			"message_id", message.ID,
+			"new_status", message.LastStatus,
+			"merged", payload.PullRequest.Merged,
+		)
+		return err
+	}
+	return nil
 }
 
 func isRetryableError(err error) bool {
