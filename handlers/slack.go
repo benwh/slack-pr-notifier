@@ -145,7 +145,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 		return "", err
 	}
 
-	return "✅ Default notification channel set to #" + displayName, nil
+	return fmt.Sprintf("✅ Default notification channel set to <#%s|%s>", channel, displayName), nil
 }
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
@@ -200,7 +200,7 @@ func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (
 	}
 
 	if user.DefaultChannel != "" {
-		status += fmt.Sprintf("• Default Channel: #%s\n", user.DefaultChannel)
+		status += fmt.Sprintf("• Default Channel: <#%s>\n", user.DefaultChannel)
 	} else {
 		status += "• Default Channel: Not set\n"
 	}
