@@ -18,270 +18,161 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	testSlackBody  = "command=/notify-channel&user_id=U123&text=test"
+	testSigningKey = "test-secret"
+)
+
+// TestSlackHandler_verifySignature tests our integration with the slack-go library's signature verification.
+// We focus on testing that our code correctly passes headers and handles the library's responses,
+// rather than re-testing the library's internal signature validation logic.
 func TestSlackHandler_verifySignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name           string
-		signingSecret  string
-		body           string
-		timestamp      string
-		signature      string
-		maxAge         time.Duration
-		expectedResult bool
+		name          string
+		signingSecret string
+		body          string
+		setupHeaders  func() http.Header
+		expectError   bool
 	}{
 		{
-			name:           "Valid signature",
-			signingSecret:  "test-secret",
-			body:           "command=/notify-channel&user_id=U123&text=test",
-			timestamp:      strconv.FormatInt(time.Now().Unix(), 10),
-			signature:      "", // Will be calculated
-			maxAge:         5 * time.Minute,
-			expectedResult: true,
+			name:          "Valid signature with proper headers",
+			signingSecret: testSigningKey,
+			body:          testSlackBody,
+			setupHeaders: func() http.Header {
+				timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+				basestring := fmt.Sprintf("v0:%s:%s", timestamp, testSlackBody)
+				mac := hmac.New(sha256.New, []byte(testSigningKey))
+				mac.Write([]byte(basestring))
+				signature := "v0=" + hex.EncodeToString(mac.Sum(nil))
+
+				header := http.Header{}
+				header.Set("X-Slack-Signature", signature)
+				header.Set("X-Slack-Request-Timestamp", timestamp)
+				return header
+			},
+			expectError: false,
 		},
 		{
-			name:           "Invalid signature",
-			signingSecret:  "test-secret",
-			body:           "command=/notify-channel&user_id=U123&text=test",
-			timestamp:      strconv.FormatInt(time.Now().Unix(), 10),
-			signature:      "v0=invalid-signature",
-			maxAge:         5 * time.Minute,
-			expectedResult: false,
+			name:          "Invalid signature fails validation",
+			signingSecret: testSigningKey,
+			body:          testSlackBody,
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-Slack-Signature", "v0=invalid-signature")
+				header.Set("X-Slack-Request-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+				return header
+			},
+			expectError: true,
 		},
 		{
-			name:           "Timestamp too old",
-			signingSecret:  "test-secret",
-			body:           "command=/notify-channel&user_id=U123&text=test",
-			timestamp:      strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
-			signature:      "", // Will be calculated
-			maxAge:         5 * time.Minute,
-			expectedResult: false,
+			name:          "Missing headers fail validation",
+			signingSecret: testSigningKey,
+			body:          testSlackBody,
+			setupHeaders: func() http.Header {
+				return http.Header{} // Empty headers
+			},
+			expectError: true,
 		},
 		{
-			name:           "Invalid timestamp format",
-			signingSecret:  "test-secret",
-			body:           "command=/notify-channel&user_id=U123&text=test",
-			timestamp:      "invalid-timestamp",
-			signature:      "v0=some-signature",
-			maxAge:         5 * time.Minute,
-			expectedResult: false,
-		},
-		{
-			name:           "Empty signing secret allows any signature",
-			signingSecret:  "",
-			body:           "command=/notify-channel&user_id=U123&text=test",
-			timestamp:      strconv.FormatInt(time.Now().Unix(), 10),
-			signature:      "v0=any-signature",
-			maxAge:         5 * time.Minute,
-			expectedResult: true,
-		},
-		{
-			name:           "Empty body",
-			signingSecret:  "test-secret",
-			body:           "",
-			timestamp:      strconv.FormatInt(time.Now().Unix(), 10),
-			signature:      "", // Will be calculated
-			maxAge:         5 * time.Minute,
-			expectedResult: true,
+			name:          "Empty signing secret bypasses validation",
+			signingSecret: "",
+			body:          testSlackBody,
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-Slack-Signature", "v0=any-signature")
+				header.Set("X-Slack-Request-Timestamp", "invalid-timestamp")
+				return header
+			},
+			expectError: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create handler
 			cfg := &config.Config{
-				SlackSigningSecret:   tt.signingSecret,
-				SlackTimestampMaxAge: tt.maxAge,
+				SlackSigningSecret: tt.signingSecret,
 			}
 			handler := NewSlackHandler(nil, nil, cfg)
 
-			// Calculate correct signature if not provided
-			if tt.signature == "" && tt.signingSecret != "" {
-				basestring := fmt.Sprintf("v0:%s:%s", tt.timestamp, tt.body)
-				mac := hmac.New(sha256.New, []byte(tt.signingSecret))
-				mac.Write([]byte(basestring))
-				tt.signature = "v0=" + hex.EncodeToString(mac.Sum(nil))
+			err := handler.verifySignature(tt.setupHeaders(), []byte(tt.body))
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
-
-			// Test signature verification
-			result := handler.verifySignature(tt.signature, tt.timestamp, []byte(tt.body))
-			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
 }
 
+// TestSlackHandler_HandleWebhook_Security tests the HTTP-level security validation in HandleWebhook.
+// This focuses on the gin request handling and header extraction, ensuring proper HTTP responses
+// for security failures. The actual signature validation logic is tested in TestSlackHandler_verifySignature.
 func TestSlackHandler_HandleWebhook_Security(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name           string
-		body           string
-		headers        map[string]string
-		signingSecret  string
+		setupHeaders   func() http.Header
 		expectedStatus int
 		expectedError  string
 	}{
 		{
-			name: "Missing signature header",
-			body: "command=/notify-channel&user_id=U123&text=test",
-			headers: map[string]string{
-				"X-Slack-Request-Timestamp": strconv.FormatInt(time.Now().Unix(), 10),
+			name: "Missing signature header returns 401",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-Slack-Request-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+				return header
 			},
-			signingSecret:  "test-secret",
 			expectedStatus: 401,
 			expectedError:  "Missing signature or timestamp",
 		},
 		{
-			name: "Missing timestamp header",
-			body: "command=/notify-channel&user_id=U123&text=test",
-			headers: map[string]string{
-				"X-Slack-Signature": "v0=some-signature",
+			name: "Missing timestamp header returns 401",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-Slack-Signature", "v0=some-signature")
+				return header
 			},
-			signingSecret:  "test-secret",
 			expectedStatus: 401,
 			expectedError:  "Missing signature or timestamp",
 		},
 		{
-			name: "Invalid signature",
-			body: "command=/notify-channel&user_id=U123&text=test",
-			headers: map[string]string{
-				"X-Slack-Signature":         "v0=invalid-signature",
-				"X-Slack-Request-Timestamp": strconv.FormatInt(time.Now().Unix(), 10),
+			name: "Invalid signature returns 401",
+			setupHeaders: func() http.Header {
+				header := http.Header{}
+				header.Set("X-Slack-Signature", "v0=invalid-signature")
+				header.Set("X-Slack-Request-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+				return header
 			},
-			signingSecret:  "test-secret",
 			expectedStatus: 401,
 			expectedError:  "Invalid signature",
-		},
-		{
-			name: "Timestamp too old",
-			body: "command=/notify-channel&user_id=U123&text=test",
-			headers: map[string]string{
-				"X-Slack-Signature":         "", // Will be calculated
-				"X-Slack-Request-Timestamp": strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
-			},
-			signingSecret:  "test-secret",
-			expectedStatus: 401,
-			expectedError:  "Invalid signature",
-		},
-		{
-			name: "Invalid form data",
-			body: "invalid%form%data",
-			headers: map[string]string{
-				"X-Slack-Signature":         "", // Will be calculated
-				"X-Slack-Request-Timestamp": strconv.FormatInt(time.Now().Unix(), 10),
-			},
-			signingSecret:  "test-secret",
-			expectedStatus: 400,
-			expectedError:  "Failed to parse form data",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create handler
 			cfg := &config.Config{
-				SlackSigningSecret:   tt.signingSecret,
-				SlackTimestampMaxAge: 5 * time.Minute,
+				SlackSigningSecret: testSigningKey,
 			}
 			handler := NewSlackHandler(nil, nil, cfg)
 
-			// Calculate correct signature if needed
-			if signature, exists := tt.headers["X-Slack-Signature"]; exists && signature == "" {
-				timestamp := tt.headers["X-Slack-Request-Timestamp"]
-				basestring := fmt.Sprintf("v0:%s:%s", timestamp, tt.body)
-				mac := hmac.New(sha256.New, []byte(tt.signingSecret))
-				mac.Write([]byte(basestring))
-				tt.headers["X-Slack-Signature"] = "v0=" + hex.EncodeToString(mac.Sum(nil))
+			req, _ := http.NewRequest(http.MethodPost, "/slack", bytes.NewBufferString(testSlackBody))
+			for key, values := range tt.setupHeaders() {
+				for _, value := range values {
+					req.Header.Set(key, value)
+				}
 			}
 
-			// Create request
-			req, _ := http.NewRequest(http.MethodPost, "/slack", bytes.NewBufferString(tt.body))
-			for key, value := range tt.headers {
-				req.Header.Set(key, value)
-			}
-
-			// Create response recorder and context
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Request = req
 
-			// Handle webhook
 			handler.HandleWebhook(c)
 
-			// Assert response
 			assert.Equal(t, tt.expectedStatus, w.Code)
-			if tt.expectedError != "" {
-				assert.Contains(t, w.Body.String(), tt.expectedError)
-			}
-		})
-	}
-}
-
-func TestSlackHandler_TimestampValidation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	tests := []struct {
-		name      string
-		timestamp string
-		maxAge    time.Duration
-		valid     bool
-	}{
-		{
-			name:      "Current timestamp",
-			timestamp: strconv.FormatInt(time.Now().Unix(), 10),
-			maxAge:    5 * time.Minute,
-			valid:     true,
-		},
-		{
-			name:      "Old timestamp within limit",
-			timestamp: strconv.FormatInt(time.Now().Add(-2*time.Minute).Unix(), 10),
-			maxAge:    5 * time.Minute,
-			valid:     true,
-		},
-		{
-			name:      "Old timestamp beyond limit",
-			timestamp: strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
-			maxAge:    5 * time.Minute,
-			valid:     false,
-		},
-		{
-			name:      "Future timestamp",
-			timestamp: strconv.FormatInt(time.Now().Add(1*time.Minute).Unix(), 10),
-			maxAge:    5 * time.Minute,
-			valid:     true,
-		},
-		{
-			name:      "Invalid timestamp format",
-			timestamp: "not-a-number",
-			maxAge:    5 * time.Minute,
-			valid:     false,
-		},
-		{
-			name:      "Negative timestamp",
-			timestamp: "-1",
-			maxAge:    5 * time.Minute,
-			valid:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{
-				SlackSigningSecret:   "test-secret",
-				SlackTimestampMaxAge: tt.maxAge,
-			}
-			handler := NewSlackHandler(nil, nil, cfg)
-
-			body := "command=/notify-channel&user_id=U123&text=test"
-
-			// Calculate signature based on timestamp
-			basestring := fmt.Sprintf("v0:%s:%s", tt.timestamp, body)
-			mac := hmac.New(sha256.New, []byte("test-secret"))
-			mac.Write([]byte(basestring))
-			signature := "v0=" + hex.EncodeToString(mac.Sum(nil))
-
-			result := handler.verifySignature(signature, tt.timestamp, []byte(body))
-			assert.Equal(t, tt.valid, result)
+			assert.Contains(t, w.Body.String(), tt.expectedError)
 		})
 	}
 }

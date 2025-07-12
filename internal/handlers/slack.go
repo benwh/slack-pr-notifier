@@ -2,16 +2,11 @@ package handlers
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
@@ -19,6 +14,7 @@ import (
 	"github-slack-notifier/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/slack-go/slack"
 )
 
 // SlackHandler handles Slack webhook events and slash commands.
@@ -26,7 +22,6 @@ type SlackHandler struct {
 	firestoreService *services.FirestoreService
 	slackService     *services.SlackService
 	signingSecret    string
-	timestampMaxAge  time.Duration
 }
 
 // NewSlackHandler creates a new SlackHandler with the provided services and configuration.
@@ -35,7 +30,6 @@ func NewSlackHandler(fs *services.FirestoreService, slack *services.SlackService
 		firestoreService: fs,
 		slackService:     slack,
 		signingSecret:    cfg.SlackSigningSecret,
-		timestampMaxAge:  cfg.SlackTimestampMaxAge,
 	}
 }
 
@@ -55,7 +49,7 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	if !sh.verifySignature(signature, timestamp, body) {
+	if err := sh.verifySignature(c.Request.Header, body); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
 		return
 	}
@@ -257,24 +251,23 @@ func isAlphanumeric(s string) bool {
 	return true
 }
 
-func (sh *SlackHandler) verifySignature(signature, timestamp string, body []byte) bool {
+func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {
 	if sh.signingSecret == "" {
-		return true
+		return nil
 	}
 
-	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	sv, err := slack.NewSecretsVerifier(header, sh.signingSecret)
 	if err != nil {
-		return false
+		return fmt.Errorf("failed to create secrets verifier: %w", err)
 	}
 
-	if time.Now().Unix()-ts > int64(sh.timestampMaxAge.Seconds()) {
-		return false
+	if _, err := sv.Write(body); err != nil {
+		return fmt.Errorf("failed to write body to verifier: %w", err)
 	}
 
-	basestring := fmt.Sprintf("v0:%s:%s", timestamp, string(body))
-	mac := hmac.New(sha256.New, []byte(sh.signingSecret))
-	mac.Write([]byte(basestring))
-	expectedSignature := "v0=" + hex.EncodeToString(mac.Sum(nil))
+	if err := sv.Ensure(); err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
 
-	return hmac.Equal([]byte(signature), []byte(expectedSignature))
+	return nil
 }

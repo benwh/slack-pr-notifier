@@ -14,6 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestGitHubAsyncHandler_validateSignature tests the HMAC-SHA256 signature validation logic
+// for GitHub webhooks. This ensures our custom signature validation correctly implements
+// the GitHub webhook signature verification algorithm.
 func TestGitHubAsyncHandler_validateSignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -95,6 +98,8 @@ func TestGitHubAsyncHandler_validateSignature(t *testing.T) {
 	}
 }
 
+// TestGitHubAsyncHandler_computeHMAC256 tests the HMAC-SHA256 computation helper function.
+// This verifies that our HMAC calculation produces the expected hash values for various inputs.
 func TestGitHubAsyncHandler_computeHMAC256(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -138,6 +143,9 @@ func TestGitHubAsyncHandler_computeHMAC256(t *testing.T) {
 	}
 }
 
+// TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders tests the HTTP-level header validation
+// in the GitHub webhook handler. This ensures required headers (X-GitHub-Event, X-GitHub-Delivery)
+// are present and properly validated before processing.
 func TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -211,6 +219,9 @@ func TestGitHubAsyncHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 	}
 }
 
+// TestGitHubAsyncHandler_HandleWebhook_SignatureValidation tests the signature validation
+// integration in the full HTTP request handler. This verifies that invalid signatures
+// are properly rejected with appropriate HTTP responses.
 func TestGitHubAsyncHandler_HandleWebhook_SignatureValidation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -271,6 +282,9 @@ func TestGitHubAsyncHandler_HandleWebhook_SignatureValidation(t *testing.T) {
 	}
 }
 
+// TestGitHubAsyncHandler_HandleWebhook_BodyReading tests the HTTP request body reading
+// and error handling. This ensures that malformed requests are properly handled
+// and return appropriate error responses.
 func TestGitHubAsyncHandler_HandleWebhook_BodyReading(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -8,6 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestValidationService_ValidateWebhookPayload tests the webhook payload validation logic
+// for GitHub events. This verifies that we properly validate event types, JSON structure,
+// and required fields in webhook payloads.
 func TestValidationService_ValidateWebhookPayload(t *testing.T) {
 	vs := NewValidationService()
 
@@ -87,6 +90,9 @@ func TestValidationService_ValidateWebhookPayload(t *testing.T) {
 	}
 }
 
+// TestValidationService_validateGitHubPayload tests the internal GitHub payload validation
+// logic. This focuses on JSON parsing, required field validation, and proper error handling
+// for malformed or incomplete payloads.
 func TestValidationService_validateGitHubPayload(t *testing.T) {
 	vs := NewValidationService()
 
@@ -162,6 +168,9 @@ func TestValidationService_validateGitHubPayload(t *testing.T) {
 	}
 }
 
+// TestValidationService_EdgeCases tests edge cases and boundary conditions
+// for webhook payload validation. This includes large payloads, empty data,
+// case sensitivity, and other unusual but valid input scenarios.
 func TestValidationService_EdgeCases(t *testing.T) {
 	vs := NewValidationService()
 

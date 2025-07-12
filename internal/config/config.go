@@ -44,7 +44,6 @@ type Config struct {
 
 	// Processing settings
 	WebhookProcessingTimeout time.Duration
-	SlackTimestampMaxAge     time.Duration
 
 	// Emoji settings
 	Emoji EmojiConfig
@@ -82,7 +81,6 @@ func Load() *Config {
 	cfg.ServerWriteTimeout = getEnvDuration("SERVER_WRITE_TIMEOUT", 30*time.Second)
 	cfg.ServerShutdownTimeout = getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second)
 	cfg.WebhookProcessingTimeout = getEnvDuration("WEBHOOK_PROCESSING_TIMEOUT", 5*time.Minute)
-	cfg.SlackTimestampMaxAge = getEnvDuration("SLACK_TIMESTAMP_MAX_AGE", 5*time.Minute)
 
 	// Parse emoji configuration
 	cfg.Emoji = EmojiConfig{
@@ -143,9 +141,6 @@ func (c *Config) validate() {
 	}
 	if c.WebhookProcessingTimeout <= 0 {
 		panic("WEBHOOK_PROCESSING_TIMEOUT must be positive")
-	}
-	if c.SlackTimestampMaxAge <= 0 {
-		panic("SLACK_TIMESTAMP_MAX_AGE must be positive")
 	}
 }
 
