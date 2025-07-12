@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockCloudTasksService is a mock implementation for testing
+// mockCloudTasksService is a mock implementation for testing.
 type mockCloudTasksService struct{}
 
 func (m *mockCloudTasksService) EnqueueWebhook(ctx context.Context, job *models.WebhookJob) error {
@@ -112,7 +112,6 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			if !tt.expectError {
 				cloudTasksService = &mockCloudTasksService{}
 			}
-			
 			handler := NewGitHubHandler(cloudTasksService, tt.webhookSecret)
 
 			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(tt.body))

@@ -21,7 +21,7 @@ var (
 	ErrMissingRepository    = errors.New("missing required field: repository")
 )
 
-// CloudTasksServiceInterface defines the interface for cloud tasks operations
+// CloudTasksServiceInterface defines the interface for cloud tasks operations.
 type CloudTasksServiceInterface interface {
 	EnqueueWebhook(ctx context.Context, job *models.WebhookJob) error
 }
@@ -109,7 +109,6 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		"processing_time_ms": processingTime.Milliseconds(),
 	})
 }
-
 
 func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte) error {
 	switch eventType {

@@ -28,6 +28,7 @@ linters:
     - gofumpt           # Temporarily disabled for strict formatting
     - perfsprint        # Temporarily disabled for string concatenation
     - execinquery       # Deprecated linter
+    - canonicalheader   # GitHub uses X-GitHub-Event not X-Github-Event
 
 linters-settings:
   lll:
