@@ -16,6 +16,46 @@ import (
 	"github.com/slack-go/slack"
 )
 
+const (
+	// GitHub PR action types.
+	PRActionOpened = "opened"
+	PRActionClosed = "closed"
+
+	// GitHub PR review action types.
+	PRReviewActionSubmitted = "submitted"
+
+	// GitHub event types.
+	EventTypePullRequest       = "pull_request"
+	EventTypePullRequestReview = "pull_request_review"
+)
+
+// GitHubWebhookPayload represents the structure of GitHub webhook events.
+type GitHubWebhookPayload struct {
+	Action      string `json:"action"`
+	PullRequest struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		Draft   bool   `json:"draft"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			ID    int    `json:"id"`
+			Login string `json:"login"`
+		} `json:"user"`
+		Merged bool `json:"merged"`
+	} `json:"pull_request"`
+	Repository struct {
+		FullName string `json:"full_name"`
+		Name     string `json:"name"`
+	} `json:"repository"`
+	Review struct {
+		State string `json:"state"`
+		User  struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"review"`
+}
+
 var ErrUnsupportedJobEventType = errors.New("unsupported event type")
 
 type WebhookWorkerHandler struct {

@@ -65,18 +65,12 @@ GitHub Webhook → Fast Ingress → Cloud Tasks Queue → Worker Processing → 
      (100ms)        (immediate)      (reliable)        (retryable)
 ```
 
-### Processing Modes
+### Processing Architecture
 
-1. **Async Mode** (Default/Recommended):
-   - Set `ENABLE_ASYNC_PROCESSING=true`
-   - Uses Cloud Tasks for reliable processing
-   - Handles GitHub's 10-second timeout requirement
-   - Automatic retries for transient failures
-
-2. **Sync Mode** (Legacy):
-   - Set `ENABLE_ASYNC_PROCESSING=false`
-   - Direct processing in webhook handler
-   - Risk of timeout failures with GitHub
+The application uses **async processing** via Google Cloud Tasks for reliable webhook processing:
+- Uses Cloud Tasks for reliable processing
+- Handles GitHub's 10-second timeout requirement
+- Automatic retries for transient failures
 
 ## Configuration
 
@@ -84,7 +78,7 @@ GitHub Webhook → Fast Ingress → Cloud Tasks Queue → Worker Processing → 
 
 Create `.env` file based on `.env.example`
 
-**Required for Async Processing (Default Mode):**
+**Required for Async Processing:**
 - `GOOGLE_CLOUD_PROJECT` - Your GCP project ID
 - `WEBHOOK_WORKER_URL` - Your deployed service URL with `/process-webhook` endpoint
 

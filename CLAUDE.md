@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go-based GitHub-Slack notifier that sends Slack notifications for GitHub pull request events. It uses **async processing by default** via Google Cloud Tasks for high reliability, processing PR opens, reviews, and closures via webhooks, storing state in Cloud Firestore and sending notifications to Slack channels.
+This is a Go-based GitHub-Slack notifier that sends Slack notifications for GitHub pull request events. It uses **async processing** via Google Cloud Tasks for high reliability, processing PR opens, reviews, and closures via webhooks, storing state in Cloud Firestore and sending notifications to Slack channels.
 
 ## Development Commands
 
@@ -55,16 +55,13 @@ staticcheck ./...
 - **internal/middleware/**: HTTP middleware including structured logging with trace IDs
 - **internal/log/**: Custom logging utilities with context support
 
-### Async Processing Architecture (Default)
+### Async Processing Architecture
 
 **Fast Path (< 100ms):**
 1. **GitHub Webhook** → `handlers/github_async.go` → validates signature & payload → creates `WebhookJob` → queues to Cloud Tasks → returns 200
 
 **Slow Path (reliable, retryable):**
 2. **Cloud Tasks** → `handlers/webhook_worker.go` → processes business logic → updates Firestore → sends Slack notifications
-
-**Legacy Sync Path** (when `ENABLE_ASYNC_PROCESSING=false`):
-1. **GitHub Webhook** → `handlers/github.go` → validates webhook signature → processes PR events directly
 
 ### Data Flow
 
@@ -94,8 +91,7 @@ Required environment variables (configured in `.env` file):
 - `SLACK_SIGNING_SECRET`: Slack signing secret for request validation
 - `API_ADMIN_KEY`: Admin API key for repository registration
 
-**Async Processing (Default Mode):**
-- `ENABLE_ASYNC_PROCESSING`: Set to `true` (default) for async mode, `false` for legacy sync mode
+**Async Processing:**
 - `GOOGLE_CLOUD_PROJECT`: GCP project ID for Cloud Tasks
 - `CLOUD_TASKS_QUEUE`: Queue name (defaults to `webhook-processing`)
 - `WEBHOOK_WORKER_URL`: Full URL to the `/process-webhook` endpoint of your deployed service
@@ -170,15 +166,8 @@ go test -v ./...
 
 ## Webhook Endpoints
 
-**Async Mode (Default):**
 - `POST /webhooks/github`: GitHub webhook fast ingress (queues to Cloud Tasks)
 - `POST /process-webhook`: Internal webhook worker endpoint (called by Cloud Tasks)
-- `POST /webhooks/slack`: Slack slash command processor
-- `POST /api/repos`: Repository registration (admin only)
-- `GET /health`: Health check endpoint
-
-**Legacy Sync Mode** (when `ENABLE_ASYNC_PROCESSING=false`):
-- `POST /webhooks/github`: GitHub webhook direct processor (legacy sync mode)
 - `POST /webhooks/slack`: Slack slash command processor
 - `POST /api/repos`: Repository registration (admin only)
 - `GET /health`: Health check endpoint
