@@ -271,8 +271,11 @@ func (fs *FirestoreService) GetTrackedMessages(
 ) ([]*models.TrackedMessage, error) {
 	query := fs.client.Collection("trackedmessages").
 		Where("repo_full_name", "==", repoFullName).
-		Where("pr_number", "==", prNumber).
-		Where("slack_channel", "==", slackChannel)
+		Where("pr_number", "==", prNumber)
+
+	if slackChannel != "" {
+		query = query.Where("slack_channel", "==", slackChannel)
+	}
 
 	if messageSource != "" {
 		query = query.Where("message_source", "==", messageSource)
