@@ -5,7 +5,7 @@ A Go application that sends Slack notifications for GitHub pull request events w
 ## Features
 
 - 🔗 **PR Notifications**: Sends Slack messages when PRs are opened
-- 📝 **Review Updates**: Adds emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬)
+- 📝 **Review Updates**: Automatically syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬, dismissed 👋)
 - 🎉 **Closure Updates**: Adds emoji reactions when PRs are merged or closed
 - ⚙️ **Slack Configuration**: Use slash commands to configure your settings
 - 🚀 **Async Processing**: Uses Google Cloud Tasks for reliable webhook processing with automatic retries
@@ -68,6 +68,7 @@ GitHub Webhook → Fast Ingress → Cloud Tasks Queue → Worker Processing → 
 ### Processing Architecture
 
 The application uses **async processing** via Google Cloud Tasks for reliable webhook processing:
+
 - Uses Cloud Tasks for reliable processing
 - Handles GitHub's 10-second timeout requirement
 - Automatic retries for transient failures
@@ -196,7 +197,7 @@ Users can override the notification channel by adding this to their PR descripti
 ### Notification Flow
 
 1. **PR Opened**: Posts message to determined channel (annotation > user default > repo default)
-2. **Reviews**: Adds emoji reactions (✅ approved, 🔄 changes requested, 💬 comments)
+2. **Reviews**: Syncs emoji reactions across all tracked messages (✅ approved, 🔄 changes requested, 💬 comments, 👋 dismissed)
 3. **PR Closed**: Adds final emoji (🎉 merged, ❌ closed)
 
 ## Development

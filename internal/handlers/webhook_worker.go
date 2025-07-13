@@ -24,6 +24,7 @@ const (
 
 	// GitHub PR review action types.
 	PRReviewActionSubmitted = "submitted"
+	PRReviewActionDismissed = "dismissed"
 
 	// GitHub event types.
 	EventTypePullRequest       = "pull_request"
@@ -223,7 +224,7 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 		"review_action": payload.Action,
 	})
 
-	if payload.Action != PRReviewActionSubmitted {
+	if payload.Action != PRReviewActionSubmitted && payload.Action != PRReviewActionDismissed {
 		return nil
 	}
 
@@ -242,33 +243,34 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 		return nil
 	}
 
-	// Add reaction to all tracked messages
-	emoji := h.slackService.GetEmojiForReviewState(payload.Review.State)
-	if emoji != "" {
-		var messageRefs []services.MessageRef
-		for _, msg := range trackedMessages {
-			messageRefs = append(messageRefs, services.MessageRef{
-				Channel:   msg.SlackChannel,
-				Timestamp: msg.SlackMessageTS,
-			})
-		}
-
-		err = h.slackService.AddReactionToMultipleMessages(ctx, messageRefs, emoji)
-		if err != nil {
-			log.Error(ctx, "Failed to add review reactions to tracked messages",
-				"error", err,
-				"emoji", emoji,
-				"message_count", len(messageRefs),
-			)
-			return err
+	// Convert tracked messages to message refs
+	messageRefs := make([]services.MessageRef, len(trackedMessages))
+	for i, msg := range trackedMessages {
+		messageRefs[i] = services.MessageRef{
+			Channel:   msg.SlackChannel,
+			Timestamp: msg.SlackMessageTS,
 		}
 	}
 
-	log.Info(ctx, "Review reactions synchronized across tracked messages",
-		"review_state", payload.Review.State,
-		"emoji", emoji,
-		"message_count", len(trackedMessages),
-	)
+	// Determine the current review state - for dismissed reviews, we remove all reactions
+	var currentState string
+	if payload.Action == PRReviewActionDismissed {
+		currentState = "" // Empty state will remove all review reactions
+	} else {
+		currentState = payload.Review.State
+	}
+
+	// Sync all review reactions
+	err = h.slackService.SyncAllReviewReactions(ctx, messageRefs, currentState)
+	if err != nil {
+		log.Error(ctx, "Failed to sync review reactions to tracked messages",
+			"error", err,
+			"review_state", currentState,
+			"review_action", payload.Action,
+			"message_count", len(messageRefs),
+		)
+		return err
+	}
 	return nil
 }
 

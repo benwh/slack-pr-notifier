@@ -153,7 +153,7 @@ Utility functions are appropriate for:
 1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` → queues to Cloud Tasks → returns 200
 
 **Slow Path (reliable, retryable):**
-2. **Cloud Tasks** → `handlers/webhook_worker.go` → processes business logic → updates Firestore → sends Slack notifications
+2. **Cloud Tasks** → `handlers/webhook_worker.go` → processes business logic → updates Firestore → sends Slack notifications → syncs review reactions
 
 ### Data Flow
 
@@ -161,6 +161,29 @@ Utility functions are appropriate for:
 2. **Slack Commands** → `handlers/slack.go` → validates signing secret → processes user configuration
 3. **Services Layer** → `services/firestore.go` for persistence, `services/slack.go` for messaging, `services/cloud_tasks.go` for queuing
 4. **Models** → Firestore documents and Cloud Tasks job payloads with struct tags
+
+### Review Reaction Management
+
+The system automatically manages Slack emoji reactions on PR notification messages based on GitHub review events:
+
+**Supported Review Actions:**
+
+- **Submitted Reviews**: Adds appropriate emoji based on review state (approved ✅, changes requested 🔄, commented 💬)
+- **Dismissed Reviews**: Removes all review-related emoji reactions from tracked messages
+
+**Reaction Sync Approach:**
+
+- Uses a comprehensive sync strategy that removes all existing review reactions before adding current ones
+- Ensures message reactions always match the actual PR review state
+- Handles multiple tracked messages across different channels for the same PR
+- Gracefully handles cases where reactions don't exist or API calls fail
+
+**Review States:**
+
+- `approved` → ✅ (`white_check_mark`)
+- `changes_requested` → 🔄 (`arrows_counterclockwise`)
+- `commented` → 💬 (`speech_balloon`)
+- `dismissed` → Removes all review reactions
 
 ### Key Dependencies
 
@@ -189,6 +212,15 @@ Required environment variables (configured in `.env` file):
 - `GOOGLE_CLOUD_PROJECT`: GCP project ID for Cloud Tasks
 - `CLOUD_TASKS_QUEUE`: Queue name (defaults to `webhook-processing`)
 - `BASE_URL`: Base URL of your deployed service (e.g., `https://my-service.run.app`)
+
+**Emoji Configuration (Optional):**
+
+- `EMOJI_APPROVED`: Emoji for approved PR reviews (default: `white_check_mark`)
+- `EMOJI_CHANGES_REQUESTED`: Emoji for changes requested reviews (default: `arrows_counterclockwise`)
+- `EMOJI_COMMENTED`: Emoji for comment-only reviews (default: `speech_balloon`)
+- `EMOJI_DISMISSED`: Emoji for dismissed reviews (default: `wave`)
+- `EMOJI_MERGED`: Emoji for merged PRs (default: `tada`)
+- `EMOJI_CLOSED`: Emoji for closed PRs (default: `x`)
 
 ### Slack App Configuration
 
@@ -254,9 +286,11 @@ go test -v ./...
 **Recommended: Use App Manifest (Easier)**
 
 1. Generate the manifest for your service:
+
    ```bash
    ./scripts/generate-slack-manifest.sh
    ```
+
 2. Create a new Slack app at <https://api.slack.com/apps>
 3. Choose "From an app manifest" and paste the generated `slack-app-manifest.yaml` content
 4. Install the app to your workspace to generate the bot token

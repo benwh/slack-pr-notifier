@@ -113,6 +113,8 @@ func (s *SlackService) GetEmojiForReviewState(state string) string {
 		return s.emojiConfig.ChangesRequested
 	case "commented":
 		return s.emojiConfig.Commented
+	case "dismissed":
+		return s.emojiConfig.Dismissed
 	default:
 		return ""
 	}
@@ -161,6 +163,129 @@ func (s *SlackService) AddReactionToMultipleMessages(ctx context.Context, messag
 	if successCount == 0 && lastError != nil {
 		return lastError
 	}
+
+	return nil
+}
+
+// RemoveReaction removes a reaction from a Slack message.
+func (s *SlackService) RemoveReaction(ctx context.Context, channel, timestamp, emoji string) error {
+	err := s.client.RemoveReaction(emoji, slack.ItemRef{
+		Channel:   channel,
+		Timestamp: timestamp,
+	})
+	if err != nil {
+		// Check if the error is because the reaction doesn't exist
+		var slackErr *slack.SlackErrorResponse
+		if errors.As(err, &slackErr) && slackErr.Err == "no_reaction" {
+			log.Debug(ctx, "Reaction does not exist on Slack message",
+				"channel", channel,
+				"message_timestamp", timestamp,
+				"emoji", emoji,
+			)
+			return nil
+		}
+		log.Error(ctx, "Failed to remove reaction from Slack message",
+			"error", err,
+			"channel", channel,
+			"message_timestamp", timestamp,
+			"emoji", emoji,
+			"operation", "remove_reaction",
+		)
+		return fmt.Errorf("failed to remove reaction %s from message %s in channel %s: %w", emoji, timestamp, channel, err)
+	}
+	return nil
+}
+
+// RemoveReactionFromMultipleMessages removes the same reaction from multiple Slack messages.
+func (s *SlackService) RemoveReactionFromMultipleMessages(
+	ctx context.Context, messages []MessageRef, emoji string,
+) error {
+	if emoji == "" {
+		return nil
+	}
+
+	var lastError error
+	successCount := 0
+
+	for _, msg := range messages {
+		err := s.RemoveReaction(ctx, msg.Channel, msg.Timestamp, emoji)
+		if err != nil {
+			log.Error(ctx, "Failed to remove reaction from tracked message",
+				"error", err,
+				"channel", msg.Channel,
+				"message_ts", msg.Timestamp,
+				"emoji", emoji,
+			)
+			lastError = err
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount > 0 {
+		log.Info(ctx, "Reactions removed from tracked messages",
+			"emoji", emoji,
+			"success_count", successCount,
+			"total_count", len(messages),
+		)
+	}
+
+	// Return error only if all messages failed
+	if successCount == 0 && lastError != nil {
+		return lastError
+	}
+
+	return nil
+}
+
+// SyncAllReviewReactions removes all review-related reactions and adds only current ones.
+func (s *SlackService) SyncAllReviewReactions(
+	ctx context.Context, messages []MessageRef, currentReviewState string,
+) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	// Define all possible review emojis that might need to be removed
+	allReviewEmojis := []string{
+		s.emojiConfig.Approved,
+		s.emojiConfig.ChangesRequested,
+		s.emojiConfig.Commented,
+		s.emojiConfig.Dismissed,
+	}
+
+	// Remove all existing review reactions
+	for _, emoji := range allReviewEmojis {
+		if emoji != "" {
+			err := s.RemoveReactionFromMultipleMessages(ctx, messages, emoji)
+			if err != nil {
+				log.Warn(ctx, "Failed to remove some review reactions during sync",
+					"error", err,
+					"emoji", emoji,
+				)
+			}
+		}
+	}
+
+	// Add the current review state reaction if applicable
+	currentEmoji := s.GetEmojiForReviewState(currentReviewState)
+	if currentEmoji != "" {
+		err := s.AddReactionToMultipleMessages(ctx, messages, currentEmoji)
+		if err != nil {
+			log.Error(ctx, "Failed to add current review reaction during sync",
+				"error", err,
+				"emoji", currentEmoji,
+				"review_state", currentReviewState,
+			)
+			return err
+		}
+	}
+
+	log.Info(ctx, "Review reactions synchronized",
+		"review_state", currentReviewState,
+		"emoji", currentEmoji,
+		"message_count", len(messages),
+	)
 
 	return nil
 }
