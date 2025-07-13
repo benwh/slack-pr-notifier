@@ -177,12 +177,9 @@ func (s *SlackService) RemoveReaction(ctx context.Context, channel, timestamp, e
 		// Check if the error is because the reaction doesn't exist
 		var slackErr *slack.SlackErrorResponse
 		if errors.As(err, &slackErr) && slackErr.Err == "no_reaction" {
-			log.Debug(ctx, "Reaction does not exist on Slack message",
-				"channel", channel,
-				"message_timestamp", timestamp,
-				"emoji", emoji,
-			)
-			return nil
+			// This is expected behavior - don't log anything, just return the error
+			// so the caller can decide how to handle it
+			return err
 		}
 		log.Error(ctx, "Failed to remove reaction from Slack message",
 			"error", err,
@@ -204,24 +201,34 @@ func (s *SlackService) RemoveReactionFromMultipleMessages(
 		return nil
 	}
 
-	var lastError error
+	var lastNonExpectedError error
 	successCount := 0
+	noReactionCount := 0
 
 	for _, msg := range messages {
 		err := s.RemoveReaction(ctx, msg.Channel, msg.Timestamp, emoji)
 		if err != nil {
-			log.Error(ctx, "Failed to remove reaction from tracked message",
-				"error", err,
-				"channel", msg.Channel,
-				"message_ts", msg.Timestamp,
-				"emoji", emoji,
-			)
-			lastError = err
+			// Check if this is an expected "no_reaction" error
+			var slackErr *slack.SlackErrorResponse
+			if errors.As(err, &slackErr) && slackErr.Err == "no_reaction" {
+				// This is expected - reaction doesn't exist, which is fine
+				noReactionCount++
+			} else {
+				// This is a genuine error worth logging
+				log.Error(ctx, "Failed to remove reaction from tracked message",
+					"error", err,
+					"channel", msg.Channel,
+					"message_ts", msg.Timestamp,
+					"emoji", emoji,
+				)
+				lastNonExpectedError = err
+			}
 		} else {
 			successCount++
 		}
 	}
 
+	// Only log if we actually removed some reactions
 	if successCount > 0 {
 		log.Info(ctx, "Reactions removed from tracked messages",
 			"emoji", emoji,
@@ -230,9 +237,9 @@ func (s *SlackService) RemoveReactionFromMultipleMessages(
 		)
 	}
 
-	// Return error only if all messages failed
-	if successCount == 0 && lastError != nil {
-		return lastError
+	// Return error only if we had genuine failures (not just "no_reaction")
+	if successCount == 0 && noReactionCount == 0 && lastNonExpectedError != nil {
+		return lastNonExpectedError
 	}
 
 	return nil
@@ -259,6 +266,8 @@ func (s *SlackService) SyncAllReviewReactions(
 		if emoji != "" {
 			err := s.RemoveReactionFromMultipleMessages(ctx, messages, emoji)
 			if err != nil {
+				// Only log if it's a genuine error (RemoveReactionFromMultipleMessages
+				// already filters out expected "no_reaction" errors)
 				log.Warn(ctx, "Failed to remove some review reactions during sync",
 					"error", err,
 					"emoji", emoji,
