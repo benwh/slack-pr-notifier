@@ -1,0 +1,51 @@
+# Slack App Manifest Template for GitHub PR Notifier
+# Use scripts/generate-manifest.sh to generate the final manifest with your service URL
+
+_metadata:
+  major_version: 2
+  minor_version: 1
+
+display_information:
+  name: GitHub PR Notifier
+  description: >
+    Automatically notify Slack channels about GitHub pull request events and track manual PR links
+  long_description: >
+    This app receives GitHub webhook events and posts formatted notifications to Slack channels when pull requests are opened, reviewed, merged, or closed. It also detects manually posted GitHub PR links and adds status reactions. Supports per-repository channel configuration and reaction synchronization across all PR instances.
+  background_color: "#24292e"  # GitHub's dark color
+
+features:
+  bot_user:
+    display_name: "GitHub PR Bot"
+    always_online: true
+  slash_commands:
+    - command: "/notify-channel"
+      description: "Set your default channel for GitHub PR notifications"
+      usage_hint: "#channel-name"
+      url: "{{BASE_URL}}/webhooks/slack/slash-command"
+    - command: "/notify-link"
+      description: "Link your GitHub account to receive personalized PR notifications"
+      usage_hint: "github-username"
+      url: "{{BASE_URL}}/webhooks/slack/slash-command"
+    - command: "/notify-status"
+      description: "View your current notification configuration"
+      url: "{{BASE_URL}}/webhooks/slack/slash-command"
+
+oauth_config:
+  scopes:
+    bot:
+      - channels:read           # View basic information about public channels
+      - chat:write              # Post messages and add reactions in approved channels
+      - commands                # Handle slash commands
+      - links:read              # Read information about links shared in channels
+      - channels:history        # Required by message.channels event subscription
+
+settings:
+  event_subscriptions:
+    request_url: "{{BASE_URL}}/webhooks/slack/events"
+    bot_events:
+      - message.channels        # Detect GitHub PR links in public channels
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

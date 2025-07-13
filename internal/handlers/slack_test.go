@@ -94,7 +94,7 @@ func TestSlackHandler_verifySignature(t *testing.T) {
 			cfg := &config.Config{
 				SlackSigningSecret: tt.signingSecret,
 			}
-			handler := NewSlackHandler(nil, nil, cfg)
+			handler := NewSlackHandler(nil, nil, nil, cfg)
 
 			err := handler.verifySignature(tt.setupHeaders(), []byte(tt.body))
 			if tt.expectError {
@@ -106,10 +106,10 @@ func TestSlackHandler_verifySignature(t *testing.T) {
 	}
 }
 
-// TestSlackHandler_HandleWebhook_Security tests the HTTP-level security validation in HandleWebhook.
+// TestSlackHandler_HandleSlashCommand_Security tests the HTTP-level security validation in HandleSlashCommand.
 // This focuses on the gin request handling and header extraction, ensuring proper HTTP responses
 // for security failures. The actual signature validation logic is tested in TestSlackHandler_verifySignature.
-func TestSlackHandler_HandleWebhook_Security(t *testing.T) {
+func TestSlackHandler_HandleSlashCommand_Security(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -156,7 +156,7 @@ func TestSlackHandler_HandleWebhook_Security(t *testing.T) {
 			cfg := &config.Config{
 				SlackSigningSecret: testSigningKey,
 			}
-			handler := NewSlackHandler(nil, nil, cfg)
+			handler := NewSlackHandler(nil, nil, nil, cfg)
 
 			req, _ := http.NewRequest(http.MethodPost, "/slack", bytes.NewBufferString(testSlackBody))
 			for key, values := range tt.setupHeaders() {
@@ -169,7 +169,7 @@ func TestSlackHandler_HandleWebhook_Security(t *testing.T) {
 			c, _ := gin.CreateTestContext(w)
 			c.Request = req
 
-			handler.HandleWebhook(c)
+			handler.HandleSlashCommand(c)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			assert.Contains(t, w.Body.String(), tt.expectedError)

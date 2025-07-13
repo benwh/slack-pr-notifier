@@ -17,9 +17,10 @@ import (
 
 // Sentinel errors for not found cases.
 var (
-	ErrUserNotFound    = errors.New("user not found")
-	ErrMessageNotFound = errors.New("message not found")
-	ErrRepoNotFound    = errors.New("repository not found")
+	ErrUserNotFound           = errors.New("user not found")
+	ErrMessageNotFound        = errors.New("message not found")
+	ErrTrackedMessageNotFound = errors.New("tracked message not found")
+	ErrRepoNotFound           = errors.New("repository not found")
 )
 
 // FirestoreService provides database operations for Firestore.
@@ -253,6 +254,86 @@ func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) e
 			"operation", "create_repo",
 		)
 		return fmt.Errorf("failed to create repo %s: %w", repo.ID, err)
+	}
+	return nil
+}
+
+// TrackedMessage operations for the new manual PR link tracking system.
+
+// GetTrackedMessages retrieves all tracked messages for a specific PR in a channel.
+// If messageSource is provided, filters by message source ("bot" or "manual").
+func (fs *FirestoreService) GetTrackedMessages(
+	ctx context.Context,
+	repoFullName string,
+	prNumber int,
+	slackChannel string,
+	messageSource string,
+) ([]*models.TrackedMessage, error) {
+	query := fs.client.Collection("trackedmessages").
+		Where("repo_full_name", "==", repoFullName).
+		Where("pr_number", "==", prNumber).
+		Where("slack_channel", "==", slackChannel)
+
+	if messageSource != "" {
+		query = query.Where("message_source", "==", messageSource)
+	}
+
+	iter := query.Documents(ctx)
+	defer iter.Stop()
+
+	var messages []*models.TrackedMessage
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			if errors.Is(err, iterator.Done) {
+				break
+			}
+			log.Error(ctx, "Failed to query tracked messages",
+				"error", err,
+				"repo", repoFullName,
+				"pr_number", prNumber,
+				"slack_channel", slackChannel,
+				"message_source", messageSource,
+				"operation", "query_tracked_messages",
+			)
+			return nil, fmt.Errorf("failed to query tracked messages for repo %s PR %d: %w", repoFullName, prNumber, err)
+		}
+
+		var message models.TrackedMessage
+		err = doc.DataTo(&message)
+		if err != nil {
+			log.Error(ctx, "Failed to unmarshal tracked message data",
+				"error", err,
+				"doc_id", doc.Ref.ID,
+				"operation", "unmarshal_tracked_message_data",
+			)
+			continue
+		}
+
+		messages = append(messages, &message)
+	}
+
+	return messages, nil
+}
+
+// CreateTrackedMessage creates a new tracked message record.
+func (fs *FirestoreService) CreateTrackedMessage(ctx context.Context, message *models.TrackedMessage) error {
+	message.CreatedAt = time.Now()
+	docRef := fs.client.Collection("trackedmessages").NewDoc()
+	message.ID = docRef.ID
+
+	_, err := docRef.Set(ctx, message)
+	if err != nil {
+		log.Error(ctx, "Failed to create tracked message",
+			"error", err,
+			"repo", message.RepoFullName,
+			"pr_number", message.PRNumber,
+			"slack_channel", message.SlackChannel,
+			"message_source", message.MessageSource,
+			"operation", "create_tracked_message",
+		)
+		return fmt.Errorf("failed to create tracked message for repo %s PR %d: %w",
+			message.RepoFullName, message.PRNumber, err)
 	}
 	return nil
 }

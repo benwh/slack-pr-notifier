@@ -7,6 +7,7 @@ import (
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	cloudtaskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -17,14 +18,14 @@ type CloudTasksService struct {
 	projectID string
 	location  string
 	queueName string
-	workerURL string
+	config    *config.Config
 }
 
 type CloudTasksConfig struct {
 	ProjectID string
 	Location  string
 	QueueName string
-	WorkerURL string
+	Config    *config.Config
 }
 
 func NewCloudTasksService(config CloudTasksConfig) (*CloudTasksService, error) {
@@ -46,7 +47,7 @@ func NewCloudTasksService(config CloudTasksConfig) (*CloudTasksService, error) {
 		projectID: config.ProjectID,
 		location:  config.Location,
 		queueName: config.QueueName,
-		workerURL: config.WorkerURL,
+		config:    config.Config,
 	}, nil
 }
 
@@ -83,7 +84,7 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 		MessageType: &cloudtaskspb.Task_HttpRequest{
 			HttpRequest: &cloudtaskspb.HttpRequest{
 				HttpMethod: cloudtaskspb.HttpMethod_POST,
-				Url:        cts.workerURL,
+				Url:        cts.config.WebhookWorkerURL(),
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 					"X-Job-ID":     job.ID,
@@ -107,7 +108,7 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 			"job_id", job.ID,
 			"event_type", job.EventType,
 			"queue_path", queuePath,
-			"worker_url", cts.workerURL,
+			"worker_url", cts.config.WebhookWorkerURL(),
 			"operation", "create_cloud_tasks_task",
 		)
 		return fmt.Errorf("failed to create task: %w", err)
@@ -117,6 +118,68 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 		"job_id", job.ID,
 		"task_name", createdTask.GetName(),
 		"event_type", job.EventType,
+	)
+
+	return nil
+}
+
+// EnqueueManualLinkProcessing enqueues a manual PR link for processing.
+func (cts *CloudTasksService) EnqueueManualLinkProcessing(ctx context.Context, job *models.ManualLinkJob) error {
+	payload, err := json.Marshal(job)
+	if err != nil {
+		log.Error(ctx, "Failed to marshal manual link job for Cloud Tasks",
+			"error", err,
+			"job_id", job.ID,
+			"repo", job.RepoFullName,
+			"pr_number", job.PRNumber,
+			"operation", "marshal_manual_link_job",
+		)
+		return fmt.Errorf("failed to marshal job: %w", err)
+	}
+
+	queuePath := fmt.Sprintf("projects/%s/locations/%s/queues/%s",
+		cts.projectID, cts.location, cts.queueName)
+
+	task := &cloudtaskspb.Task{
+		MessageType: &cloudtaskspb.Task_HttpRequest{
+			HttpRequest: &cloudtaskspb.HttpRequest{
+				HttpMethod: cloudtaskspb.HttpMethod_POST,
+				Url:        cts.config.ManualLinkWorkerURL(),
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+					"X-Job-ID":     job.ID,
+					"X-Trace-ID":   job.TraceID,
+				},
+				Body: payload,
+			},
+		},
+		ScheduleTime: timestamppb.Now(),
+	}
+
+	req := &cloudtaskspb.CreateTaskRequest{
+		Parent: queuePath,
+		Task:   task,
+	}
+
+	createdTask, err := cts.client.CreateTask(ctx, req)
+	if err != nil {
+		log.Error(ctx, "Failed to create manual link processing task",
+			"error", err,
+			"job_id", job.ID,
+			"repo", job.RepoFullName,
+			"pr_number", job.PRNumber,
+			"queue_path", queuePath,
+			"worker_url", cts.config.WebhookWorkerURL(),
+			"operation", "create_manual_link_task",
+		)
+		return fmt.Errorf("failed to create task: %w", err)
+	}
+
+	log.Info(ctx, "Manual link processing job queued",
+		"job_id", job.ID,
+		"task_name", createdTask.GetName(),
+		"repo", job.RepoFullName,
+		"pr_number", job.PRNumber,
 	)
 
 	return nil

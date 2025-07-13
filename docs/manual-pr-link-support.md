@@ -33,16 +33,19 @@ We'll use Slack's Events API to monitor messages in channels where the bot is pr
 #### 1. Slack API Endpoints Reorganization
 
 **Endpoint Changes**:
+
 - Move existing slash commands: `/webhooks/slack` → `/webhooks/slack/slash-command`
 - Add new events endpoint: `/webhooks/slack/events`
 
 Both endpoints will be handled by the existing `SlackHandler` to share dependencies.
 
 **Event Types to Subscribe**:
+
 - `message` - New messages posted to channels
 - `message.changed` - Message edits (in case PR links are added later)
 
 **Permissions Required**:
+
 - `links:read` - Read information about links shared in channels
 - `reactions:write` - Add reactions to messages (already have via `chat:write`)
 
@@ -52,10 +55,16 @@ Both endpoints will be handled by the existing `SlackHandler` to share dependenc
 
 ```go
 // ExtractPRLinks parses GitHub PR URLs from message text
+// If multiple PR URLs are found, returns nil to ignore the message
 func ExtractPRLinks(text string) []PRLink {
     pattern := regexp.MustCompile(`https://github\.com/([^/]+)/([^/]+)/pull/(\d+)`)
     matches := pattern.FindAllStringSubmatch(text, -1)
-    
+
+    // Ignore messages containing multiple PR URLs
+    if len(matches) > 1 {
+        return nil
+    }
+
     var links []PRLink
     for _, match := range matches {
         prNumber, _ := strconv.Atoi(match[3])
@@ -80,6 +89,7 @@ type PRLink struct {
 ```
 
 This is a simple utility function that doesn't need to be a service since it:
+
 - Has no state to manage
 - Requires no dependencies
 - Is purely functional (input → output)
@@ -89,7 +99,7 @@ This is a simple utility function that doesn't need to be a service since it:
 
 Since we'll react to ALL occurrences of a PR in a channel, we need to track multiple messages:
 
-**New Model**: `TrackedMessage` (separate from existing `Message` model)
+**New Model**: `TrackedMessage` (replaces existing `Message` model)
 
 ```go
 type TrackedMessage struct {
@@ -105,7 +115,12 @@ type TrackedMessage struct {
 
 This allows multiple `TrackedMessage` records per PR+channel combination.
 
-**Note**: The existing `Message` model will continue to be used for the primary bot notification (one per PR per channel), while `TrackedMessage` entries will reference all occurrences of that PR in the channel for reaction synchronization.
+**Collection Replacement**: Since this app is in development mode, we can replace the existing `messages` collection with the new `trackedmessages` collection:
+
+- **Old `messages` collection**: Stored one record per PR per channel, tracking only bot-posted notifications
+- **New `trackedmessages` collection**: Stores multiple records per PR per channel, tracking ALL occurrences (both bot and manual posts)
+
+The new model is more flexible and handles all use cases that the old `Message` model covered, plus the new manual link tracking functionality.
 
 #### 4. Reaction Strategy
 
@@ -166,12 +181,12 @@ This allows multiple `TrackedMessage` records per PR+channel combination.
 
 #### Phase 3: Webhook Updates
 
-Update `WebhookWorkerHandler` to handle multiple tracked messages:
+Update `WebhookWorkerHandler` to use the new `TrackedMessage` model:
 
 ```go
 // Check if we already posted a bot message for this PR in this channel
-botMessage, err := h.firestoreService.GetBotMessage(ctx, repoFullName, prNumber, channelID)
-if err == nil && botMessage != nil {
+botMessages, err := h.firestoreService.GetTrackedMessages(ctx, repoFullName, prNumber, channelID, "bot")
+if err == nil && len(botMessages) > 0 {
     // Bot already posted, just update reactions on all tracked messages
     h.updateAllTrackedMessages(ctx, repoFullName, prNumber, channelID, newStatus)
     return
@@ -194,6 +209,7 @@ h.updateAllTrackedMessages(ctx, repoFullName, prNumber, channelID, newStatus)
 This feature is enabled by default and works in all channels where the bot has been added. No additional configuration is required.
 
 The bot will:
+
 - Monitor all messages in channels where it's present
 - React to all GitHub PR links (both manually posted and bot-posted)
 - Post at most one notification per PR per channel
@@ -211,7 +227,7 @@ The bot will:
 1. **Batch Processing**: Group multiple PR links from same message
 2. **Caching**: Cache GitHub PR metadata for 5 minutes
 3. **Selective Processing**: Only process messages containing "github.com"
-4. **Channel Filtering**: Skip DMs and private channels
+4. **Channel Filtering**: Skip DMs (public channels only)
 
 ### Migration & Rollout
 
@@ -272,11 +288,6 @@ router.POST("/webhooks/slack", slackHandler.Handle)
 // After:
 router.POST("/webhooks/slack/slash-command", slackHandler.HandleSlashCommand)
 router.POST("/webhooks/slack/events", slackHandler.HandleEvent)
-
-// Optional: Add redirect for backward compatibility during transition
-router.POST("/webhooks/slack", func(c *gin.Context) {
-    c.Redirect(http.StatusPermanentRedirect, "/webhooks/slack/slash-command")
-})
 ```
 
 **Important**: After deploying, update the Slack app's slash command URLs to point to `/webhooks/slack/slash-command`.
@@ -300,8 +311,6 @@ event_subscriptions:
   request_url: https://your-service-url/webhooks/slack/events
   bot_events:
     - message.channels
-    - message.groups    # For private channels
-    - link_shared      # Alternative to message events
 ```
 
 ## Example User Experience
@@ -332,4 +341,3 @@ All PR links in the channel stay synchronized with the latest status!
 ```
 
 This design provides a seamless experience where all PR links get consistent status tracking, regardless of how they're shared.
-

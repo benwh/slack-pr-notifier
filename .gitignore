@@ -21,6 +21,9 @@ go.work
 # Environment variables
 .env
 
+# Generated Slack app manifest (contains environment-specific URLs)
+slack-app-manifest.yaml
+
 # OS generated files
 .DS_Store
 .DS_Store?

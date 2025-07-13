@@ -125,6 +125,52 @@ func (s *SlackService) GetEmojiForPRState(state string, merged bool) string {
 	return s.emojiConfig.Closed
 }
 
+// AddReactionToMultipleMessages adds the same reaction to multiple Slack messages.
+func (s *SlackService) AddReactionToMultipleMessages(ctx context.Context, messages []MessageRef, emoji string) error {
+	if emoji == "" {
+		return nil
+	}
+
+	var lastError error
+	successCount := 0
+
+	for _, msg := range messages {
+		err := s.AddReaction(ctx, msg.Channel, msg.Timestamp, emoji)
+		if err != nil {
+			log.Error(ctx, "Failed to add reaction to tracked message",
+				"error", err,
+				"channel", msg.Channel,
+				"message_ts", msg.Timestamp,
+				"emoji", emoji,
+			)
+			lastError = err
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount > 0 {
+		log.Info(ctx, "Reactions synchronized across tracked messages",
+			"emoji", emoji,
+			"success_count", successCount,
+			"total_count", len(messages),
+		)
+	}
+
+	// Return error only if all messages failed
+	if successCount == 0 && lastError != nil {
+		return lastError
+	}
+
+	return nil
+}
+
+// MessageRef represents a reference to a Slack message for reaction operations.
+type MessageRef struct {
+	Channel   string
+	Timestamp string
+}
+
 func (s *SlackService) ExtractChannelFromDescription(description string) string {
 	re := regexp.MustCompile(`@slack-channel:\s*(#\w+)`)
 	matches := re.FindStringSubmatch(description)

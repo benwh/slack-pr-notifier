@@ -21,6 +21,18 @@ type User struct {
 	UpdatedAt      time.Time `firestore:"updated_at"`
 }
 
+// TrackedMessage represents a tracked PR message in Slack (replaces old Message model).
+type TrackedMessage struct {
+	ID             string    `firestore:"id"`               // Auto-generated document ID
+	PRNumber       int       `firestore:"pr_number"`        // GitHub PR number
+	RepoFullName   string    `firestore:"repo_full_name"`   // e.g., "owner/repo"
+	SlackChannel   string    `firestore:"slack_channel"`    // Slack channel ID
+	SlackMessageTS string    `firestore:"slack_message_ts"` // Slack message timestamp
+	MessageSource  string    `firestore:"message_source"`   // "bot" or "manual"
+	CreatedAt      time.Time `firestore:"created_at"`       // When we started tracking this message
+}
+
+// Message (deprecated - replaced by TrackedMessage but kept for migration compatibility).
 type Message struct {
 	ID                   string    `firestore:"id"`
 	PRNumber             int       `firestore:"pr_number"`
@@ -52,6 +64,16 @@ type WebhookJob struct {
 	Status      string     `firestore:"status"                 json:"status"`
 	RetryCount  int        `firestore:"retry_count"            json:"retry_count"`
 	LastError   string     `firestore:"last_error,omitempty"   json:"last_error,omitempty"`
+}
+
+// ManualLinkJob represents a job to process manually detected PR links.
+type ManualLinkJob struct {
+	ID             string `json:"id"`
+	PRNumber       int    `json:"pr_number"`
+	RepoFullName   string `json:"repo_full_name"`
+	SlackChannel   string `json:"slack_channel"`
+	SlackMessageTS string `json:"slack_message_ts"`
+	TraceID        string `json:"trace_id"`
 }
 
 func (wj *WebhookJob) Validate() error {

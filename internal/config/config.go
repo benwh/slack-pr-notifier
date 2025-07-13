@@ -28,7 +28,7 @@ type Config struct {
 
 	// Cloud Tasks settings
 	GoogleCloudProject string
-	WebhookWorkerURL   string
+	BaseURL            string
 	GCPRegion          string
 	CloudTasksQueue    string
 
@@ -47,6 +47,16 @@ type Config struct {
 	Emoji EmojiConfig
 }
 
+// WebhookWorkerURL returns the full URL for the webhook worker endpoint.
+func (c *Config) WebhookWorkerURL() string {
+	return c.BaseURL + "/process-webhook"
+}
+
+// ManualLinkWorkerURL returns the full URL for the manual link worker endpoint.
+func (c *Config) ManualLinkWorkerURL() string {
+	return c.BaseURL + "/process-manual-link"
+}
+
 // Load reads configuration from environment variables.
 // Panics if any required configuration is missing or invalid.
 func Load() *Config {
@@ -61,7 +71,7 @@ func Load() *Config {
 
 		// Cloud Tasks settings
 		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),
-		WebhookWorkerURL:   getEnvRequired("WEBHOOK_WORKER_URL"),
+		BaseURL:            getEnvRequired("BASE_URL"),
 		GCPRegion:          getEnvDefault("GCP_REGION", "europe-west1"),
 		CloudTasksQueue:    getEnvDefault("CLOUD_TASKS_QUEUE", "webhook-processing"),
 
@@ -105,7 +115,7 @@ func (c *Config) validate() {
 		"SLACK_SIGNING_SECRET":  c.SlackSigningSecret,
 		"API_ADMIN_KEY":         c.APIAdminKey,
 		"GOOGLE_CLOUD_PROJECT":  c.GoogleCloudProject,
-		"WEBHOOK_WORKER_URL":    c.WebhookWorkerURL,
+		"BASE_URL":              c.BaseURL,
 	}
 
 	for name, value := range required {

@@ -227,42 +227,48 @@ func (h *WebhookWorkerHandler) processPullRequestReviewEvent(ctx context.Context
 		return nil
 	}
 
-	message, err := h.firestoreService.GetMessage(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	// Get all tracked messages for this PR across all channels
+	// We'll update all instances of this PR that exist
+	trackedMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, "", "")
 	if err != nil {
-		log.Error(ctx, "Failed to get message for PR review reaction",
+		log.Error(ctx, "Failed to get tracked messages for PR review reaction",
 			"error", err,
 		)
 		return err
 	}
-	if message == nil {
-		log.Warn(ctx, "No message found for PR review reaction")
+	if len(trackedMessages) == 0 {
+		log.Warn(ctx, "No tracked messages found for PR review reaction")
 		return nil
 	}
 
+	// Add reaction to all tracked messages
 	emoji := h.slackService.GetEmojiForReviewState(payload.Review.State)
 	if emoji != "" {
-		err = h.slackService.AddReaction(ctx, message.SlackChannel, message.SlackMessageTS, emoji)
+		var messageRefs []services.MessageRef
+		for _, msg := range trackedMessages {
+			messageRefs = append(messageRefs, services.MessageRef{
+				Channel:   msg.SlackChannel,
+				Timestamp: msg.SlackMessageTS,
+			})
+		}
+
+		err = h.slackService.AddReactionToMultipleMessages(ctx, messageRefs, emoji)
 		if err != nil {
-			log.Error(ctx, "Failed to add review reaction to Slack message",
+			log.Error(ctx, "Failed to add review reactions to tracked messages",
 				"error", err,
-				"channel", message.SlackChannel,
-				"message_ts", message.SlackMessageTS,
 				"emoji", emoji,
+				"message_count", len(messageRefs),
 			)
 			return err
 		}
 	}
 
-	message.LastStatus = "review_" + payload.Review.State
-	err = h.firestoreService.UpdateMessage(ctx, message)
-	if err != nil {
-		log.Error(ctx, "Failed to update message status after review reaction",
-			"error", err,
-			"message_id", message.ID,
-			"new_status", message.LastStatus,
-		)
-		return err
-	}
+	log.Info(ctx, "Review reactions synchronized across tracked messages",
+		"review_state", payload.Review.State,
+		"emoji", emoji,
+		"message_count", len(trackedMessages),
+	)
 	return nil
 }
 
@@ -318,6 +324,21 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		return nil
 	}
 
+	// Check if we already have a bot message for this PR in this channel
+	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, "bot")
+	if err != nil {
+		log.Error(ctx, "Failed to check for existing bot messages", "error", err)
+		return err
+	}
+
+	if len(botMessages) > 0 {
+		log.Info(ctx, "Bot message already exists for this PR in channel, skipping duplicate notification",
+			"channel", targetChannel,
+			"existing_message_count", len(botMessages))
+		return nil
+	}
+
 	log.Info(ctx, "Posting PR message to Slack", "channel", targetChannel)
 
 	timestamp, err := h.slackService.PostPRMessage(
@@ -342,72 +363,87 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		"channel", targetChannel,
 	)
 
-	message := &models.Message{
-		PRNumber:             payload.PullRequest.Number,
-		RepoFullName:         payload.Repository.FullName,
-		SlackChannel:         targetChannel,
-		SlackMessageTS:       timestamp,
-		GitHubPRURL:          payload.PullRequest.HTMLURL,
-		AuthorGitHubUsername: authorUsername,
-		LastStatus:           PRActionOpened,
+	// Create TrackedMessage for the bot notification
+	trackedMessage := &models.TrackedMessage{
+		PRNumber:       payload.PullRequest.Number,
+		RepoFullName:   payload.Repository.FullName,
+		SlackChannel:   targetChannel,
+		SlackMessageTS: timestamp,
+		MessageSource:  "bot",
 	}
 
-	log.Debug(ctx, "Saving message to database", "channel", message.SlackChannel)
-	err = h.firestoreService.CreateMessage(ctx, message)
+	log.Debug(ctx, "Saving tracked message to database", "channel", trackedMessage.SlackChannel)
+	err = h.firestoreService.CreateTrackedMessage(ctx, trackedMessage)
 	if err != nil {
-		log.Error(ctx, "Failed to save message to database",
+		log.Error(ctx, "Failed to save tracked message to database",
 			"error", err,
-			"channel", message.SlackChannel,
-			"message_ts", message.SlackMessageTS,
+			"channel", trackedMessage.SlackChannel,
+			"message_ts", trackedMessage.SlackMessageTS,
 		)
 		return err
 	}
-	log.Debug(ctx, "Successfully saved message to database")
+	log.Debug(ctx, "Successfully saved tracked message to database")
+
+	// After posting, synchronize reactions with any existing manual messages for this PR
+	allMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, "")
+	if err != nil {
+		log.Error(ctx, "Failed to get all tracked messages for reaction sync", "error", err)
+	} else if len(allMessages) > 1 {
+		// There are manual messages to sync with - we don't have current PR status yet, so we'll just log
+		log.Info(ctx, "Multiple tracked messages found for PR, reactions will be synced when status updates arrive",
+			"total_messages", len(allMessages))
+	}
+
 	return nil
 }
 
 func (h *WebhookWorkerHandler) handlePRClosed(ctx context.Context, payload *GitHubWebhookPayload) error {
-	message, err := h.firestoreService.GetMessage(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	// Get all tracked messages for this PR across all channels
+	trackedMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, "", "")
 	if err != nil {
-		log.Error(ctx, "Failed to get message for PR closed reaction",
+		log.Error(ctx, "Failed to get tracked messages for PR closed reaction",
 			"error", err,
 			"merged", payload.PullRequest.Merged,
 		)
 		return err
 	}
-	if message == nil {
-		log.Warn(ctx, "No message found for PR closed reaction",
+	if len(trackedMessages) == 0 {
+		log.Warn(ctx, "No tracked messages found for PR closed reaction",
 			"merged", payload.PullRequest.Merged,
 		)
 		return nil
 	}
 
+	// Add reaction to all tracked messages
 	emoji := h.slackService.GetEmojiForPRState(PRActionClosed, payload.PullRequest.Merged)
 	if emoji != "" {
-		err = h.slackService.AddReaction(ctx, message.SlackChannel, message.SlackMessageTS, emoji)
+		var messageRefs []services.MessageRef
+		for _, msg := range trackedMessages {
+			messageRefs = append(messageRefs, services.MessageRef{
+				Channel:   msg.SlackChannel,
+				Timestamp: msg.SlackMessageTS,
+			})
+		}
+
+		err = h.slackService.AddReactionToMultipleMessages(ctx, messageRefs, emoji)
 		if err != nil {
-			log.Error(ctx, "Failed to add PR closed reaction to Slack message",
+			log.Error(ctx, "Failed to add PR closed reactions to tracked messages",
 				"error", err,
-				"channel", message.SlackChannel,
-				"message_ts", message.SlackMessageTS,
 				"emoji", emoji,
+				"message_count", len(messageRefs),
 				"merged", payload.PullRequest.Merged,
 			)
 			return err
 		}
 	}
 
-	message.LastStatus = PRActionClosed
-	err = h.firestoreService.UpdateMessage(ctx, message)
-	if err != nil {
-		log.Error(ctx, "Failed to update message status after PR closed",
-			"error", err,
-			"message_id", message.ID,
-			"new_status", message.LastStatus,
-			"merged", payload.PullRequest.Merged,
-		)
-		return err
-	}
+	log.Info(ctx, "PR closed reactions synchronized across tracked messages",
+		"merged", payload.PullRequest.Merged,
+		"emoji", emoji,
+		"message_count", len(trackedMessages),
+	)
 	return nil
 }
 
@@ -450,4 +486,88 @@ func isRetryableError(err error) bool {
 
 	// Default to not retrying for unknown errors
 	return false
+}
+
+// ProcessManualLink processes manually detected PR links from Slack messages.
+func (h *WebhookWorkerHandler) ProcessManualLink(c *gin.Context) {
+	startTime := time.Now()
+	ctx := c.Request.Context()
+
+	var job models.ManualLinkJob
+	if err := c.ShouldBindJSON(&job); err != nil {
+		log.Error(ctx, "Invalid manual link job payload - JSON binding failed",
+			"error", err,
+			"content_type", c.ContentType(),
+			"content_length", c.Request.ContentLength,
+		)
+		c.JSON(400, gin.H{"error": "invalid job payload"})
+		return
+	}
+
+	// Add job metadata to context for all log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"job_id":           job.ID,
+		"trace_id":         job.TraceID,
+		"repo":             job.RepoFullName,
+		"pr_number":        job.PRNumber,
+		"slack_channel":    job.SlackChannel,
+		"slack_message_ts": job.SlackMessageTS,
+	})
+
+	log.Debug(ctx, "Processing manual PR link")
+
+	if err := h.processManualLink(ctx, &job); err != nil {
+		processingTime := time.Since(startTime)
+		log.Error(ctx, "Failed to process manual PR link",
+			"error", err,
+			"processing_time_ms", processingTime.Milliseconds(),
+		)
+
+		if isRetryableError(err) {
+			c.JSON(500, gin.H{
+				"error":              "processing failed",
+				"retryable":          true,
+				"processing_time_ms": processingTime.Milliseconds(),
+			})
+		} else {
+			c.JSON(400, gin.H{
+				"error":              "processing failed",
+				"retryable":          false,
+				"processing_time_ms": processingTime.Milliseconds(),
+			})
+		}
+		return
+	}
+
+	processingTime := time.Since(startTime)
+	log.Info(ctx, "Manual PR link processed successfully",
+		"processing_time_ms", processingTime.Milliseconds(),
+	)
+
+	c.JSON(200, gin.H{
+		"status":             "processed",
+		"processing_time_ms": processingTime.Milliseconds(),
+	})
+}
+
+// processManualLink handles the processing logic for manually detected PR links.
+func (h *WebhookWorkerHandler) processManualLink(ctx context.Context, job *models.ManualLinkJob) error {
+	// Create TrackedMessage for this manual PR link
+	trackedMessage := &models.TrackedMessage{
+		PRNumber:       job.PRNumber,
+		RepoFullName:   job.RepoFullName,
+		SlackChannel:   job.SlackChannel,
+		SlackMessageTS: job.SlackMessageTS,
+		MessageSource:  "manual",
+	}
+
+	log.Debug(ctx, "Creating tracked message for manual PR link")
+	err := h.firestoreService.CreateTrackedMessage(ctx, trackedMessage)
+	if err != nil {
+		log.Error(ctx, "Failed to create tracked message for manual PR link", "error", err)
+		return err
+	}
+
+	log.Info(ctx, "Manual PR link tracked successfully")
+	return nil
 }

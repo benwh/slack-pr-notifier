@@ -188,7 +188,7 @@ Required environment variables (configured in `.env` file):
 
 - `GOOGLE_CLOUD_PROJECT`: GCP project ID for Cloud Tasks
 - `CLOUD_TASKS_QUEUE`: Queue name (defaults to `webhook-processing`)
-- `WEBHOOK_WORKER_URL`: Full URL to the `/process-webhook` endpoint of your deployed service
+- `BASE_URL`: Base URL of your deployed service (e.g., `https://my-service.run.app`)
 
 ### Slack App Configuration
 
@@ -251,25 +251,48 @@ go test -v ./...
 
 ### Slack App Setup
 
+**Recommended: Use App Manifest (Easier)**
+
+1. Generate the manifest for your service:
+   ```bash
+   ./scripts/generate-slack-manifest.sh
+   ```
+2. Create a new Slack app at <https://api.slack.com/apps>
+3. Choose "From an app manifest" and paste the generated `slack-app-manifest.yaml` content
+4. Install the app to your workspace to generate the bot token
+
+**Alternative: Manual Configuration**
+
 1. Create a new Slack app at <https://api.slack.com/apps>
 2. Configure OAuth scopes under "OAuth & Permissions":
-   - `channels:read`
-   - `chat:write`
-   - `commands`
-3. Enable slash commands under "Slash Commands":
-   - `/notify-channel`
-   - `/notify-link`
-   - `/notify-status`
-4. Set request URL to your deployed Cloud Run service: `https://your-service-url/webhooks/slack`
+   - `channels:read` - Validate channel access for `/notify-channel` command
+   - `chat:write` - Send PR notifications and add emoji reactions
+   - `commands` - Handle slash commands
+   - `links:read` - Read GitHub links in messages for manual PR detection
+   - `channels:history` - Required by message.channels event subscription
+3. Enable event subscriptions under "Event Subscriptions":
+   - Request URL: `https://your-service-url/webhooks/slack/events`
+   - Subscribe to bot events: `message.channels`
+4. Enable slash commands under "Slash Commands":
+   - `/notify-channel` → `https://your-service-url/webhooks/slack/slash-command`
+   - `/notify-link` → `https://your-service-url/webhooks/slack/slash-command`
+   - `/notify-status` → `https://your-service-url/webhooks/slack/slash-command`
 5. Install the app to your workspace to generate the bot token
+
+See `docs/SLACK_APP_MANIFEST.md` for detailed setup instructions.
 
 ## Webhook Endpoints
 
 - `POST /webhooks/github`: GitHub webhook fast ingress (queues to Cloud Tasks)
 - `POST /process-webhook`: Internal webhook worker endpoint (called by Cloud Tasks)
-- `POST /webhooks/slack`: Slack slash command processor
+- `POST /process-manual-link`: Internal manual PR link worker endpoint (called by Cloud Tasks)
+- `POST /webhooks/slack/slash-command`: Slack slash command processor
+- `POST /webhooks/slack/events`: Slack Events API processor (detects manual PR links)
 - `POST /api/repos`: Repository registration (admin only)
 - `GET /health`: Health check endpoint
 
-**Note:** The `/process-webhook` endpoint should not be exposed publicly - it's designed to be called only by Google Cloud Tasks with proper authentication.
+**Note:** The `/process-webhook` and `/process-manual-link` endpoints should not be exposed publicly - they're designed to be called only by Google Cloud Tasks with proper authentication.
 
+## Development Tips
+
+- Whenever trying to add newlines to ends of files, just use `gofmt -w $file` instead

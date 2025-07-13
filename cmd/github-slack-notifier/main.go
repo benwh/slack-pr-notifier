@@ -90,7 +90,7 @@ func main() {
 		ProjectID: cfg.GoogleCloudProject,
 		Location:  cfg.GCPRegion,
 		QueueName: cfg.CloudTasksQueue,
-		WorkerURL: cfg.WebhookWorkerURL,
+		Config:    cfg,
 	}
 
 	cloudTasksService, err := services.NewCloudTasksService(cloudTasksConfig)
@@ -117,7 +117,7 @@ func main() {
 		cloudTasksService:    cloudTasksService,
 		githubHandler:        githubHandler,
 		webhookWorkerHandler: webhookWorkerHandler,
-		slackHandler:         handlers.NewSlackHandler(firestoreService, slackService, cfg),
+		slackHandler:         handlers.NewSlackHandler(firestoreService, slackService, cloudTasksService, cfg),
 	}
 
 	router := gin.Default()
@@ -128,8 +128,10 @@ func main() {
 	// Configure webhook routes
 	router.POST("/webhooks/github", app.githubHandler.HandleWebhook)
 	router.POST("/process-webhook", app.webhookWorkerHandler.ProcessWebhook)
+	router.POST("/process-manual-link", app.webhookWorkerHandler.ProcessManualLink)
 
-	router.POST("/webhooks/slack", app.slackHandler.HandleWebhook)
+	router.POST("/webhooks/slack/slash-command", app.slackHandler.HandleSlashCommand)
+	router.POST("/webhooks/slack/events", app.slackHandler.HandleEvent)
 	router.POST("/api/repos", app.handleRepoRegistration)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})

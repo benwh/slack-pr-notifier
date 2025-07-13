@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,29 +13,39 @@ import (
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
+	"github-slack-notifier/internal/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
 )
 
 // SlackHandler handles Slack webhook events and slash commands.
 type SlackHandler struct {
-	firestoreService *services.FirestoreService
-	slackService     *services.SlackService
-	signingSecret    string
+	firestoreService  *services.FirestoreService
+	slackService      *services.SlackService
+	cloudTasksService *services.CloudTasksService
+	signingSecret     string
 }
 
 // NewSlackHandler creates a new SlackHandler with the provided services and configuration.
-func NewSlackHandler(fs *services.FirestoreService, slack *services.SlackService, cfg *config.Config) *SlackHandler {
+func NewSlackHandler(
+	fs *services.FirestoreService,
+	slack *services.SlackService,
+	cloudTasks *services.CloudTasksService,
+	cfg *config.Config,
+) *SlackHandler {
 	return &SlackHandler{
-		firestoreService: fs,
-		slackService:     slack,
-		signingSecret:    cfg.SlackSigningSecret,
+		firestoreService:  fs,
+		slackService:      slack,
+		cloudTasksService: cloudTasks,
+		signingSecret:     cfg.SlackSigningSecret,
 	}
 }
 
-// HandleWebhook processes incoming Slack webhook events and slash commands.
-func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
+// HandleSlashCommand processes incoming Slack slash commands.
+func (sh *SlackHandler) HandleSlashCommand(c *gin.Context) {
 	signature := c.GetHeader("X-Slack-Signature")
 	timestamp := c.GetHeader("X-Slack-Request-Timestamp")
 
@@ -97,6 +108,96 @@ func (sh *SlackHandler) HandleWebhook(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"text": response})
+}
+
+// HandleEvent processes incoming Slack Events API events.
+func (sh *SlackHandler) HandleEvent(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read body"})
+		return
+	}
+
+	if err := sh.verifySignature(c.Request.Header, body); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
+		return
+	}
+
+	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse event"})
+		return
+	}
+
+	// Handle URL verification challenge
+	if eventsAPIEvent.Type == slackevents.URLVerification {
+		var r *slackevents.ChallengeResponse
+		err := json.Unmarshal(body, &r)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse challenge"})
+			return
+		}
+		c.String(http.StatusOK, r.Challenge)
+		return
+	}
+
+	// Handle events
+	if eventsAPIEvent.Type == slackevents.CallbackEvent {
+		innerEvent := eventsAPIEvent.InnerEvent
+		if ev, ok := innerEvent.Data.(*slackevents.MessageEvent); ok {
+			sh.handleMessageEvent(c.Request.Context(), ev)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// handleMessageEvent processes message events to detect and track GitHub PR links.
+func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackevents.MessageEvent) {
+	// Skip bot messages, edited messages, and messages without text
+	if event.BotID != "" || event.SubType == "message_changed" || event.Text == "" {
+		return
+	}
+
+	// Extract PR links from message text
+	prLinks := utils.ExtractPRLinks(event.Text)
+	if len(prLinks) == 0 {
+		return
+	}
+
+	// Process each PR link found (though we expect only one based on our utility logic)
+	for _, prLink := range prLinks {
+		jobID := uuid.New().String()
+		traceID := uuid.New().String()
+
+		job := &models.ManualLinkJob{
+			ID:             jobID,
+			PRNumber:       prLink.PRNumber,
+			RepoFullName:   prLink.FullRepoName,
+			SlackChannel:   event.Channel,
+			SlackMessageTS: event.TimeStamp,
+			TraceID:        traceID,
+		}
+
+		// Queue for async processing
+		err := sh.cloudTasksService.EnqueueManualLinkProcessing(ctx, job)
+		if err != nil {
+			log.Error(ctx, "Failed to enqueue manual link processing",
+				"error", err,
+				"repo", prLink.FullRepoName,
+				"pr_number", prLink.PRNumber,
+				"slack_channel", event.Channel,
+				"slack_message_ts", event.TimeStamp,
+			)
+		} else {
+			log.Info(ctx, "Manual PR link detected and queued for processing",
+				"repo", prLink.FullRepoName,
+				"pr_number", prLink.PRNumber,
+				"slack_channel", event.Channel,
+				"job_id", jobID,
+			)
+		}
+	}
 }
 
 func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID, text string) (string, error) {
