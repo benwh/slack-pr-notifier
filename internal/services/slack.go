@@ -10,8 +10,12 @@ import (
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
+
 	"github.com/slack-go/slack"
 )
+
+// ErrReactionNotFound indicates a reaction doesn't exist (expected behavior).
+var ErrReactionNotFound = errors.New("reaction not found")
 
 type SlackService struct {
 	client      *slack.Client
@@ -174,13 +178,19 @@ func (s *SlackService) RemoveReaction(ctx context.Context, channel, timestamp, e
 		Timestamp: timestamp,
 	})
 	if err != nil {
-		// Check if the error is because the reaction doesn't exist
-		var slackErr *slack.SlackErrorResponse
-		if errors.As(err, &slackErr) && slackErr.Err == "no_reaction" {
-			// This is expected behavior - don't log anything, just return the error
-			// so the caller can decide how to handle it
-			return err
+		// Check for expected error conditions that shouldn't be logged
+		switch err.Error() {
+		case "no_reaction":
+			// Reaction doesn't exist or user didn't originally add it - this is expected
+			return ErrReactionNotFound
+		case "message_not_found":
+			// Message was deleted - also treat as expected behavior
+			return ErrReactionNotFound
+		case "channel_not_found":
+			// Channel was deleted or archived - permanent error, but expected
+			return ErrReactionNotFound
 		}
+
 		log.Error(ctx, "Failed to remove reaction from Slack message",
 			"error", err,
 			"channel", channel,
@@ -208,9 +218,8 @@ func (s *SlackService) RemoveReactionFromMultipleMessages(
 	for _, msg := range messages {
 		err := s.RemoveReaction(ctx, msg.Channel, msg.Timestamp, emoji)
 		if err != nil {
-			// Check if this is an expected "no_reaction" error
-			var slackErr *slack.SlackErrorResponse
-			if errors.As(err, &slackErr) && slackErr.Err == "no_reaction" {
+			// Check if this is our expected "reaction not found" error
+			if errors.Is(err, ErrReactionNotFound) {
 				// This is expected - reaction doesn't exist, which is fine
 				noReactionCount++
 			} else {
