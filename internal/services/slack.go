@@ -12,6 +12,7 @@ import (
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/ui"
+
 	"github.com/slack-go/slack"
 )
 
@@ -41,10 +42,39 @@ func NewSlackService(client *slack.Client, emojiConfig config.EmojiConfig) *Slac
 	}
 }
 
+// getPRSizeEmoji returns an animal emoji based on the number of lines changed in a PR.
+//
+//nolint:mnd
+func (s *SlackService) getPRSizeEmoji(linesChanged int) string {
+	switch {
+	case linesChanged < 5:
+		return "🐜" // ant
+	case linesChanged <= 20:
+		return "🐭" // mouse
+	case linesChanged <= 50:
+		return "🐰" // rabbit
+	case linesChanged <= 100:
+		return "🐱" // cat
+	case linesChanged <= 250:
+		return "🐕" // dog
+	case linesChanged <= 500:
+		return "🐴" // horse
+	case linesChanged <= 1000:
+		return "🐻" // bear
+	case linesChanged <= 1500:
+		return "🐘" // elephant
+	case linesChanged <= 2000:
+		return "🦕" // dinosaur
+	default:
+		return "🐋" // whale
+	}
+}
+
 func (s *SlackService) PostPRMessage(
-	ctx context.Context, channel, repoName, prTitle, prAuthor, prDescription, prURL string,
+	ctx context.Context, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 ) (string, error) {
-	text := fmt.Sprintf("🐜 <%s|%s by %s>", prURL, prTitle, prAuthor)
+	emoji := s.getPRSizeEmoji(prSize)
+	text := fmt.Sprintf("%s <%s|%s by %s>", emoji, prURL, prTitle, prAuthor)
 
 	_, timestamp, err := s.client.PostMessage(channel,
 		slack.MsgOptionText(text, false),

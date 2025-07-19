@@ -35,12 +35,14 @@ const (
 type GitHubWebhookPayload struct {
 	Action      string `json:"action"`
 	PullRequest struct {
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		Body    string `json:"body"`
-		Draft   bool   `json:"draft"`
-		HTMLURL string `json:"html_url"`
-		User    struct {
+		Number    int    `json:"number"`
+		Title     string `json:"title"`
+		Body      string `json:"body"`
+		Draft     bool   `json:"draft"`
+		HTMLURL   string `json:"html_url"`
+		Additions int    `json:"additions"`
+		Deletions int    `json:"deletions"`
+		User      struct {
 			ID    int    `json:"id"`
 			Login string `json:"login"`
 		} `json:"user"`
@@ -343,6 +345,9 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 
 	log.Info(ctx, "Posting PR message to Slack", "channel", targetChannel)
 
+	// Calculate PR size (additions + deletions)
+	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+
 	timestamp, err := h.slackService.PostPRMessage(
 		ctx,
 		targetChannel,
@@ -351,6 +356,7 @@ func (h *WebhookWorkerHandler) handlePROpened(ctx context.Context, payload *GitH
 		payload.PullRequest.User.Login,
 		payload.PullRequest.Body,
 		payload.PullRequest.HTMLURL,
+		prSize,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack",
