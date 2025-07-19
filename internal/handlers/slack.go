@@ -81,6 +81,13 @@ func (sh *SlackHandler) HandleSlashCommand(c *gin.Context) {
 	text := values.Get("text")
 
 	ctx := c.Request.Context()
+
+	// Log slash command execution for monitoring
+	log.Info(ctx, "Processing Slack slash command",
+		"command", command,
+		"user_id", userID,
+	)
+
 	var response string
 
 	switch command {
@@ -217,17 +224,21 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 		return "❌ Please provide a valid channel name. Example: `/notify-channel #engineering`", nil
 	}
 
+	// Validate the channel name and resolve to channel ID
 	err := sh.slackService.ValidateChannel(ctx, channel)
 	if err != nil {
-		// Log the actual Slack API error for debugging
 		log.Error(ctx, "Channel validation failed",
-			"channel", channel,
+			"channel_name", channel,
 			"slack_api_error", err,
 		)
-
-		// Return user-friendly message for channel validation errors (user input error, not system error)
 		return fmt.Sprintf("❌ Channel `#%s` not found or bot doesn't have access. "+
 			"Make sure the channel exists and the bot has been invited to it.", displayName), nil
+	}
+
+	// Get the resolved channel ID for storage and response
+	resolvedChannelID, err := sh.slackService.ResolveChannelID(ctx, channel)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve channel ID: %w", err)
 	}
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
@@ -243,13 +254,14 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 		}
 	}
 
-	user.DefaultChannel = channel
+	// Store the channel ID (more reliable than channel name)
+	user.DefaultChannel = resolvedChannelID
 	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
 	if err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("✅ Default notification channel set to <#%s|%s>", channel, displayName), nil
+	return fmt.Sprintf("✅ Default notification channel set to <#%s|%s>", resolvedChannelID, displayName), nil
 }
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {

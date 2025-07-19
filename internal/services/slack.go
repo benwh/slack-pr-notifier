@@ -16,6 +16,9 @@ import (
 // ErrReactionNotFound indicates a reaction doesn't exist (expected behavior).
 var ErrReactionNotFound = errors.New("reaction not found")
 
+// ErrChannelNotFound indicates a channel could not be found by name.
+var ErrChannelNotFound = errors.New("channel not found")
+
 type SlackService struct {
 	client      *slack.Client
 	emojiConfig config.EmojiConfig
@@ -97,13 +100,25 @@ func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoj
 }
 
 func (s *SlackService) ValidateChannel(ctx context.Context, channel string) error {
-	_, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
-		ChannelID: channel,
+	// Resolve channel name to channel ID if needed
+	channelID, err := s.resolveChannelID(ctx, channel)
+	if err != nil {
+		log.Error(ctx, "Failed to resolve Slack channel",
+			"error", err,
+			"channel", channel,
+			"operation", "resolve_channel",
+		)
+		return fmt.Errorf("failed to resolve channel %s: %w", channel, err)
+	}
+
+	_, err = s.client.GetConversationInfo(&slack.GetConversationInfoInput{
+		ChannelID: channelID,
 	})
 	if err != nil {
 		log.Error(ctx, "Failed to validate Slack channel",
 			"error", err,
 			"channel", channel,
+			"channel_id", channelID,
 			"operation", "validate_channel",
 		)
 		return fmt.Errorf("failed to validate channel %s: %w", channel, err)
@@ -314,6 +329,49 @@ func (s *SlackService) SyncAllReviewReactions(
 type MessageRef struct {
 	Channel   string
 	Timestamp string
+}
+
+// ResolveChannelID converts a channel name to channel ID if needed.
+// If the input is already a channel ID (starts with 'C'), returns it as-is.
+func (s *SlackService) ResolveChannelID(ctx context.Context, channel string) (string, error) {
+	return s.resolveChannelID(ctx, channel)
+}
+
+// resolveChannelID converts a channel name to channel ID if needed.
+// If the input is already a channel ID (starts with 'C'), returns it as-is.
+func (s *SlackService) resolveChannelID(ctx context.Context, channel string) (string, error) {
+	// If already a channel ID (starts with 'C'), return as-is
+	if strings.HasPrefix(channel, "C") {
+		return channel, nil
+	}
+
+	// Look up channel by name using GetConversationsContext
+	const maxConversationsPerPage = 1000 // Slack's max limit per page
+	params := &slack.GetConversationsParameters{
+		ExcludeArchived: true,
+		Limit:           maxConversationsPerPage,
+		Types:           []string{"public_channel", "private_channel"},
+	}
+
+	for {
+		channels, nextCursor, err := s.client.GetConversationsContext(ctx, params)
+		if err != nil {
+			return "", fmt.Errorf("failed to list conversations: %w", err)
+		}
+
+		for _, ch := range channels {
+			if ch.Name == channel {
+				return ch.ID, nil
+			}
+		}
+
+		if nextCursor == "" {
+			break
+		}
+		params.Cursor = nextCursor
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrChannelNotFound, channel)
 }
 
 func (s *SlackService) ExtractChannelFromDescription(description string) string {

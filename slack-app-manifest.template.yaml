@@ -38,6 +38,7 @@ oauth_config:
   scopes:
     bot:
       - channels:read           # View basic information about public channels
+      - groups:read             # View basic information about private channels that the app has been added to
       - chat:write              # Post messages and add reactions in approved channels
       - commands                # Handle slash commands
       - links:read              # Read information about links shared in channels
