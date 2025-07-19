@@ -15,15 +15,19 @@ import (
 type OAuthHandler struct {
 	githubAuthService *services.GitHubAuthService
 	firestoreService  *services.FirestoreService
+	slackService      *services.SlackService
 }
 
 // NewOAuthHandler creates a new OAuth handler.
 func NewOAuthHandler(
-	githubAuthService *services.GitHubAuthService, firestoreService *services.FirestoreService,
+	githubAuthService *services.GitHubAuthService,
+	firestoreService *services.FirestoreService,
+	slackService *services.SlackService,
 ) *OAuthHandler {
 	return &OAuthHandler{
 		githubAuthService: githubAuthService,
 		firestoreService:  firestoreService,
+		slackService:      slackService,
 	}
 }
 
@@ -178,6 +182,21 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	}
 
 	log.Info(ctx, "GitHub account successfully linked to Slack user")
+
+	// Send ephemeral success message to the channel where OAuth was initiated
+	if state.SlackChannel != "" {
+		successMessage := fmt.Sprintf(
+			"✅ *GitHub Account Linked!*\n\nYour GitHub account `@%s` has been successfully connected. "+
+				"You'll now receive personalized PR notifications!", githubUser.Login)
+
+		err := h.slackService.SendEphemeralMessage(ctx, state.SlackChannel, state.SlackUserID, successMessage)
+		if err != nil {
+			log.Warn(ctx, "Failed to send OAuth success message to channel",
+				"error", err,
+				"channel", state.SlackChannel,
+				"user_id", state.SlackUserID)
+		}
+	}
 
 	// Redirect back to Slack with success message
 	slackDeepLink := fmt.Sprintf("slack://channel?team=%s&id=general", state.SlackTeamID)

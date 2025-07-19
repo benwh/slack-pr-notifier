@@ -66,7 +66,7 @@ func NewGitHubAuthService(cfg *config.Config, firestoreService *FirestoreService
 
 // CreateOAuthState creates a new OAuth state for CSRF protection.
 func (s *GitHubAuthService) CreateOAuthState(
-	ctx context.Context, slackUserID, slackTeamID string,
+	ctx context.Context, slackUserID, slackTeamID, slackChannel string,
 ) (*models.OAuthState, error) {
 	// Generate random state ID
 	stateBytes := make([]byte, stateIDLength)
@@ -75,11 +75,12 @@ func (s *GitHubAuthService) CreateOAuthState(
 	}
 
 	state := &models.OAuthState{
-		ID:          hex.EncodeToString(stateBytes),
-		SlackUserID: slackUserID,
-		SlackTeamID: slackTeamID,
-		CreatedAt:   time.Now(),
-		ExpiresAt:   time.Now().Add(oauthStateTimeout),
+		ID:           hex.EncodeToString(stateBytes),
+		SlackUserID:  slackUserID,
+		SlackTeamID:  slackTeamID,
+		SlackChannel: slackChannel,
+		CreatedAt:    time.Now(),
+		ExpiresAt:    time.Now().Add(oauthStateTimeout),
 	}
 
 	if err := s.firestoreService.CreateOAuthState(ctx, state); err != nil {

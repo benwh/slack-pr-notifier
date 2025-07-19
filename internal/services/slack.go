@@ -56,6 +56,25 @@ func (s *SlackService) PostPRMessage(
 	return timestamp, nil
 }
 
+// SendEphemeralMessage sends an ephemeral message visible only to a specific user.
+func (s *SlackService) SendEphemeralMessage(ctx context.Context, channel, userID, text string) error {
+	_, err := s.client.PostEphemeral(channel, userID,
+		slack.MsgOptionText(text, false),
+		slack.MsgOptionDisableLinkUnfurl(),
+	)
+	if err != nil {
+		log.Error(ctx, "Failed to send ephemeral message to Slack",
+			"error", err,
+			"channel", channel,
+			"user_id", userID,
+			"operation", "send_ephemeral_message",
+		)
+		return fmt.Errorf("failed to send ephemeral message to user %s in channel %s: %w", userID, channel, err)
+	}
+
+	return nil
+}
+
 func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoji string) error {
 	msgRef := slack.NewRefToMessage(channel, timestamp)
 	err := s.client.AddReaction(emoji, msgRef)

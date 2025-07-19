@@ -111,7 +111,7 @@ func main() {
 	)
 	webhookWorkerHandler := handlers.NewWebhookWorkerHandler(firestoreService, slackService, cfg)
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
-	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService)
+	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService)
 
 	app := &App{
 		config:               cfg,

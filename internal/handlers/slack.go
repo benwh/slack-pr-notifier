@@ -78,6 +78,7 @@ func (sh *SlackHandler) HandleSlashCommand(c *gin.Context) {
 	command := values.Get("command")
 	userID := values.Get("user_id")
 	teamID := values.Get("team_id")
+	channelID := values.Get("channel_id")
 	text := values.Get("text")
 
 	ctx := c.Request.Context()
@@ -94,7 +95,7 @@ func (sh *SlackHandler) HandleSlashCommand(c *gin.Context) {
 	case "/notify-channel":
 		response, err = sh.handleNotifyChannel(ctx, userID, teamID, text)
 	case "/notify-link":
-		response, err = sh.handleNotifyLink(ctx, userID, teamID, text)
+		response, err = sh.handleNotifyLink(ctx, userID, teamID, channelID, text)
 	case "/notify-unlink":
 		response, err = sh.handleNotifyUnlink(ctx, userID)
 	case "/notify-status":
@@ -264,7 +265,7 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 	return fmt.Sprintf("✅ Default notification channel set to <#%s|%s>", resolvedChannelID, displayName), nil
 }
 
-func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
+func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, channelID, text string) (string, error) {
 	if text != "" {
 		return "🔗 *New OAuth Flow Available!*\n\n" +
 			"We've upgraded to secure GitHub OAuth authentication. " +
@@ -272,8 +273,8 @@ func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, te
 			"Simply run `/notify-link` to get your personalized OAuth link!", nil
 	}
 
-	// Create OAuth state for this user
-	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID)
+	// Create OAuth state for this user with channel context
+	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID, channelID)
 	if err != nil {
 		log.Error(ctx, "Failed to create OAuth state", "error", err, "user_id", userID)
 		return "", services.ErrAuthLinkGeneration

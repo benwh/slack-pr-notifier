@@ -25,11 +25,12 @@ type User struct {
 
 // OAuthState represents temporary OAuth state for CSRF protection.
 type OAuthState struct {
-	ID          string    `firestore:"id"`            // Random UUID
-	SlackUserID string    `firestore:"slack_user_id"` // Slack user initiating OAuth
-	SlackTeamID string    `firestore:"slack_team_id"` // Slack team ID
-	CreatedAt   time.Time `firestore:"created_at"`    // When state was created
-	ExpiresAt   time.Time `firestore:"expires_at"`    // When state expires (15 minutes)
+	ID           string    `firestore:"id"`            // Random UUID
+	SlackUserID  string    `firestore:"slack_user_id"` // Slack user initiating OAuth
+	SlackTeamID  string    `firestore:"slack_team_id"` // Slack team ID
+	SlackChannel string    `firestore:"slack_channel"` // Channel where OAuth was initiated
+	CreatedAt    time.Time `firestore:"created_at"`    // When state was created
+	ExpiresAt    time.Time `firestore:"expires_at"`    // When state expires (15 minutes)
 }
 
 // TrackedMessage represents a tracked PR message in Slack (replaces old Message model).
