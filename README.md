@@ -7,6 +7,7 @@ A Go application that sends Slack notifications for GitHub pull request events w
 - 🔗 **PR Notifications**: Sends Slack messages when PRs are opened
 - 📝 **Review Updates**: Automatically syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬, dismissed 👋)
 - 🎉 **Closure Updates**: Adds emoji reactions when PRs are merged or closed
+- 🔐 **Secure OAuth Authentication**: Users link GitHub accounts via OAuth (no more username trust)
 - ⚙️ **Slack Configuration**: Use slash commands to configure your settings
 - 🚀 **Async Processing**: Uses Google Cloud Tasks for reliable webhook processing with automatic retries
 - 📊 **Observability**: Structured logging with trace IDs for full request tracking
@@ -75,16 +76,13 @@ The application uses **async processing** via Google Cloud Tasks for reliable we
 
 ## Configuration
 
-### Environment Variables
+See the [Configuration Guide](docs/CONFIGURATION.md) for detailed setup instructions.
 
-Create a `.env` file based on `.env.example`:
-
+**Quick Start:**
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
 ```
-
-See [`.env.example`](.env.example) for all available configuration options with descriptions and defaults. All configuration is centralized in `internal/config/config.go`.
 
 ### GitHub App Setup
 
@@ -183,8 +181,9 @@ See [`.env.example`](.env.example) for all available configuration options with 
 Users can configure their preferences in Slack:
 
 - `/notify-channel #engineering` - Set default channel for PR notifications
-- `/notify-link octocat` - Link GitHub username to Slack account
-- `/notify-status` - View current configuration
+- `/notify-link` - Get secure OAuth link to connect your GitHub account
+- `/notify-unlink` - Disconnect your GitHub account
+- `/notify-status` - View current configuration and verification status
 
 ### Channel Override
 
@@ -270,7 +269,15 @@ github-slack-notifier/
 └── CLAUDE.md                     # AI assistant guidelines
 ```
 
-See [CLAUDE.md](CLAUDE.md#architecture-guidelines) for detailed architecture guidelines.
+See [CLAUDE.md](CLAUDE.md#architecture-guidelines) for development guidelines.
+
+## Documentation
+
+- 📋 [Configuration Guide](docs/CONFIGURATION.md) - Environment setup and app configuration
+- 🔐 [OAuth Authentication](docs/OAUTH.md) - GitHub OAuth implementation details
+- 📡 [API Reference](docs/API.md) - HTTP endpoints and Slack commands
+- 🔧 [Slack App Setup](docs/SLACK_APP_SETUP.md) - Detailed Slack app configuration
+- 👨‍💻 [Development Guide](CLAUDE.md) - Architecture and coding guidelines
 
 ## Architecture
 

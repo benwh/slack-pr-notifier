@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Structure
+
+When users ask about configuration, setup, or usage, refer them to the appropriate documentation:
+
+- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** - Environment variables, GitHub/Slack app setup, deployment config
+- **[docs/OAUTH.md](docs/OAUTH.md)** - GitHub OAuth authentication implementation and architecture decisions
+- **[docs/API.md](docs/API.md)** - HTTP endpoints, Slack slash commands, authentication methods
+- **[docs/SLACK_APP_SETUP.md](docs/SLACK_APP_SETUP.md)** - Detailed Slack app configuration instructions
+- **[README.md](README.md)** - Project overview, quick start, usage examples
+
+**This file (CLAUDE.md)** focuses on development patterns, code architecture, and AI coding assistance.
+
 ## Project Overview
 
 This is a Go-based GitHub-Slack notifier that sends Slack notifications for GitHub pull request events. It uses **async processing** via Google Cloud Tasks for high reliability, processing PR opens, reviews, and closures via webhooks, storing state in Cloud Firestore and sending notifications to Slack channels.
@@ -36,6 +48,93 @@ go fmt ./...
 go vet ./...
 staticcheck ./...
 ```
+
+#### Linting Best Practices
+
+**CRITICAL**: Always write lint-free code from the start. Follow these patterns to avoid common linter errors:
+
+**Function Signatures & Line Length:**
+- Keep lines under 120 characters
+- For long function signatures, use multi-line format:
+```go
+func NewSlackHandler(
+	fs *services.FirestoreService, slack *services.SlackService,
+	cloudTasks *services.CloudTasksService, githubAuth *services.GitHubAuthService,
+	cfg *config.Config,
+) *SlackHandler {
+```
+
+**Error Handling:**
+- Use static errors instead of dynamic `fmt.Errorf()` calls:
+```go
+// Good - static errors
+var (
+	ErrStateRequired = fmt.Errorf("state parameter is required")
+	ErrInvalidState  = fmt.Errorf("invalid or expired state")
+)
+
+// For contextual errors, wrap static errors:
+return fmt.Errorf("%w: status %d", ErrTokenExchangeFailed, statusCode)
+
+// Bad - dynamic errors (triggers err113)
+return fmt.Errorf("state parameter is required")
+```
+
+**Constants vs Magic Numbers:**
+- Always define constants for any numeric values:
+```go
+const (
+	stateIDLength     = 16
+	oauthStateTimeout = 15 * time.Minute
+	httpClientTimeout = 30 * time.Second
+)
+```
+
+**HTTP Methods:**
+- Use standard library constants:
+```go
+// Good
+http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+
+// Bad
+http.NewRequestWithContext(ctx, "POST", url, body)
+```
+
+**Resource Cleanup:**
+- Always handle `Close()` return values:
+```go
+// Good
+defer func() { _ = resp.Body.Close() }()
+
+// Bad (triggers errcheck)
+defer resp.Body.Close()
+```
+
+**Comments:**
+- End all comments with periods:
+```go
+// CreateOAuthState creates a new OAuth state for CSRF protection.
+func CreateOAuthState(...) { // Good
+
+// CreateOAuthState creates a new OAuth state for CSRF protection
+func CreateOAuthState(...) { // Bad (triggers godot)
+```
+
+**Security (gosec):**
+- Use `#nosec` comments for false positives:
+```go
+// #nosec G101 -- Public GitHub OAuth endpoint, not credentials
+githubTokenURL = "https://github.com/login/oauth/access_token"
+```
+
+**Test Function Signatures:**
+- Ensure test calls match current function signatures
+- When adding parameters to constructors, update ALL test files
+- Example: `NewSlackHandler(fs, slack, cloudTasks, githubAuth, cfg)` needs 5 parameters, not 4
+
+**Formatting:**
+- Run `gofmt -s -w` on files after making changes
+- Use `gofmt -s` (simplify) flag to clean up formatting automatically
 
 ### Deployment
 
@@ -194,49 +293,22 @@ The system automatically manages Slack emoji reactions on PR notification messag
 - **Logging**: Built-in `log/slog` for structured logging with trace IDs
 - **IDs**: `github.com/google/uuid` for generating job and trace IDs
 
-## Environment Configuration
+## OAuth Architecture Decision
 
-Required environment variables (configured in `.env` file):
+**Decision**: We chose to extend our existing **GitHub App** with OAuth capabilities rather than creating a separate OAuth App.
 
-**Core Configuration:**
+**Rationale:**
+- Single app to manage (webhooks + user auth)
+- Consistent with existing webhook infrastructure  
+- GitHub Apps support both webhook events and user authorization
+- Simpler deployment (fewer secrets to manage)
 
-- `FIRESTORE_PROJECT_ID`: GCP project ID
-- `FIRESTORE_DATABASE_ID`: Firestore database ID
-- `SLACK_BOT_TOKEN`: Slack bot token (xoxb-)
-- `GITHUB_WEBHOOK_SECRET`: GitHub webhook secret for signature validation
-- `SLACK_SIGNING_SECRET`: Slack signing secret for request validation
-- `API_ADMIN_KEY`: Admin API key for repository registration
+**Tradeoffs considered:**
+- Slightly more complex configuration (need to enable OAuth on existing app)
+- Mixing webhook and auth concerns in one app
+- Alternative: Separate OAuth App would provide cleaner separation of concerns but add operational complexity
 
-**Async Processing:**
-
-- `GOOGLE_CLOUD_PROJECT`: GCP project ID for Cloud Tasks
-- `CLOUD_TASKS_QUEUE`: Queue name (defaults to `webhook-processing`)
-- `BASE_URL`: Base URL of your deployed service (e.g., `https://my-service.run.app`)
-
-**Emoji Configuration (Optional):**
-
-- `EMOJI_APPROVED`: Emoji for approved PR reviews (default: `white_check_mark`)
-- `EMOJI_CHANGES_REQUESTED`: Emoji for changes requested reviews (default: `arrows_counterclockwise`)
-- `EMOJI_COMMENTED`: Emoji for comment-only reviews (default: `speech_balloon`)
-- `EMOJI_DISMISSED`: Emoji for dismissed reviews (default: `wave`)
-- `EMOJI_MERGED`: Emoji for merged PRs (default: `tada`)
-- `EMOJI_CLOSED`: Emoji for closed PRs (default: `x`)
-
-### Slack App Configuration
-
-The Slack app requires the following OAuth scopes:
-
-- `channels:read`: Validate channel access for `/notify-channel` command
-- `chat:write`: Send PR notifications to channels
-- `commands`: Handle slash commands
-
-## Database Schema
-
-### Firestore Collections
-
-- **users**: User configuration with GitHub username, Slack user ID, and default channel
-- **messages**: PR notification tracking with Slack message timestamps and GitHub PR URLs
-- **repos**: Repository configuration with default channels and webhook secrets
+**Implementation**: Enable "Request user authorization (OAuth) during installation" in GitHub App settings and configure callback URL.
 
 ## Testing Strategy
 
@@ -315,17 +387,6 @@ go test -v ./...
 
 See `docs/SLACK_APP_MANIFEST.md` for detailed setup instructions.
 
-## Webhook Endpoints
-
-- `POST /webhooks/github`: GitHub webhook fast ingress (queues to Cloud Tasks)
-- `POST /process-webhook`: Internal webhook worker endpoint (called by Cloud Tasks)
-- `POST /process-manual-link`: Internal manual PR link worker endpoint (called by Cloud Tasks)
-- `POST /webhooks/slack/slash-command`: Slack slash command processor
-- `POST /webhooks/slack/events`: Slack Events API processor (detects manual PR links)
-- `POST /api/repos`: Repository registration (admin only)
-- `GET /health`: Health check endpoint
-
-**Note:** The `/process-webhook` and `/process-manual-link` endpoints should not be exposed publicly - they're designed to be called only by Google Cloud Tasks with proper authentication.
 
 ## Development Tips
 
