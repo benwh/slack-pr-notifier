@@ -11,15 +11,14 @@ import (
 	"syscall"
 
 	"cloud.google.com/go/firestore"
-	"github.com/gin-gonic/gin"
-	"github.com/slack-go/slack"
-
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/handlers"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/middleware"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/slack-go/slack"
 )
 
 // App represents the main application structure with all services and handlers.

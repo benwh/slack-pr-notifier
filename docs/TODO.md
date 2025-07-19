@@ -4,15 +4,6 @@ This document tracks future improvements and technical debt identified during de
 
 ## 🔧 Technical Improvements
 
-### Code Quality & Linting
-
-- [ ] **Re-enable disabled linters gradually**
-  - Currently disabled: `revive`, `stylecheck`, `nilnil`, `gomnd`, `gci`, `goimports`, `gofumpt`, `perfsprint`
-  - Add proper exported function comments for all public APIs
-  - Implement proper sentinel errors instead of `nil, nil` returns
-  - Fix magic numbers with named constants
-  - Standardize import grouping and formatting
-
 ### Error Handling
 
 - [ ] **Improve error handling patterns**
@@ -226,4 +217,3 @@ This document tracks future improvements and technical debt identified during de
 ---
 
 *This document should be updated regularly as new issues are discovered and items are completed.*
-

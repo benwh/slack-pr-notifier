@@ -10,7 +10,6 @@ import (
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
-
 	"github.com/slack-go/slack"
 )
 

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github-slack-notifier/internal/config"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )

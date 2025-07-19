@@ -9,7 +9,6 @@ import (
 
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-github/v73/github"
 	"github.com/google/uuid"
@@ -45,8 +44,8 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	startTime := time.Now()
 	traceID := c.GetString("trace_id")
 
-	eventType := c.GetHeader("X-GitHub-Event")
-	deliveryID := c.GetHeader("X-GitHub-Delivery")
+	eventType := c.GetHeader("X-Github-Event")
+	deliveryID := c.GetHeader("X-Github-Delivery")
 
 	ctx := c.Request.Context()
 	// Add request metadata to context for all log calls

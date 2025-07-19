@@ -14,7 +14,6 @@ import (
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	"github-slack-notifier/internal/utils"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/slack-go/slack"

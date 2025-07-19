@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github-slack-notifier/internal/models"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,8 +51,8 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 
 				header := http.Header{}
 				header.Set("X-Hub-Signature-256", signature)
-				header.Set("X-GitHub-Event", "pull_request")
-				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("X-Github-Event", "pull_request")
+				header.Set("X-Github-Delivery", "test-delivery-id")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -67,8 +66,8 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			setupHeaders: func() http.Header {
 				header := http.Header{}
 				header.Set("X-Hub-Signature-256", "sha256=invalid-signature")
-				header.Set("X-GitHub-Event", "pull_request")
-				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("X-Github-Event", "pull_request")
+				header.Set("X-Github-Delivery", "test-delivery-id")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -81,8 +80,8 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			body:          `{"action":"opened","repository":{"name":"test"}}`,
 			setupHeaders: func() http.Header {
 				header := http.Header{}
-				header.Set("X-GitHub-Event", "pull_request")
-				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("X-Github-Event", "pull_request")
+				header.Set("X-Github-Delivery", "test-delivery-id")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -95,8 +94,8 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			body:          `{"action":"opened","repository":{"name":"test"}}`,
 			setupHeaders: func() http.Header {
 				header := http.Header{}
-				header.Set("X-GitHub-Event", "pull_request")
-				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("X-Github-Event", "pull_request")
+				header.Set("X-Github-Delivery", "test-delivery-id")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -137,7 +136,7 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 }
 
 // TestGitHubHandler_HandleWebhook_SecurityHeaders tests the HTTP-level header validation
-// in the GitHub webhook handler. This ensures required headers (X-GitHub-Event, X-GitHub-Delivery)
+// in the GitHub webhook handler. This ensures required headers (X-Github-Event, X-Github-Delivery)
 // are present and properly validated before processing.
 func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -149,10 +148,10 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 		expectedError  string
 	}{
 		{
-			name: "Missing X-GitHub-Event header",
+			name: "Missing X-Github-Event header",
 			setupHeaders: func() http.Header {
 				header := http.Header{}
-				header.Set("X-GitHub-Delivery", "test-delivery-id")
+				header.Set("X-Github-Delivery", "test-delivery-id")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -160,10 +159,10 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 			expectedError:  "missing required headers",
 		},
 		{
-			name: "Missing X-GitHub-Delivery header",
+			name: "Missing X-Github-Delivery header",
 			setupHeaders: func() http.Header {
 				header := http.Header{}
-				header.Set("X-GitHub-Event", "pull_request")
+				header.Set("X-Github-Event", "pull_request")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -184,8 +183,8 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 			name: "Empty header values",
 			setupHeaders: func() http.Header {
 				header := http.Header{}
-				header.Set("X-GitHub-Event", "")
-				header.Set("X-GitHub-Delivery", "")
+				header.Set("X-Github-Event", "")
+				header.Set("X-Github-Delivery", "")
 				header.Set("Content-Type", "application/json")
 				return header
 			},
@@ -229,8 +228,8 @@ func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 
 	// Create request with body that causes read error
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", &errorReader{})
-	req.Header.Set("X-GitHub-Event", "pull_request")
-	req.Header.Set("X-GitHub-Delivery", "test-delivery-id")
+	req.Header.Set("X-Github-Event", "pull_request")
+	req.Header.Set("X-Github-Delivery", "test-delivery-id")
 	req.Header.Set("Content-Type", "application/json")
 
 	// Create response recorder and context

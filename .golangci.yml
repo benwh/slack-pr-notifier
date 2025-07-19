@@ -18,21 +18,33 @@ linters:
     - depguard          # No import restrictions needed
     - goheader          # No header requirements
     - forbidigo         # No forbidden identifiers
-    - revive            # Temporarily disabled for exported comments
+    - revive            # We can live without comments
+    - gomnd             # Replaced by mnd
     - stylecheck        # Temporarily disabled for package comments
-    - nilnil            # Temporarily disabled for nil returns
-    - gomnd             # Temporarily disabled for magic numbers
-    - mnd               # Temporarily disabled for magic numbers
-    - gci               # Temporarily disabled for import grouping
-    - goimports         # Temporarily disabled for import formatting
-    - gofumpt           # Temporarily disabled for strict formatting
+    - nilnil            # nil returns are fine
     - perfsprint        # Temporarily disabled for string concatenation
     - execinquery       # Deprecated linter
-    - canonicalheader   # GitHub uses X-GitHub-Event not X-Github-Event
+    - goimports         # Using gci instead
+    - gci               # Actually... using gofumpt instead
+    - gofumpt           # gofumpt conflicts with gci, and gci does a better job with imports
 
 linters-settings:
   lll:
     line-length: 120
+
+  mnd:
+    # List of file patterns to exclude from analysis.
+    # Values always ignored: `.+_test.go`.
+    # Default: []
+    ignored-files:
+      - 'config.go$'
+    # List of function patterns to exclude from analysis.
+    # Following functions are always ignored: `time.Date`,
+    # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
+    # `strconv.ParseInt`, `strconv.ParseUint`, `strconv.ParseFloat`.
+    # Default: []
+    ignored-functions:
+      - 'getEnvDuration'
 
   funlen:
     lines: 200
