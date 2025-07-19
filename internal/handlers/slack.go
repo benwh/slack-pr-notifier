@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
@@ -21,7 +20,7 @@ import (
 	"github.com/slack-go/slack/slackevents"
 )
 
-// SlackHandler handles Slack webhook events and slash commands.
+// SlackHandler handles Slack webhook events.
 type SlackHandler struct {
 	firestoreService  *services.FirestoreService
 	slackService      *services.SlackService
@@ -47,82 +46,6 @@ func NewSlackHandler(
 		signingSecret:     cfg.SlackSigningSecret,
 		config:            cfg,
 	}
-}
-
-// HandleSlashCommand processes incoming Slack slash commands.
-func (sh *SlackHandler) HandleSlashCommand(c *gin.Context) {
-	signature := c.GetHeader("X-Slack-Signature")
-	timestamp := c.GetHeader("X-Slack-Request-Timestamp")
-
-	if signature == "" || timestamp == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing signature or timestamp"})
-		return
-	}
-
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read body"})
-		return
-	}
-
-	if err := sh.verifySignature(c.Request.Header, body); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
-		return
-	}
-
-	values, err := url.ParseQuery(string(body))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form data"})
-		return
-	}
-
-	command := values.Get("command")
-	userID := values.Get("user_id")
-	teamID := values.Get("team_id")
-	channelID := values.Get("channel_id")
-	text := values.Get("text")
-
-	ctx := c.Request.Context()
-
-	// Log slash command execution for monitoring
-	log.Info(ctx, "Processing Slack slash command",
-		"command", command,
-		"user_id", userID,
-	)
-
-	var response string
-
-	switch command {
-	case "/notify-channel":
-		response, err = sh.handleNotifyChannel(ctx, userID, teamID, text)
-	case "/notify-link":
-		response, err = sh.handleNotifyLink(ctx, userID, teamID, channelID, text)
-	case "/notify-unlink":
-		response, err = sh.handleNotifyUnlink(ctx, userID)
-	case "/notify-status":
-		response, err = sh.handleNotifyStatus(ctx, userID)
-	default:
-		c.JSON(http.StatusOK, gin.H{"text": "Unknown command"})
-		return
-	}
-
-	if err != nil {
-		// Log the actual error for debugging
-		log.Error(ctx, "Slack command failed",
-			"command", command,
-			"user_id", userID,
-			"error", err,
-		)
-
-		// Return user-friendly error message (always HTTP 200 per Slack docs)
-		c.JSON(http.StatusOK, gin.H{
-			"response_type": "ephemeral",
-			"text":          "❌ Something went wrong. Please try again later.",
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"text": response})
 }
 
 // HandleEvent processes incoming Slack Events API events.
@@ -216,187 +139,6 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 			)
 		}
 	}
-}
-
-func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID, text string) (string, error) {
-	if text == "" {
-		return "📝 *Usage:* `/notify-channel #channel-name`\n\n" +
-			"Set your default channel for GitHub PR notifications. Example: `/notify-channel #engineering`", nil
-	}
-
-	channel, displayName := parseChannelFromText(text)
-	if channel == "" {
-		return "❌ Please provide a valid channel name. Example: `/notify-channel #engineering`", nil
-	}
-
-	// Validate the channel name and auto-join if needed
-	err := sh.slackService.ValidateChannel(ctx, channel)
-	if err != nil {
-		log.Error(ctx, "Channel validation failed",
-			"channel_name", channel,
-			"slack_api_error", err,
-		)
-		if errors.Is(err, services.ErrPrivateChannelNotSupported) {
-			return fmt.Sprintf("❌ Channel `#%s` is a private channel. "+
-				"Private channels are not supported for PR notifications. Please select a public channel.", displayName), nil
-		} else if errors.Is(err, services.ErrCannotJoinChannel) {
-			return fmt.Sprintf("❌ Cannot join channel `#%s`. "+
-				"The channel may be archived or have restrictions.", displayName), nil
-		}
-		return fmt.Sprintf("❌ Channel `#%s` not found. Please check the channel name and try again.", displayName), nil
-	}
-
-	// Get the resolved channel ID for storage and response
-	resolvedChannelID, err := sh.slackService.ResolveChannelID(ctx, channel)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve channel ID: %w", err)
-	}
-
-	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
-	if err != nil {
-		return "", err
-	}
-
-	if user == nil {
-		user = &models.User{
-			ID:          userID,
-			SlackUserID: userID,
-			SlackTeamID: teamID,
-		}
-	}
-
-	// Store the channel ID (more reliable than channel name)
-	user.DefaultChannel = resolvedChannelID
-	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("✅ Default notification channel set to <#%s|%s>", resolvedChannelID, displayName), nil
-}
-
-func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, channelID, text string) (string, error) {
-	if text != "" {
-		return "🔗 *New OAuth Flow Available!*\n\n" +
-			"We've upgraded to secure GitHub OAuth authentication. " +
-			"The `/notify-link` command no longer requires a username.\n\n" +
-			"Simply run `/notify-link` to get your personalized OAuth link!", nil
-	}
-
-	// Create OAuth state for this user with channel context
-	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID, channelID)
-	if err != nil {
-		log.Error(ctx, "Failed to create OAuth state", "error", err, "user_id", userID)
-		return "", services.ErrAuthLinkGeneration
-	}
-
-	// Generate OAuth link
-	oauthURL := fmt.Sprintf("%s/auth/github/link?state=%s", sh.config.BaseURL, state.ID)
-
-	return fmt.Sprintf("🔗 *Link Your GitHub Account*\n\n"+
-		"Click this link to securely connect your GitHub account:\n"+
-		"<%s|Connect GitHub Account>\n\n"+
-		"This link expires in 15 minutes for security.", oauthURL), nil
-}
-
-func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (string, error) {
-	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
-	if err != nil {
-		return "", err
-	}
-
-	if user == nil {
-		return "❌ No configuration found. Use /notify-link to connect your GitHub account " +
-			"and /notify-channel to set your default channel.", nil
-	}
-
-	status := "📊 *Your Configuration:*\n"
-	if user.GitHubUsername != "" {
-		verificationStatus := "✅ Verified"
-		if !user.Verified {
-			verificationStatus = "⚠️ Unverified (legacy)"
-		}
-		status += fmt.Sprintf("• GitHub: %s (%s)\n", user.GitHubUsername, verificationStatus)
-	} else {
-		status += "• GitHub: Not linked\n"
-	}
-
-	if user.DefaultChannel != "" {
-		status += fmt.Sprintf("• Default Channel: <#%s>\n", user.DefaultChannel)
-	} else {
-		status += "• Default Channel: Not set\n"
-	}
-
-	return status, nil
-}
-
-func (sh *SlackHandler) handleNotifyUnlink(ctx context.Context, userID string) (string, error) {
-	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
-	if err != nil {
-		return "", err
-	}
-
-	if user == nil || user.GitHubUsername == "" {
-		return "❌ No GitHub account is currently linked to your Slack account.", nil
-	}
-
-	// Remove GitHub connection but keep other settings like default channel
-	user.GitHubUsername = ""
-	user.GitHubUserID = 0
-	user.Verified = false
-
-	err = sh.firestoreService.SaveUser(ctx, user)
-	if err != nil {
-		return "", err
-	}
-
-	return "✅ Your GitHub account has been disconnected. You can use `/notify-link` to connect a different account.", nil
-}
-
-// parseChannelFromText extracts channel ID and display name from various Slack channel formats:
-// - "#channel-name" -> ("channel-name", "channel-name")
-// - "channel-name" -> ("channel-name", "channel-name") - automatically adds # prefix
-// - "<#C1234567890|channel-name>" -> ("C1234567890", "channel-name")
-// - "C1234567890" -> ("C1234567890", "C1234567890").
-func parseChannelFromText(text string) (string, string) {
-	text = strings.TrimSpace(text)
-
-	// Handle Slack's channel mention format: <#C1234567890|channel-name>
-	if strings.HasPrefix(text, "<#") && strings.HasSuffix(text, ">") {
-		// Extract the channel ID from <#C1234567890|channel-name>
-		content := strings.TrimPrefix(text, "<#")
-		content = strings.TrimSuffix(content, ">")
-		if idx := strings.Index(content, "|"); idx != -1 {
-			channelID := content[:idx]
-			displayName := content[idx+1:]
-			return channelID, displayName // Return both ID and display name
-		}
-		return content, content
-	}
-
-	// Handle simple channel name format: #channel-name
-	if strings.HasPrefix(text, "#") {
-		channelName := strings.TrimPrefix(text, "#")
-		return channelName, channelName
-	}
-
-	// Handle direct channel ID (starts with C and is alphanumeric)
-	if len(text) > 1 && strings.HasPrefix(text, "C") && isAlphanumeric(text) {
-		return text, text
-	}
-
-	// Handle plain channel name without # prefix - automatically add it
-	return text, text
-}
-
-// isAlphanumeric checks if a string contains only alphanumeric characters (for channel ID detection).
-func isAlphanumeric(s string) bool {
-	for _, r := range s {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
-			return false
-		}
-	}
-	return true
 }
 
 // HandleInteraction processes interactive component actions from Slack App Home.

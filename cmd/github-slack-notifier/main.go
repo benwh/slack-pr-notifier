@@ -141,7 +141,6 @@ func main() {
 	router.GET("/auth/github/link", app.oauthHandler.HandleGitHubLink)
 	router.GET("/auth/github/callback", app.oauthHandler.HandleGitHubCallback)
 
-	router.POST("/webhooks/slack/slash-command", app.slackHandler.HandleSlashCommand)
 	router.POST("/webhooks/slack/events", app.slackHandler.HandleEvent)
 	router.POST("/webhooks/slack/interactions", app.slackHandler.HandleInteraction)
 	router.POST("/api/repos", app.handleRepoRegistration)
