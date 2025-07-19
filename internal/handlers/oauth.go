@@ -183,8 +183,21 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 
 	log.Info(ctx, "GitHub account successfully linked to Slack user")
 
-	// Send ephemeral success message to the channel where OAuth was initiated
-	if state.SlackChannel != "" {
+	// If this was initiated from App Home, refresh the home view
+	if state.ReturnToHome {
+		homeView := h.slackService.BuildHomeView(user)
+		err := h.slackService.PublishHomeView(ctx, state.SlackUserID, homeView)
+		if err != nil {
+			log.Warn(ctx, "Failed to refresh App Home after OAuth success",
+				"error", err,
+				"user_id", state.SlackUserID)
+		} else {
+			log.Info(ctx, "App Home refreshed after successful GitHub OAuth")
+		}
+	}
+
+	// Send ephemeral success message to the channel where OAuth was initiated (if not from App Home)
+	if state.SlackChannel != "" && !state.ReturnToHome {
 		successMessage := fmt.Sprintf(
 			"✅ *GitHub Account Linked!*\n\nYour GitHub account `@%s` has been successfully connected. "+
 				"You'll now receive personalized PR notifications!", githubUser.Login)

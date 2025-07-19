@@ -143,6 +143,7 @@ func main() {
 
 	router.POST("/webhooks/slack/slash-command", app.slackHandler.HandleSlashCommand)
 	router.POST("/webhooks/slack/events", app.slackHandler.HandleEvent)
+	router.POST("/webhooks/slack/interactions", app.slackHandler.HandleInteraction)
 	router.POST("/api/repos", app.handleRepoRegistration)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})

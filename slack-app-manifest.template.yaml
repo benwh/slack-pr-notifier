@@ -14,6 +14,10 @@ display_information:
   background_color: "#24292e"  # GitHub's dark color
 
 features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: "GitHub PR Bot"
     always_online: true
@@ -38,6 +42,7 @@ oauth_config:
   scopes:
     bot:
       - channels:read           # View basic information about public channels
+      - channels:join           # Join public channels when needed
       - groups:read             # View basic information about private channels that the app has been added to
       - chat:write              # Post messages and add reactions in approved channels
       - commands                # Handle slash commands
@@ -48,9 +53,11 @@ settings:
   event_subscriptions:
     request_url: "{{BASE_URL}}/webhooks/slack/events"
     bot_events:
+      - app_home_opened         # Handle App Home tab being opened
       - message.channels        # Detect GitHub PR links in public channels
   interactivity:
-    is_enabled: false
+    is_enabled: true
+    request_url: "{{BASE_URL}}/webhooks/slack/interactions"
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

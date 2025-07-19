@@ -10,6 +10,8 @@ import (
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
+	"github-slack-notifier/internal/models"
+	"github-slack-notifier/internal/ui"
 	"github.com/slack-go/slack"
 )
 
@@ -19,15 +21,23 @@ var ErrReactionNotFound = errors.New("reaction not found")
 // ErrChannelNotFound indicates a channel could not be found by name.
 var ErrChannelNotFound = errors.New("channel not found")
 
+// ErrPrivateChannelNotSupported indicates that private channels are not supported.
+var ErrPrivateChannelNotSupported = errors.New("private_channel_not_supported")
+
+// ErrCannotJoinChannel indicates the bot cannot join the specified channel.
+var ErrCannotJoinChannel = errors.New("cannot_join_channel")
+
 type SlackService struct {
 	client      *slack.Client
 	emojiConfig config.EmojiConfig
+	uiBuilder   *ui.HomeViewBuilder
 }
 
 func NewSlackService(client *slack.Client, emojiConfig config.EmojiConfig) *SlackService {
 	return &SlackService{
 		client:      client,
 		emojiConfig: emojiConfig,
+		uiBuilder:   ui.NewHomeViewBuilder(),
 	}
 }
 
@@ -130,18 +140,61 @@ func (s *SlackService) ValidateChannel(ctx context.Context, channel string) erro
 		return fmt.Errorf("failed to resolve channel %s: %w", channel, err)
 	}
 
-	_, err = s.client.GetConversationInfo(&slack.GetConversationInfoInput{
+	// Check if channel exists and get info including membership status
+	channelInfo, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
 		ChannelID: channelID,
 	})
 	if err != nil {
-		log.Error(ctx, "Failed to validate Slack channel",
+		log.Error(ctx, "Failed to get channel info",
 			"error", err,
 			"channel", channel,
 			"channel_id", channelID,
 			"operation", "validate_channel",
 		)
-		return fmt.Errorf("failed to validate channel %s: %w", channel, err)
+		return fmt.Errorf("failed to get channel info for %s: %w", channel, err)
 	}
+
+	// Explicitly reject private channels for security and privacy reasons
+	if channelInfo.IsPrivate {
+		log.Warn(ctx, "Private channel selected, rejecting",
+			"channel", channel,
+			"channel_id", channelID,
+		)
+		return ErrPrivateChannelNotSupported
+	}
+
+	// If bot is not a member of the public channel, join it
+	if !channelInfo.IsMember {
+		log.Info(ctx, "Bot not in channel, attempting to join",
+			"channel", channel,
+			"channel_id", channelID,
+			"channel_name", channelInfo.Name,
+		)
+
+		// Join the public channel
+		_, _, _, err := s.client.JoinConversation(channelID)
+		if err != nil {
+			log.Error(ctx, "Failed to join channel",
+				"error", err,
+				"channel", channel,
+				"channel_id", channelID,
+				"channel_name", channelInfo.Name,
+				"operation", "join_channel",
+			)
+			// If we can't join, it might be because:
+			// - The channel is archived
+			// - We don't have permission (shouldn't happen with channels:join scope)
+			// - Some other restriction
+			return ErrCannotJoinChannel
+		}
+
+		log.Info(ctx, "Successfully joined channel",
+			"channel", channel,
+			"channel_id", channelID,
+			"channel_name", channelInfo.Name,
+		)
+	}
+
 	return nil
 }
 
@@ -400,4 +453,64 @@ func (s *SlackService) ExtractChannelFromDescription(description string) string 
 		return strings.TrimPrefix(matches[1], "#")
 	}
 	return ""
+}
+
+// PublishHomeView publishes the home tab view for a user.
+func (s *SlackService) PublishHomeView(ctx context.Context, userID string, view slack.HomeTabViewRequest) error {
+	_, err := s.client.PublishViewContext(ctx, userID, view, "")
+	if err != nil {
+		log.Error(ctx, "Failed to publish home view",
+			"error", err,
+			"user_id", userID,
+			"operation", "publish_home_view",
+		)
+		return fmt.Errorf("failed to publish home view for user %s: %w", userID, err)
+	}
+	return nil
+}
+
+// OpenView opens a modal or app home view.
+func (s *SlackService) OpenView(ctx context.Context, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
+	response, err := s.client.OpenViewContext(ctx, triggerID, view)
+	if err != nil {
+		log.Error(ctx, "Failed to open view",
+			"error", err,
+			"trigger_id", triggerID,
+			"operation", "open_view",
+		)
+		return nil, fmt.Errorf("failed to open view with trigger %s: %w", triggerID, err)
+	}
+	return response, nil
+}
+
+// BuildHomeView constructs the home tab view based on user data.
+func (s *SlackService) BuildHomeView(user *models.User) slack.HomeTabViewRequest {
+	return s.uiBuilder.BuildHomeView(user)
+}
+
+// BuildOAuthModal builds the OAuth connection modal.
+func (s *SlackService) BuildOAuthModal(oauthURL string) slack.ModalViewRequest {
+	return s.uiBuilder.BuildOAuthModal(oauthURL)
+}
+
+// BuildChannelSelectorModal builds the channel selector modal.
+func (s *SlackService) BuildChannelSelectorModal() slack.ModalViewRequest {
+	return s.uiBuilder.BuildChannelSelectorModal()
+}
+
+// GetChannelName retrieves the channel name for a given channel ID.
+func (s *SlackService) GetChannelName(ctx context.Context, channelID string) (string, error) {
+	channel, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
+		ChannelID: channelID,
+	})
+	if err != nil {
+		log.Error(ctx, "Failed to get channel info for name",
+			"error", err,
+			"channel_id", channelID,
+			"operation", "get_channel_name",
+		)
+		return "", fmt.Errorf("failed to get channel info for %s: %w", channelID, err)
+	}
+
+	return channel.Name, nil
 }

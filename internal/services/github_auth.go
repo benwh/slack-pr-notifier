@@ -90,6 +90,11 @@ func (s *GitHubAuthService) CreateOAuthState(
 	return state, nil
 }
 
+// SaveOAuthState saves an existing OAuth state to Firestore.
+func (s *GitHubAuthService) SaveOAuthState(ctx context.Context, state *models.OAuthState) error {
+	return s.firestoreService.CreateOAuthState(ctx, state)
+}
+
 // GetOAuthURL builds the GitHub OAuth authorization URL.
 func (s *GitHubAuthService) GetOAuthURL(stateID string) string {
 	baseURL := "https://github.com/login/oauth/authorize"

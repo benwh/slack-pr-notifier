@@ -32,7 +32,9 @@ The manifest configures these OAuth scopes automatically:
 
 | Scope | Purpose |
 |-------|---------|
-| `channels:read` | Validate channel access for `/notify-channel` command |
+| `channels:read` | View basic information about public channels |
+| `channels:join` | Automatically join public channels when selected |
+| `groups:read` | View basic information about private channels (for validation) |
 | `chat:write` | Send PR notifications and add emoji reactions |
 | `commands` | Handle slash commands |
 | `links:read` | Read GitHub links in messages for manual PR detection |
@@ -71,22 +73,25 @@ After deployment, Slack will verify your endpoints:
 
 ## Usage
 
-1. **Invite the bot to channels:**
+1. **Configure notifications:**
    ```
-   /invite @GitHub PR Bot
-   ```
-
-2. **Configure notifications:**
-   ```
-   /notify-link your-github-username
+   /notify-link
    /notify-channel #engineering
    ```
+   Note: The bot will automatically join public channels when you select them!
 
-3. **Test manual PR link detection:**
+2. **Test manual PR link detection:**
    ```
    Check out this PR: https://github.com/owner/repo/pull/123
    ```
    The bot will automatically add status reactions!
+
+3. **For private channels only:**
+   If you need to use a private channel (not recommended), you must first invite the bot:
+   ```
+   /invite @GitHub PR Bot
+   ```
+   However, the app will reject private channels for security reasons.
 
 ## Troubleshooting
 
