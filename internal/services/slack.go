@@ -33,7 +33,10 @@ func (s *SlackService) PostPRMessage(
 ) (string, error) {
 	text := fmt.Sprintf("🐜 <%s|%s by %s>", prURL, prTitle, prAuthor)
 
-	_, timestamp, err := s.client.PostMessage(channel, slack.MsgOptionText(text, false))
+	_, timestamp, err := s.client.PostMessage(channel,
+		slack.MsgOptionText(text, false),
+		slack.MsgOptionDisableLinkUnfurl(),
+	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack",
 			"error", err,
