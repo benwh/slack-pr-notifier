@@ -21,6 +21,7 @@ var (
 	ErrMessageNotFound        = errors.New("message not found")
 	ErrTrackedMessageNotFound = errors.New("tracked message not found")
 	ErrRepoNotFound           = errors.New("repository not found")
+	ErrOAuthStateNotFound     = errors.New("OAuth state not found")
 )
 
 // FirestoreService provides database operations for Firestore.
@@ -337,6 +338,121 @@ func (fs *FirestoreService) CreateTrackedMessage(ctx context.Context, message *m
 		)
 		return fmt.Errorf("failed to create tracked message for repo %s PR %d: %w",
 			message.RepoFullName, message.PRNumber, err)
+	}
+	return nil
+}
+
+// GetUser retrieves a user by their document ID (Slack user ID).
+func (fs *FirestoreService) GetUser(ctx context.Context, userID string) (*models.User, error) {
+	doc, err := fs.client.Collection("users").Doc(userID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, ErrUserNotFound
+		}
+		log.Error(ctx, "Failed to get user",
+			"error", err,
+			"user_id", userID,
+			"operation", "get_user",
+		)
+		return nil, fmt.Errorf("failed to get user %s: %w", userID, err)
+	}
+
+	var user models.User
+	err = doc.DataTo(&user)
+	if err != nil {
+		log.Error(ctx, "Failed to unmarshal user data",
+			"error", err,
+			"user_id", userID,
+			"operation", "unmarshal_user_data",
+		)
+		return nil, fmt.Errorf("failed to unmarshal user data for %s: %w", userID, err)
+	}
+
+	return &user, nil
+}
+
+// SaveUser saves or updates a user document.
+func (fs *FirestoreService) SaveUser(ctx context.Context, user *models.User) error {
+	user.UpdatedAt = time.Now()
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = time.Now()
+	}
+
+	_, err := fs.client.Collection("users").Doc(user.ID).Set(ctx, user)
+	if err != nil {
+		log.Error(ctx, "Failed to save user",
+			"error", err,
+			"user_id", user.ID,
+			"slack_user_id", user.SlackUserID,
+			"github_username", user.GitHubUsername,
+			"verified", user.Verified,
+			"operation", "save_user",
+		)
+		return fmt.Errorf("failed to save user %s: %w", user.ID, err)
+	}
+	return nil
+}
+
+// OAuth state operations.
+
+// CreateOAuthState stores a new OAuth state for CSRF protection.
+func (fs *FirestoreService) CreateOAuthState(ctx context.Context, state *models.OAuthState) error {
+	_, err := fs.client.Collection("oauth_states").Doc(state.ID).Set(ctx, state)
+	if err != nil {
+		log.Error(ctx, "Failed to create OAuth state",
+			"error", err,
+			"state_id", state.ID,
+			"slack_user_id", state.SlackUserID,
+			"operation", "create_oauth_state",
+		)
+		return fmt.Errorf("failed to create OAuth state %s: %w", state.ID, err)
+	}
+	return nil
+}
+
+// GetOAuthState retrieves an OAuth state by ID.
+func (fs *FirestoreService) GetOAuthState(ctx context.Context, stateID string) (*models.OAuthState, error) {
+	doc, err := fs.client.Collection("oauth_states").Doc(stateID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, ErrOAuthStateNotFound
+		}
+		log.Error(ctx, "Failed to get OAuth state",
+			"error", err,
+			"state_id", stateID,
+			"operation", "get_oauth_state",
+		)
+		return nil, fmt.Errorf("failed to get OAuth state %s: %w", stateID, err)
+	}
+
+	var state models.OAuthState
+	err = doc.DataTo(&state)
+	if err != nil {
+		log.Error(ctx, "Failed to unmarshal OAuth state data",
+			"error", err,
+			"state_id", stateID,
+			"operation", "unmarshal_oauth_state_data",
+		)
+		return nil, fmt.Errorf("failed to unmarshal OAuth state data for %s: %w", stateID, err)
+	}
+
+	return &state, nil
+}
+
+// DeleteOAuthState deletes an OAuth state by ID.
+func (fs *FirestoreService) DeleteOAuthState(ctx context.Context, stateID string) error {
+	_, err := fs.client.Collection("oauth_states").Doc(stateID).Delete(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// Already deleted, consider this success
+			return nil
+		}
+		log.Error(ctx, "Failed to delete OAuth state",
+			"error", err,
+			"state_id", stateID,
+			"operation", "delete_oauth_state",
+		)
+		return fmt.Errorf("failed to delete OAuth state %s: %w", stateID, err)
 	}
 	return nil
 }

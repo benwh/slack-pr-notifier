@@ -25,7 +25,9 @@ type SlackHandler struct {
 	firestoreService  *services.FirestoreService
 	slackService      *services.SlackService
 	cloudTasksService *services.CloudTasksService
+	githubAuthService *services.GitHubAuthService
 	signingSecret     string
+	config            *config.Config
 }
 
 // NewSlackHandler creates a new SlackHandler with the provided services and configuration.
@@ -33,13 +35,16 @@ func NewSlackHandler(
 	fs *services.FirestoreService,
 	slack *services.SlackService,
 	cloudTasks *services.CloudTasksService,
+	githubAuth *services.GitHubAuthService,
 	cfg *config.Config,
 ) *SlackHandler {
 	return &SlackHandler{
 		firestoreService:  fs,
 		slackService:      slack,
 		cloudTasksService: cloudTasks,
+		githubAuthService: githubAuth,
 		signingSecret:     cfg.SlackSigningSecret,
+		config:            cfg,
 	}
 }
 
@@ -83,6 +88,8 @@ func (sh *SlackHandler) HandleSlashCommand(c *gin.Context) {
 		response, err = sh.handleNotifyChannel(ctx, userID, teamID, text)
 	case "/notify-link":
 		response, err = sh.handleNotifyLink(ctx, userID, teamID, text)
+	case "/notify-unlink":
+		response, err = sh.handleNotifyUnlink(ctx, userID)
 	case "/notify-status":
 		response, err = sh.handleNotifyStatus(ctx, userID)
 	default:
@@ -246,36 +253,27 @@ func (sh *SlackHandler) handleNotifyChannel(ctx context.Context, userID, teamID,
 }
 
 func (sh *SlackHandler) handleNotifyLink(ctx context.Context, userID, teamID, text string) (string, error) {
-	if text == "" {
-		return "🔗 *Usage:* `/notify-link github-username`\n\n" +
-			"Link your GitHub account to receive personalized PR notifications. Example: `/notify-link octocat`", nil
+	if text != "" {
+		return "🔗 *New OAuth Flow Available!*\n\n" +
+			"We've upgraded to secure GitHub OAuth authentication. " +
+			"The `/notify-link` command no longer requires a username.\n\n" +
+			"Simply run `/notify-link` to get your personalized OAuth link!", nil
 	}
 
-	githubUsername := strings.TrimSpace(text)
-	if githubUsername == "" {
-		return "❌ Please provide a valid GitHub username. Example: `/notify-link octocat`", nil
-	}
-
-	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	// Create OAuth state for this user
+	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID)
 	if err != nil {
-		return "", err
+		log.Error(ctx, "Failed to create OAuth state", "error", err, "user_id", userID)
+		return "", services.ErrAuthLinkGeneration
 	}
 
-	if user == nil {
-		user = &models.User{
-			ID:          userID,
-			SlackUserID: userID,
-			SlackTeamID: teamID,
-		}
-	}
+	// Generate OAuth link
+	oauthURL := fmt.Sprintf("%s/auth/github/link?state=%s", sh.config.BaseURL, state.ID)
 
-	user.GitHubUsername = githubUsername
-	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
-	if err != nil {
-		return "", err
-	}
-
-	return "✅ GitHub username linked: " + githubUsername, nil
+	return fmt.Sprintf("🔗 *Link Your GitHub Account*\n\n"+
+		"Click this link to securely connect your GitHub account:\n"+
+		"<%s|Connect GitHub Account>\n\n"+
+		"This link expires in 15 minutes for security.", oauthURL), nil
 }
 
 func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (string, error) {
@@ -291,7 +289,11 @@ func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (
 
 	status := "📊 *Your Configuration:*\n"
 	if user.GitHubUsername != "" {
-		status += fmt.Sprintf("• GitHub: %s\n", user.GitHubUsername)
+		verificationStatus := "✅ Verified"
+		if !user.Verified {
+			verificationStatus = "⚠️ Unverified (legacy)"
+		}
+		status += fmt.Sprintf("• GitHub: %s (%s)\n", user.GitHubUsername, verificationStatus)
 	} else {
 		status += "• GitHub: Not linked\n"
 	}
@@ -303,6 +305,29 @@ func (sh *SlackHandler) handleNotifyStatus(ctx context.Context, userID string) (
 	}
 
 	return status, nil
+}
+
+func (sh *SlackHandler) handleNotifyUnlink(ctx context.Context, userID string) (string, error) {
+	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+
+	if user == nil || user.GitHubUsername == "" {
+		return "❌ No GitHub account is currently linked to your Slack account.", nil
+	}
+
+	// Remove GitHub connection but keep other settings like default channel
+	user.GitHubUsername = ""
+	user.GitHubUserID = 0
+	user.Verified = false
+
+	err = sh.firestoreService.SaveUser(ctx, user)
+	if err != nil {
+		return "", err
+	}
+
+	return "✅ Your GitHub account has been disconnected. You can use `/notify-link` to connect a different account.", nil
 }
 
 // parseChannelFromText extracts channel ID and display name from various Slack channel formats:

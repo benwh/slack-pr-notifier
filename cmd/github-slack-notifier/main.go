@@ -27,9 +27,11 @@ type App struct {
 	firestoreService     *services.FirestoreService
 	slackService         *services.SlackService
 	cloudTasksService    *services.CloudTasksService
+	githubAuthService    *services.GitHubAuthService
 	githubHandler        *handlers.GitHubHandler
 	webhookWorkerHandler *handlers.WebhookWorkerHandler
 	slackHandler         *handlers.SlackHandler
+	oauthHandler         *handlers.OAuthHandler
 }
 
 func main() {
@@ -108,15 +110,21 @@ func main() {
 		cfg.GitHubWebhookSecret,
 	)
 	webhookWorkerHandler := handlers.NewWebhookWorkerHandler(firestoreService, slackService, cfg)
+	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
+	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService)
 
 	app := &App{
 		config:               cfg,
 		firestoreService:     firestoreService,
 		slackService:         slackService,
 		cloudTasksService:    cloudTasksService,
+		githubAuthService:    githubAuthService,
 		githubHandler:        githubHandler,
 		webhookWorkerHandler: webhookWorkerHandler,
-		slackHandler:         handlers.NewSlackHandler(firestoreService, slackService, cloudTasksService, cfg),
+		slackHandler: handlers.NewSlackHandler(
+			firestoreService, slackService, cloudTasksService, githubAuthService, cfg,
+		),
+		oauthHandler: oauthHandler,
 	}
 
 	router := gin.Default()
@@ -128,6 +136,10 @@ func main() {
 	router.POST("/webhooks/github", app.githubHandler.HandleWebhook)
 	router.POST("/process-webhook", app.webhookWorkerHandler.ProcessWebhook)
 	router.POST("/process-manual-link", app.webhookWorkerHandler.ProcessManualLink)
+
+	// Configure OAuth routes
+	router.GET("/auth/github/link", app.oauthHandler.HandleGitHubLink)
+	router.GET("/auth/github/callback", app.oauthHandler.HandleGitHubCallback)
 
 	router.POST("/webhooks/slack/slash-command", app.slackHandler.HandleSlashCommand)
 	router.POST("/webhooks/slack/events", app.slackHandler.HandleEvent)

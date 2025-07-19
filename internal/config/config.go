@@ -26,6 +26,11 @@ type Config struct {
 	SlackSigningSecret  string
 	APIAdminKey         string
 
+	// GitHub OAuth settings
+	GitHubClientID         string
+	GitHubClientSecret     string
+	GitHubOAuthRedirectURL string
+
 	// Cloud Tasks settings
 	GoogleCloudProject string
 	BaseURL            string
@@ -69,6 +74,11 @@ func Load() *Config {
 		SlackSigningSecret:  getEnvRequired("SLACK_SIGNING_SECRET"),
 		APIAdminKey:         getEnvRequired("API_ADMIN_KEY"),
 
+		// GitHub OAuth settings (required)
+		GitHubClientID:         getEnvRequired("GITHUB_CLIENT_ID"),
+		GitHubClientSecret:     getEnvRequired("GITHUB_CLIENT_SECRET"),
+		GitHubOAuthRedirectURL: getEnvRequired("GITHUB_OAUTH_REDIRECT_URL"),
+
 		// Cloud Tasks settings
 		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),
 		BaseURL:            getEnvRequired("BASE_URL"),
@@ -108,14 +118,17 @@ func Load() *Config {
 func (c *Config) validate() {
 	// Check required fields
 	required := map[string]string{
-		"FIRESTORE_PROJECT_ID":  c.FirestoreProjectID,
-		"FIRESTORE_DATABASE_ID": c.FirestoreDatabaseID,
-		"SLACK_BOT_TOKEN":       c.SlackBotToken,
-		"GITHUB_WEBHOOK_SECRET": c.GitHubWebhookSecret,
-		"SLACK_SIGNING_SECRET":  c.SlackSigningSecret,
-		"API_ADMIN_KEY":         c.APIAdminKey,
-		"GOOGLE_CLOUD_PROJECT":  c.GoogleCloudProject,
-		"BASE_URL":              c.BaseURL,
+		"FIRESTORE_PROJECT_ID":      c.FirestoreProjectID,
+		"FIRESTORE_DATABASE_ID":     c.FirestoreDatabaseID,
+		"SLACK_BOT_TOKEN":           c.SlackBotToken,
+		"GITHUB_WEBHOOK_SECRET":     c.GitHubWebhookSecret,
+		"SLACK_SIGNING_SECRET":      c.SlackSigningSecret,
+		"API_ADMIN_KEY":             c.APIAdminKey,
+		"GITHUB_CLIENT_ID":          c.GitHubClientID,
+		"GITHUB_CLIENT_SECRET":      c.GitHubClientSecret,
+		"GITHUB_OAUTH_REDIRECT_URL": c.GitHubOAuthRedirectURL,
+		"GOOGLE_CLOUD_PROJECT":      c.GoogleCloudProject,
+		"BASE_URL":                  c.BaseURL,
 	}
 
 	for name, value := range required {

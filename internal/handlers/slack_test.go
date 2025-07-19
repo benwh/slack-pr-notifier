@@ -93,7 +93,7 @@ func TestSlackHandler_verifySignature(t *testing.T) {
 			cfg := &config.Config{
 				SlackSigningSecret: tt.signingSecret,
 			}
-			handler := NewSlackHandler(nil, nil, nil, cfg)
+			handler := NewSlackHandler(nil, nil, nil, nil, cfg)
 
 			err := handler.verifySignature(tt.setupHeaders(), []byte(tt.body))
 			if tt.expectError {
@@ -155,7 +155,7 @@ func TestSlackHandler_HandleSlashCommand_Security(t *testing.T) {
 			cfg := &config.Config{
 				SlackSigningSecret: testSigningKey,
 			}
-			handler := NewSlackHandler(nil, nil, nil, cfg)
+			handler := NewSlackHandler(nil, nil, nil, nil, cfg)
 
 			req, _ := http.NewRequest(http.MethodPost, "/slack", bytes.NewBufferString(testSlackBody))
 			for key, values := range tt.setupHeaders() {
