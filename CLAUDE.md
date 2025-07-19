@@ -10,7 +10,7 @@ The documentation is organized into three main categories:
 Stable, production-ready documentation for end users and developers:
 - **[docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md)** - Environment variables, GitHub/Slack app setup, deployment config
 - **[docs/reference/OAUTH.md](docs/reference/OAUTH.md)** - GitHub OAuth authentication implementation and architecture decisions
-- **[docs/reference/API.md](docs/reference/API.md)** - HTTP endpoints, Slack slash commands, authentication methods
+- **[docs/reference/API.md](docs/reference/API.md)** - HTTP endpoints, Slack App Home interactions, authentication methods
 - **[docs/reference/SLACK_APP_SETUP.md](docs/reference/SLACK_APP_SETUP.md)** - Detailed Slack app configuration instructions
 - **[docs/reference/SLACK_APP_MANIFEST.md](docs/reference/SLACK_APP_MANIFEST.md)** - Slack app manifest for easy setup
 
@@ -406,18 +406,17 @@ go test -v ./...
 
 1. Create a new Slack app at <https://api.slack.com/apps>
 2. Configure OAuth scopes under "OAuth & Permissions":
-   - `channels:read` - Validate channel access for `/notify-channel` command
+   - `channels:read` - Validate channel access for App Home channel selection
    - `chat:write` - Send PR notifications and add emoji reactions
-   - `commands` - Handle slash commands
    - `links:read` - Read GitHub links in messages for manual PR detection
    - `channels:history` - Required by message.channels event subscription
 3. Enable event subscriptions under "Event Subscriptions":
    - Request URL: `https://your-service-url/webhooks/slack/events`
    - Subscribe to bot events: `message.channels`
-4. Enable slash commands under "Slash Commands":
-   - `/notify-channel` → `https://your-service-url/webhooks/slack/slash-command`
-   - `/notify-link` → `https://your-service-url/webhooks/slack/slash-command`
-   - `/notify-status` → `https://your-service-url/webhooks/slack/slash-command`
+4. Enable App Home and Interactive Components:
+   - Go to App Home → Enable the Home Tab
+   - Go to Interactivity & Shortcuts → Enable Interactivity
+   - Set Request URL: `https://your-service-url/webhooks/slack/interactions`
 5. Install the app to your workspace to generate the bot token
 
 See `docs/reference/SLACK_APP_MANIFEST.md` for detailed setup instructions.

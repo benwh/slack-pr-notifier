@@ -8,7 +8,7 @@ A Go application that sends Slack notifications for GitHub pull request events w
 - 📝 **Review Updates**: Automatically syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬, dismissed 👋)
 - 🎉 **Closure Updates**: Adds emoji reactions when PRs are merged or closed
 - 🔐 **Secure OAuth Authentication**: Users link GitHub accounts via OAuth (no more username trust)
-- ⚙️ **Slack Configuration**: Use slash commands to configure your settings
+- ⚙️ **Slack Configuration**: Use the App Home interface to configure your settings
 - 🚀 **Async Processing**: Uses Google Cloud Tasks for reliable webhook processing with automatic retries
 - 📊 **Observability**: Structured logging with trace IDs for full request tracking
 
@@ -113,7 +113,6 @@ cp .env.example .env
    - Ensure these scopes are added:
      - `channels:read` - Validate channel access
      - `chat:write` - Send PR notifications
-     - `commands` - Handle slash commands
      - `reactions:write` - Add emoji reactions to PRs
 
 3. **Get Bot Token**:
@@ -132,17 +131,14 @@ cp .env.example .env
 
 2. **Configure Bot Token**:
    - Go to OAuth & Permissions in the app sidebar
-   - Add scopes: `chat:write`, `reactions:write`, `channels:read`, `commands`
+   - Add scopes: `chat:write`, `reactions:write`, `channels:read`
    - Install app to workspace
    - Copy Bot User OAuth Token
 
-3. **Add Slash Commands**:
-   - Go to Slash Commands
-   - Add each command with request URL `https://your-domain/webhooks/slack`, and tick
-   'Escape ... sent to your app':
-     - `/notify-channel` - Set default notification channel
-     - `/notify-link` - Link GitHub account
-     - `/notify-status` - View current settings
+3. **Enable App Home**:
+   - Go to App Home in the sidebar
+   - Enable the Home Tab
+   - Disable the Messages Tab
 
 4. **Configure Signing Secret**:
    - Go to Basic Information
@@ -176,14 +172,14 @@ cp .env.example .env
 
 ## Usage
 
-### User Commands
+### User Configuration
 
-Users can configure their preferences in Slack:
+Users configure their preferences through the Slack App Home:
 
-- `/notify-channel #engineering` - Set default channel for PR notifications
-- `/notify-link` - Get secure OAuth link to connect your GitHub account
-- `/notify-unlink` - Disconnect your GitHub account
-- `/notify-status` - View current configuration and verification status
+1. **Open the App Home**: Click on the "GitHub PR Bot" app in your Slack sidebar
+2. **Connect GitHub**: Click the "Connect GitHub Account" button to link your account via OAuth
+3. **Set Channel**: Click "Set Default Channel" to choose where you receive PR notifications
+4. **View Status**: Your current configuration is always visible in the App Home
 
 ### Channel Override
 
@@ -295,8 +291,8 @@ See [CLAUDE.md](CLAUDE.md#architecture-guidelines) for development guidelines.
    - Ensure Cloud Run service account has Firestore permissions
    - Check `FIRESTORE_PROJECT_ID` and `FIRESTORE_DATABASE_ID` environment variables
 
-2. **Slack commands not working**:
-   - Verify webhook URL is correct
+2. **App Home not working**:
+   - Ensure the Home Tab is enabled in your Slack app settings
    - Check Slack signing secret
    - Ensure bot has required scopes
 

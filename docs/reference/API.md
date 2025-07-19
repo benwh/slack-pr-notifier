@@ -1,6 +1,6 @@
 # API Reference
 
-This document covers all HTTP endpoints and Slack commands provided by the GitHub-Slack Notifier.
+This document covers all HTTP endpoints provided by the GitHub-Slack Notifier.
 
 ## HTTP Endpoints
 
@@ -11,7 +11,7 @@ This document covers all HTTP endpoints and Slack commands provided by the GitHu
 | `POST` | `/webhooks/github` | GitHub webhook fast ingress (queues to Cloud Tasks) | Webhook signature |
 | `POST` | `/process-webhook` | Internal webhook worker (called by Cloud Tasks) | Internal only |
 | `POST` | `/process-manual-link` | Internal manual PR link worker (called by Cloud Tasks) | Internal only |
-| `POST` | `/webhooks/slack/slash-command` | Slack slash command processor | Slack signature |
+| `POST` | `/webhooks/slack/interactions` | Slack interactive components processor (App Home) | Slack signature |
 | `POST` | `/webhooks/slack/events` | Slack Events API processor (detects manual PR links) | Slack signature |
 
 ### OAuth Endpoints
@@ -30,92 +30,35 @@ This document covers all HTTP endpoints and Slack commands provided by the GitHu
 
 **⚠️ Security Note**: The `/process-webhook` and `/process-manual-link` endpoints should not be exposed publicly - they're designed to be called only by Google Cloud Tasks.
 
-## Slack Commands
+## Slack App Home
 
-### `/notify-channel <channel>`
+User configuration is handled through the Slack App Home interface instead of slash commands.
 
-Set your default notification channel for PRs.
+### App Home Features
 
-**Usage:**
-```
-/notify-channel #engineering
-/notify-channel engineering
-/notify-channel C1234567890
-```
+**GitHub Account Management:**
+- Connect GitHub account via OAuth
+- Disconnect GitHub account
+- View verification status
 
-**Response:**
-```
-✅ Default notification channel set to #engineering
-```
+**Channel Configuration:**
+- Set default notification channel
+- View current channel setting
 
-### `/notify-link`
+**Status Display:**
+- Current GitHub account (if connected)
+- Default notification channel (if set)
+- Account verification status
 
-Get a secure OAuth link to connect your GitHub account.
+### Interactive Components
 
-**Usage:**
-```
-/notify-link
-```
+The App Home uses Slack's Block Kit interactive components:
 
-**Response:**
-```
-🔗 Link Your GitHub Account
+- **Button Actions**: Connect/Disconnect GitHub, Set Channel, Refresh View
+- **Modal Dialogs**: OAuth link display, Channel selection
+- **Channel Selectors**: Choose default notification channel
 
-Click this link to securely connect your GitHub account:
-[Connect GitHub Account](https://example.com/auth/github/link?state=abc123)
-
-This link expires in 15 minutes for security.
-```
-
-**Legacy Usage:**
-If a username is provided, explains the new OAuth flow:
-```
-/notify-link octocat
-```
-
-**Response:**
-```
-🔗 New OAuth Flow Available!
-
-We've upgraded to secure GitHub OAuth authentication. The /notify-link command no longer requires a username.
-
-Simply run /notify-link to get your personalized OAuth link!
-```
-
-### `/notify-unlink`
-
-Disconnect your GitHub account from Slack.
-
-**Usage:**
-```
-/notify-unlink
-```
-
-**Response:**
-```
-✅ Your GitHub account has been disconnected. You can use /notify-link to connect a different account.
-```
-
-### `/notify-status`
-
-View your current configuration and verification status.
-
-**Usage:**
-```
-/notify-status
-```
-
-**Response:**
-```
-📊 Your Configuration:
-• GitHub: octocat (✅ Verified)
-• Default Channel: #engineering
-```
-
-**Verification States:**
-- `✅ Verified` - Account linked via OAuth
-- `⚠️ Unverified (legacy)` - Account linked via old manual system
-- `Not linked` - No GitHub account connected
+All interactions are processed via the `/webhooks/slack/interactions` endpoint.
 
 ## Webhook Payloads
 
@@ -164,8 +107,8 @@ No explicit rate limiting is implemented, but the system is designed to handle:
 - HMAC-SHA256 signature validation
 - Secret configured per repository
 
-### Slack Requests  
-- Request signature validation
+### Slack Requests
+- Request signature validation for events and interactions
 - Timestamp validation (max 5 minutes age)
 
 ### Admin Endpoints

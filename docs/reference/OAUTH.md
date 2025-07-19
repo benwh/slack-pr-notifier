@@ -8,7 +8,7 @@ The system uses GitHub OAuth to securely link Slack users to their GitHub accoun
 
 ## OAuth Flow
 
-1. User runs `/notify-link` in Slack
+1. User opens the GitHub PR Bot App Home and clicks "Connect GitHub Account"
 2. Bot generates a secure OAuth URL with CSRF protection
 3. User clicks link and authorizes via GitHub
 4. GitHub redirects back with user information
@@ -24,29 +24,32 @@ The system uses GitHub OAuth to securely link Slack users to their GitHub accoun
 ## User Experience
 
 ### Linking Account
-```
-User: /notify-link
-Bot: 🔗 Link Your GitHub Account
-
-Click this link to securely connect your GitHub account:
-[Connect GitHub Account](https://example.com/auth/github/link?state=abc123)
-
-This link expires in 15 minutes for security.
-```
+1. User opens the GitHub PR Bot from their Slack sidebar
+2. Clicks the "Connect GitHub Account" button in App Home
+3. A modal opens with the OAuth link:
+   ```
+   🔗 Link Your GitHub Account
+   
+   Click this link to securely connect your GitHub account:
+   [Connect GitHub Account](https://example.com/auth/github/link?state=abc123)
+   
+   This link expires in 15 minutes for security.
+   ```
 
 ### Status Check
+The App Home displays current configuration:
 ```
-User: /notify-status
-Bot: 📊 Your Configuration:
+📊 Your Configuration:
 • GitHub: octocat (✅ Verified)
 • Default Channel: <#general>
+
+[Disconnect GitHub Account] [Set Default Channel] [Refresh]
 ```
 
 ### Unlinking Account
-```
-User: /notify-unlink
-Bot: ✅ Your GitHub account has been disconnected. You can use /notify-link to connect a different account.
-```
+1. User clicks "Disconnect GitHub Account" button in App Home
+2. Account is disconnected immediately
+3. App Home refreshes to show disconnected state with "Connect GitHub Account" button available again
 
 ## Technical Implementation
 
@@ -96,7 +99,7 @@ Existing users with manually-entered GitHub usernames:
 
 **"Invalid or expired state"**
 - OAuth link has expired (>15 minutes)
-- User needs to run `/notify-link` again
+- User needs to click "Connect GitHub Account" again in App Home
 
 **"Authorization failed"**
 - User denied authorization on GitHub

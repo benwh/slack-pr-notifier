@@ -36,7 +36,6 @@ The manifest configures these OAuth scopes automatically:
 | `channels:join` | Automatically join public channels when selected |
 | `groups:read` | View basic information about private channels (for validation) |
 | `chat:write` | Send PR notifications and add emoji reactions |
-| `commands` | Handle slash commands |
 | `links:read` | Read GitHub links in messages for manual PR detection |
 | `channels:history` | Required by message.channels event subscription |
 
@@ -52,7 +51,7 @@ The app subscribes to these events for manual PR link detection:
 
 | Type | Endpoint | Purpose |
 |------|----------|---------|
-| Slash Commands | `/webhooks/slack/slash-command` | Handle `/notify-*` commands |
+| Interactive Components | `/webhooks/slack/interactions` | Handle App Home interactions |
 | Event Subscriptions | `/webhooks/slack/events` | Process message events for PR links |
 
 ## Environment Variables
@@ -69,16 +68,15 @@ SLACK_SIGNING_SECRET=your-signing-secret-here
 After deployment, Slack will verify your endpoints:
 
 1. **Event Subscriptions**: Slack sends a challenge request to verify the endpoint
-2. **Slash Commands**: Test with `/notify-status` in any channel where the bot is invited
+2. **App Home**: Open the GitHub PR Bot app from your Slack sidebar to access the configuration interface
 
 ## Usage
 
 1. **Configure notifications:**
-   ```
-   /notify-link
-   /notify-channel #engineering
-   ```
-   Note: The bot will automatically join public channels when you select them!
+   - Open the GitHub PR Bot app from your Slack sidebar
+   - Click "Connect GitHub Account" to link your GitHub account via OAuth
+   - Click "Set Default Channel" to choose where you receive notifications
+   - Note: The bot will automatically join public channels when you select them!
 
 2. **Test manual PR link detection:**
    ```
@@ -99,9 +97,9 @@ After deployment, Slack will verify your endpoints:
 - Ensure your service is deployed and accessible
 - Check that the `/webhooks/slack/events` endpoint returns the challenge
 
-### "Command not found"
-- Verify slash command URLs point to `/webhooks/slack/slash-command`
-- Check that your service is running and accessible
+### "App Home not loading"
+- Verify the App Home tab is enabled in your Slack app settings
+- Check that the `/webhooks/slack/interactions` endpoint is accessible
 
 ### "Missing scopes"
 - Use the manifest to ensure all required OAuth scopes are granted
@@ -122,6 +120,7 @@ If you prefer to configure manually instead of using the manifest:
    - Request URL: `https://your-service-url/webhooks/slack/events`
    - Subscribe to bot events: `message.channels`
 
-4. **Slash Commands:**
-   - Create three commands: `/notify-channel`, `/notify-link`, `/notify-status`
-   - Request URL for all: `https://your-service-url/webhooks/slack/slash-command`
+4. **App Home:**
+   - Enable the Home Tab in App Home settings
+   - Disable the Messages Tab
+   - Set Interactivity Request URL: `https://your-service-url/webhooks/slack/interactions`
