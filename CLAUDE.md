@@ -163,6 +163,24 @@ githubTokenURL = "https://github.com/login/oauth/access_token"
 ./scripts/setup-infrastructure.sh
 ```
 
+### Slack App Management
+
+```bash
+# Install slack-manifest CLI globally
+npm install -g slack-manifest
+
+# Generate manifest from current config
+./scripts/generate-slack-manifest.sh
+
+# Create new Slack app from manifest
+./scripts/apply-slack-manifest.sh --create
+
+# Update existing Slack app manifest
+export SLACK_CONFIG_ACCESS_TOKEN=xoxe-1-your-token
+export SLACK_APP_ID=A1234567890
+./scripts/apply-slack-manifest.sh
+```
+
 ## Architecture
 
 ### Core Components

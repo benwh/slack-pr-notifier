@@ -4,7 +4,32 @@ This guide walks you through creating a Slack app using the provided manifest fi
 
 ## Quick Setup with Manifest
 
-### 1. Create App from Manifest
+### Option 1: Command Line (Recommended)
+
+**Prerequisites:**
+```bash
+# Install slack-manifest CLI globally
+npm install -g slack-manifest
+```
+
+**For new apps:**
+```bash
+# Generate manifest and create new app
+./scripts/generate-slack-manifest.sh
+./scripts/apply-slack-manifest.sh --create
+```
+
+**For updating existing apps:**
+```bash
+# Set environment variables
+export SLACK_CONFIG_ACCESS_TOKEN=xoxe-1-your-config-token
+export SLACK_APP_ID=A1234567890
+
+# Apply manifest changes
+./scripts/apply-slack-manifest.sh
+```
+
+### Option 2: Web Interface
 
 1. Go to [Slack App Management](https://api.slack.com/apps)
 2. Click **"Create New App"**

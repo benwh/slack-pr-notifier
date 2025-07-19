@@ -35,9 +35,13 @@ The Slack app requires specific OAuth scopes. See [SLACK_APP_SETUP.md](./SLACK_A
 
 **Quick Setup:**
 1. Generate the manifest: `./scripts/generate-slack-manifest.sh`
-2. Create a new Slack app at https://api.slack.com/apps
-3. Choose "From an app manifest" and paste the generated content
+2. Create app from CLI: `./scripts/apply-slack-manifest.sh --create`
+3. Or create manually at https://api.slack.com/apps using "From an app manifest"
 4. Install the app to generate the bot token
+
+**Required Environment Variables:**
+- `SLACK_BOT_TOKEN` - Bot User OAuth Token (starts with `xoxb-`)
+- `SLACK_CONFIG_ACCESS_TOKEN` - App-Level Token for CLI management (starts with `xoxe-1-`, optional)
 
 ## Database Setup
 
