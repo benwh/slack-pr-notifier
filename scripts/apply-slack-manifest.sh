@@ -160,16 +160,7 @@ if slack-manifest "${COMMAND_ARGS[@]}"; then
         echo -e "1. Re-authorize your app: ${GREEN}https://api.slack.com/apps/$SLACK_APP_ID/install-on-team${NC}"
         echo -e "2. Or visit app settings: ${GREEN}https://api.slack.com/apps/$SLACK_APP_ID${NC}"
 
-        # Try to open the re-authorization page automatically
-        if command -v open &> /dev/null; then
-            echo -e "${YELLOW}Opening re-authorization page in browser...${NC}"
-            open "https://api.slack.com/apps/$SLACK_APP_ID/install-on-team"
-        elif command -v xdg-open &> /dev/null; then
-            echo -e "${YELLOW}Opening re-authorization page in browser...${NC}"
-            xdg-open "https://api.slack.com/apps/$SLACK_APP_ID/install-on-team"
-        else
-            echo -e "${YELLOW}Manually open the re-authorization URL above to complete the process${NC}"
-        fi
+        echo -e "${YELLOW}Manually open the re-authorization URL above to complete the process${NC}"
     fi
 else
     echo -e "${RED}✗ Failed to apply Slack app manifest${NC}" >&2
