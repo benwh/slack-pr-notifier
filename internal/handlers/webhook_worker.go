@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -88,7 +89,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 			"content_type", c.ContentType(),
 			"content_length", c.Request.ContentLength,
 		)
-		c.JSON(400, gin.H{"error": "invalid job payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job payload"})
 		return
 	}
 
@@ -119,7 +120,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 			log.Info(ctx, "Webhook processing completed (reaction already exists)",
 				"processing_time_ms", processingTime.Milliseconds(),
 			)
-			c.JSON(200, gin.H{
+			c.JSON(http.StatusOK, gin.H{
 				"status":             "completed",
 				"note":               "reaction already exists",
 				"processing_time_ms": processingTime.Milliseconds(),
@@ -133,13 +134,13 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 		)
 
 		if isRetryableError(err) {
-			c.JSON(500, gin.H{
+			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":              "processing failed",
 				"retryable":          true,
 				"processing_time_ms": processingTime.Milliseconds(),
 			})
 		} else {
-			c.JSON(400, gin.H{
+			c.JSON(http.StatusBadRequest, gin.H{
 				"error":              "processing failed",
 				"retryable":          false,
 				"processing_time_ms": processingTime.Milliseconds(),
@@ -153,7 +154,7 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 		"processing_time_ms", processingTime.Milliseconds(),
 	)
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"status":             "processed",
 		"processing_time_ms": processingTime.Milliseconds(),
 	})
@@ -501,7 +502,7 @@ func (h *WebhookWorkerHandler) ProcessManualLink(c *gin.Context) {
 			"content_type", c.ContentType(),
 			"content_length", c.Request.ContentLength,
 		)
-		c.JSON(400, gin.H{"error": "invalid job payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job payload"})
 		return
 	}
 
@@ -525,13 +526,13 @@ func (h *WebhookWorkerHandler) ProcessManualLink(c *gin.Context) {
 		)
 
 		if isRetryableError(err) {
-			c.JSON(500, gin.H{
+			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":              "processing failed",
 				"retryable":          true,
 				"processing_time_ms": processingTime.Milliseconds(),
 			})
 		} else {
-			c.JSON(400, gin.H{
+			c.JSON(http.StatusBadRequest, gin.H{
 				"error":              "processing failed",
 				"retryable":          false,
 				"processing_time_ms": processingTime.Milliseconds(),
@@ -545,7 +546,7 @@ func (h *WebhookWorkerHandler) ProcessManualLink(c *gin.Context) {
 		"processing_time_ms", processingTime.Milliseconds(),
 	)
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"status":             "processed",
 		"processing_time_ms": processingTime.Milliseconds(),
 	})

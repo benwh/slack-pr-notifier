@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github-slack-notifier/internal/log"
@@ -59,7 +60,7 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 
 	if eventType == "" || deliveryID == "" {
 		log.Error(ctx, "Missing required headers")
-		c.JSON(400, gin.H{"error": "missing required headers"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required headers"})
 		return
 	}
 
@@ -72,13 +73,13 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	payload, err := github.ValidatePayload(c.Request, secretToken)
 	if err != nil {
 		log.Error(ctx, "Invalid webhook payload or signature", "error", err)
-		c.JSON(401, gin.H{"error": "invalid payload or signature"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid payload or signature"})
 		return
 	}
 
 	if err := h.validateWebhookPayload(eventType, payload); err != nil {
 		log.Error(ctx, "Invalid webhook payload", "error", err)
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
@@ -95,7 +96,7 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 
 	if err := h.cloudTasksService.EnqueueWebhook(ctx, job); err != nil {
 		log.Error(ctx, "Failed to enqueue webhook", "error", err)
-		c.JSON(500, gin.H{"error": "failed to queue webhook"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue webhook"})
 		return
 	}
 
@@ -105,7 +106,7 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		"processing_time_ms", processingTime.Milliseconds(),
 	)
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"status":             "queued",
 		"job_id":             job.ID,
 		"processing_time_ms": processingTime.Milliseconds(),
