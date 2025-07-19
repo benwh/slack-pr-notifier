@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ const (
 	// GitHub event types.
 	EventTypePullRequest       = "pull_request"
 	EventTypePullRequestReview = "pull_request_review"
+
+	// Retry thresholds.
+	retryCountWarningThreshold = 5
 )
 
 // GitHubWebhookPayload represents the structure of GitHub webhook events.
@@ -66,6 +70,7 @@ type WebhookWorkerHandler struct {
 	firestoreService  *services.FirestoreService
 	slackService      *services.SlackService
 	maxProcessingTime time.Duration
+	maxRetries        int32
 }
 
 func NewWebhookWorkerHandler(
@@ -77,6 +82,7 @@ func NewWebhookWorkerHandler(
 		firestoreService:  firestoreService,
 		slackService:      slackService,
 		maxProcessingTime: cfg.WebhookProcessingTimeout,
+		maxRetries:        cfg.CloudTasksMaxAttempts,
 	}
 }
 
@@ -101,6 +107,14 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 		actualRetryCount = "0"
 	}
 
+	// Parse retry count for warning logic
+	retryCountInt := 0
+	if actualRetryCount != "" {
+		if parsed, err := strconv.Atoi(actualRetryCount); err == nil {
+			retryCountInt = parsed
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.maxProcessingTime)
 	defer cancel()
 
@@ -114,6 +128,28 @@ func (h *WebhookWorkerHandler) ProcessWebhook(c *gin.Context) {
 	})
 
 	log.Debug(ctx, "Processing webhook job")
+
+	// Check if we've exceeded the configured max retries
+	if int32(retryCountInt) >= h.maxRetries {
+		log.Error(ctx, "Maximum retry attempts exceeded, failing task permanently",
+			"max_retries_configured", h.maxRetries,
+		)
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "max_retries_exceeded",
+			"error":       "Task has been retried too many times",
+			"retry_count": retryCountInt,
+			"max_retries": h.maxRetries,
+		})
+		return
+	}
+
+	// Warn if retry count is getting high
+	if retryCountInt > retryCountWarningThreshold {
+		log.Warn(ctx, "High retry count for webhook job",
+			"retry_threshold", retryCountWarningThreshold,
+			"max_retries_configured", h.maxRetries,
+		)
+	}
 
 	if err := h.processWebhookPayload(ctx, &job); err != nil {
 		processingTime := time.Since(startTime)
@@ -512,6 +548,20 @@ func (h *WebhookWorkerHandler) ProcessManualLink(c *gin.Context) {
 		return
 	}
 
+	// Get actual retry count from Cloud Tasks headers
+	actualRetryCount := c.GetHeader("X-Cloudtasks-Taskretrycount")
+	if actualRetryCount == "" {
+		actualRetryCount = "0"
+	}
+
+	// Parse retry count for retry limit check
+	retryCountInt := 0
+	if actualRetryCount != "" {
+		if parsed, err := strconv.Atoi(actualRetryCount); err == nil {
+			retryCountInt = parsed
+		}
+	}
+
 	// Add job metadata to context for all log calls
 	ctx = log.WithFields(ctx, log.LogFields{
 		"job_id":           job.ID,
@@ -520,7 +570,22 @@ func (h *WebhookWorkerHandler) ProcessManualLink(c *gin.Context) {
 		"pr_number":        job.PRNumber,
 		"slack_channel":    job.SlackChannel,
 		"slack_message_ts": job.SlackMessageTS,
+		"retry_count":      actualRetryCount,
 	})
+
+	// Check if we've exceeded the configured max retries
+	if int32(retryCountInt) >= h.maxRetries {
+		log.Error(ctx, "Maximum retry attempts exceeded for manual link, failing task permanently",
+			"max_retries_configured", h.maxRetries,
+		)
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "max_retries_exceeded",
+			"error":       "Task has been retried too many times",
+			"retry_count": retryCountInt,
+			"max_retries": h.maxRetries,
+		})
+		return
+	}
 
 	log.Debug(ctx, "Processing manual PR link")
 

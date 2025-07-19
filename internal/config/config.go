@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -36,6 +37,9 @@ type Config struct {
 	BaseURL            string
 	GCPRegion          string
 	CloudTasksQueue    string
+
+	// Cloud Tasks retry configuration
+	CloudTasksMaxAttempts int32
 
 	// Server settings
 	Port                  string
@@ -87,7 +91,7 @@ func Load() *Config {
 
 		// Server settings
 		Port:     getEnvDefault("PORT", "8080"),
-		GinMode:  getEnvDefault("GIN_MODE", "debug"),
+		GinMode:  getEnvDefault("GIN_MODE", "release"),
 		LogLevel: getEnvDefault("LOG_LEVEL", "info"),
 	}
 
@@ -96,6 +100,9 @@ func Load() *Config {
 	cfg.ServerWriteTimeout = getEnvDuration("SERVER_WRITE_TIMEOUT", 30*time.Second)
 	cfg.ServerShutdownTimeout = getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second)
 	cfg.WebhookProcessingTimeout = getEnvDuration("WEBHOOK_PROCESSING_TIMEOUT", 5*time.Minute)
+
+	// Parse Cloud Tasks retry configuration
+	cfg.CloudTasksMaxAttempts = getEnvInt32("CLOUD_TASKS_MAX_ATTEMPTS", 100)
 
 	// Parse emoji configuration
 	cfg.Emoji = EmojiConfig{
@@ -116,7 +123,15 @@ func Load() *Config {
 // validate checks that all required configuration is present and valid.
 // Panics if any validation fails.
 func (c *Config) validate() {
-	// Check required fields
+	c.validateRequiredFields()
+	c.validateGinMode()
+	c.validateLogLevel()
+	c.validateTimeouts()
+	c.validateCloudTasksRetryConfig()
+}
+
+// validateRequiredFields checks that all required fields are set.
+func (c *Config) validateRequiredFields() {
 	required := map[string]string{
 		"FIRESTORE_PROJECT_ID":      c.FirestoreProjectID,
 		"FIRESTORE_DATABASE_ID":     c.FirestoreDatabaseID,
@@ -136,18 +151,24 @@ func (c *Config) validate() {
 			panic(fmt.Sprintf("required environment variable %s is not set", name))
 		}
 	}
+}
 
-	// Validate GIN_MODE
+// validateGinMode validates the GIN_MODE setting.
+func (c *Config) validateGinMode() {
 	if c.GinMode != "debug" && c.GinMode != "release" && c.GinMode != "test" {
 		panic(fmt.Sprintf("invalid GIN_MODE: %s (must be debug, release, or test)", c.GinMode))
 	}
+}
 
-	// Validate log level
+// validateLogLevel validates the LOG_LEVEL setting.
+func (c *Config) validateLogLevel() {
 	if c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warn" && c.LogLevel != "error" {
 		panic(fmt.Sprintf("invalid LOG_LEVEL: %s (must be debug, info, warn, or error)", c.LogLevel))
 	}
+}
 
-	// Validate timeouts
+// validateTimeouts validates timeout settings.
+func (c *Config) validateTimeouts() {
 	if c.ServerReadTimeout <= 0 {
 		panic("SERVER_READ_TIMEOUT must be positive")
 	}
@@ -159,6 +180,13 @@ func (c *Config) validate() {
 	}
 	if c.WebhookProcessingTimeout <= 0 {
 		panic("WEBHOOK_PROCESSING_TIMEOUT must be positive")
+	}
+}
+
+// validateCloudTasksRetryConfig validates Cloud Tasks retry configuration.
+func (c *Config) validateCloudTasksRetryConfig() {
+	if c.CloudTasksMaxAttempts < 1 {
+		panic("CLOUD_TASKS_MAX_ATTEMPTS must be at least 1")
 	}
 }
 
@@ -188,4 +216,18 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		panic(fmt.Sprintf("invalid duration value for %s: %s", key, value))
 	}
 	return d
+}
+
+// getEnvInt32 gets an int32 environment variable with a default value.
+// Panics if the value cannot be parsed as an int32.
+func getEnvInt32(key string, defaultValue int32) int32 {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	i, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		panic(fmt.Sprintf("invalid int32 value for %s: %s", key, value))
+	}
+	return int32(i)
 }

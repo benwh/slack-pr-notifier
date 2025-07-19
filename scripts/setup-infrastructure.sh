@@ -3,7 +3,7 @@
 # Setup GCP infrastructure for GitHub-Slack Notifier
 # This script creates:
 # - Firestore database
-# - Artifact Registry repository  
+# - Artifact Registry repository
 # - Required API enablements
 # - Docker authentication configuration
 
@@ -94,7 +94,7 @@ gcloud firestore indexes composite create \
     --project="$PROJECT_ID" \
     --quiet || echo "   Index may already exist"
 
-# Create composite index for users collection  
+# Create composite index for users collection
 echo "   Creating index for users collection..."
 gcloud firestore indexes composite create \
     --collection-group=users \
@@ -139,13 +139,27 @@ echo "   Location: $CLOUD_TASKS_LOCATION"
 if gcloud tasks queues describe "$CLOUD_TASKS_QUEUE" --location="$CLOUD_TASKS_LOCATION" --project="$PROJECT_ID" 2>/dev/null; then
     echo "✅ Cloud Tasks queue already exists"
 else
+    # Create Cloud Tasks queue with retry configuration
+    # IMPORTANT: These are queue-level defaults. The application enforces its own
+    # retry limits by checking the retry count header and returning 200 OK to stop
+    # retries when the configured max attempts is reached.
+    #
+    # Retry configuration explanation:
+    # - max-attempts: Maximum number of attempts (including first attempt)
+    # - max-retry-duration: Maximum time to keep retrying
+    # - min-backoff: Initial delay between retries (doubles with each retry)
+    # - max-backoff: Maximum delay between retries
+    # - max-doublings: How many times to double the backoff before it plateaus
+    #
+    # With these settings, retry delays will be: 1s, 2s, 4s, 8s, 16s, 32s, 64s, 128s, 256s, 512s, 600s, 600s...
+    # Total retry duration is capped at 2 days (172800s)
     gcloud tasks queues create "$CLOUD_TASKS_QUEUE" \
         --location="$CLOUD_TASKS_LOCATION" \
-        --max-attempts=5 \
-        --max-retry-duration=300s \
+        --max-attempts=100 \
+        --max-retry-duration=172800s \
         --min-backoff=1s \
-        --max-backoff=30s \
-        --max-doublings=5 \
+        --max-backoff=600s \
+        --max-doublings=10 \
         --max-concurrent-dispatches=10 \
         --max-dispatches-per-second=100 \
         --project="$PROJECT_ID"
