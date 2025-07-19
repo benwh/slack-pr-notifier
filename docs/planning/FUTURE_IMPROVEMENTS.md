@@ -1,6 +1,6 @@
 # 2024-25 Best Practices Implementation
 
-This document outlines specific 2024-25 best practices research findings that should be implemented for modern production deployment. Items in `docs/TODO.md` are excluded to avoid duplication.
+This document outlines specific 2024-25 best practices research findings that should be implemented for modern production deployment. Items in `docs/planning/TODO.md` are excluded to avoid duplication.
 
 ## 🔒 Critical Security Improvements (2024-25 Standards)
 

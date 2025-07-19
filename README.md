@@ -76,7 +76,7 @@ The application uses **async processing** via Google Cloud Tasks for reliable we
 
 ## Configuration
 
-See the [Configuration Guide](docs/CONFIGURATION.md) for detailed setup instructions.
+See the [Configuration Guide](docs/reference/CONFIGURATION.md) for detailed setup instructions.
 
 **Quick Start:**
 ```bash
@@ -106,7 +106,7 @@ cp .env.example .env
    - Go to [Slack API](https://api.slack.com/apps)
    - Click "Create New App" → "From an app manifest"
    - Choose your workspace and paste contents of `slack-app-manifest.yaml`
-   - See [detailed setup guide](docs/SLACK_APP_SETUP.md) for complete instructions
+   - See [detailed setup guide](docs/reference/SLACK_APP_SETUP.md) for complete instructions
 
 2. **Configure OAuth Scopes**:
    - Go to OAuth & Permissions in the app sidebar
@@ -273,10 +273,10 @@ See [CLAUDE.md](CLAUDE.md#architecture-guidelines) for development guidelines.
 
 ## Documentation
 
-- 📋 [Configuration Guide](docs/CONFIGURATION.md) - Environment setup and app configuration
-- 🔐 [OAuth Authentication](docs/OAUTH.md) - GitHub OAuth implementation details
-- 📡 [API Reference](docs/API.md) - HTTP endpoints and Slack commands
-- 🔧 [Slack App Setup](docs/SLACK_APP_SETUP.md) - Detailed Slack app configuration
+- 📋 [Configuration Guide](docs/reference/CONFIGURATION.md) - Environment setup and app configuration
+- 🔐 [OAuth Authentication](docs/reference/OAUTH.md) - GitHub OAuth implementation details
+- 📡 [API Reference](docs/reference/API.md) - HTTP endpoints and Slack commands
+- 🔧 [Slack App Setup](docs/reference/SLACK_APP_SETUP.md) - Detailed Slack app configuration
 - 👨‍💻 [Development Guide](CLAUDE.md) - Architecture and coding guidelines
 
 ## Architecture

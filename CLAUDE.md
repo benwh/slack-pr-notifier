@@ -4,15 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Documentation Structure
 
-When users ask about configuration, setup, or usage, refer them to the appropriate documentation:
+The documentation is organized into three main categories:
 
-- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** - Environment variables, GitHub/Slack app setup, deployment config
-- **[docs/OAUTH.md](docs/OAUTH.md)** - GitHub OAuth authentication implementation and architecture decisions
-- **[docs/API.md](docs/API.md)** - HTTP endpoints, Slack slash commands, authentication methods
-- **[docs/SLACK_APP_SETUP.md](docs/SLACK_APP_SETUP.md)** - Detailed Slack app configuration instructions
+### Reference Documentation (`docs/reference/`)
+Stable, production-ready documentation for end users and developers:
+- **[docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md)** - Environment variables, GitHub/Slack app setup, deployment config
+- **[docs/reference/OAUTH.md](docs/reference/OAUTH.md)** - GitHub OAuth authentication implementation and architecture decisions
+- **[docs/reference/API.md](docs/reference/API.md)** - HTTP endpoints, Slack slash commands, authentication methods
+- **[docs/reference/SLACK_APP_SETUP.md](docs/reference/SLACK_APP_SETUP.md)** - Detailed Slack app configuration instructions
+- **[docs/reference/SLACK_APP_MANIFEST.md](docs/reference/SLACK_APP_MANIFEST.md)** - Slack app manifest for easy setup
+
+### Design Documentation (`docs/designs/`)
+Technical design documents and architectural specifications:
+- **[docs/designs/project.md](docs/designs/project.md)** - High-level project overview and features
+- **[docs/designs/technical-spec.md](docs/designs/technical-spec.md)** - Detailed technical specifications
+- **[docs/designs/manual-pr-link-support.md](docs/designs/manual-pr-link-support.md)** - Feature design for manual PR link detection
+
+### Planning Documentation (`docs/planning/`)
+Work-in-progress planning and improvement tracking:
+- **[docs/planning/TODO.md](docs/planning/TODO.md)** - Development tasks and technical debt
+- **[docs/planning/FUTURE_IMPROVEMENTS.md](docs/planning/FUTURE_IMPROVEMENTS.md)** - 2024-25 best practices and future enhancements
+
+### Other Documentation
 - **[README.md](README.md)** - Project overview, quick start, usage examples
+- **This file (CLAUDE.md)** - Development patterns, code architecture, and AI coding assistance
 
-**This file (CLAUDE.md)** focuses on development patterns, code architecture, and AI coding assistance.
+When users ask about configuration, setup, or usage, refer them to the **reference** documentation. For architectural questions, use **design** documentation. For future improvements, refer to **planning** documentation.
 
 ## Project Overview
 
@@ -385,7 +402,7 @@ go test -v ./...
    - `/notify-status` → `https://your-service-url/webhooks/slack/slash-command`
 5. Install the app to your workspace to generate the bot token
 
-See `docs/SLACK_APP_MANIFEST.md` for detailed setup instructions.
+See `docs/reference/SLACK_APP_MANIFEST.md` for detailed setup instructions.
 
 
 ## Development Tips
