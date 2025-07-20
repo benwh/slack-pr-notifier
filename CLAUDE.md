@@ -186,9 +186,9 @@ export SLACK_APP_ID=A1234567890
 ### Core Components
 
 - **cmd/github-slack-notifier/main.go**: Application entry point with HTTP server setup, graceful shutdown, and dependency injection
-- **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`), webhook workers (`webhook_worker.go`), and Slack webhooks (`slack.go`)
+- **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`), unified job processing (`job_processor.go`), and Slack webhooks (`slack.go`)
 - **internal/services/**: Business logic layer with `FirestoreService`, `SlackService`, and `CloudTasksService`
-- **internal/models/**: Data structures for `User`, `Message`, `Repo`, and `WebhookJob` entities
+- **internal/models/**: Data structures for `User`, `Message`, `Repo`, `Job`, `WebhookJob`, and `ManualLinkJob` entities
 - **internal/middleware/**: HTTP middleware including structured logging with trace IDs
 - **internal/log/**: Custom logging utilities with context support
 
@@ -284,17 +284,24 @@ Utility functions are appropriate for:
 
 **Fast Path (< 100ms):**
 
-1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` → queues to Cloud Tasks → returns 200
+1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` wrapped in unified `Job` → queues to Cloud Tasks → returns 200
+2. **Slack Events** → `handlers/slack.go` → detects manual PR links → creates `ManualLinkJob` wrapped in unified `Job` → queues to Cloud Tasks
 
 **Slow Path (reliable, retryable):**
-2. **Cloud Tasks** → `handlers/webhook_worker.go` → processes business logic → updates Firestore → sends Slack notifications → syncs review reactions
+3. **Cloud Tasks** → `handlers/job_processor.go` → routes unified `Job` by type → calls appropriate domain handler → processes business logic → updates Firestore → sends Slack notifications → syncs review reactions
+
+**Unified Job Processing:**
+- **JobProcessor** provides single entrypoint for all async work with unified retry/timeout/logging logic
+- **Domain Handlers** (GitHubHandler, SlackHandler) contain domain-specific business logic
+- **Job Types**: `github_webhook` (routed to GitHubHandler) and `manual_pr_link` (routed to SlackHandler)
 
 ### Data Flow
 
-1. **GitHub Webhook** → Fast ingress handler → Cloud Tasks queue → Worker handler → Slack/Firestore
-2. **Slack Commands** → `handlers/slack.go` → validates signing secret → processes user configuration
-3. **Services Layer** → `services/firestore.go` for persistence, `services/slack.go` for messaging, `services/cloud_tasks.go` for queuing
-4. **Models** → Firestore documents and Cloud Tasks job payloads with struct tags
+1. **GitHub Webhook** → Fast ingress handler → Cloud Tasks queue → Unified job processor → Domain handler → Slack/Firestore
+2. **Slack Events** → `handlers/slack.go` → detects PR links → Cloud Tasks queue → Unified job processor → Domain handler → Firestore
+3. **Slack Interactions** → `handlers/slack.go` → validates signing secret → processes user configuration
+4. **Services Layer** → `services/firestore.go` for persistence, `services/slack.go` for messaging, `services/cloud_tasks.go` for queuing
+5. **Models** → Firestore documents and unified Cloud Tasks job payloads with struct tags
 
 ### Review Reaction Management
 

@@ -33,7 +33,7 @@ The GitHub API provides PR statistics in the pull request object:
 
 ### 2. Code Changes Required
 
-#### handlers/webhook_worker.go - Update GitHubWebhookPayload
+#### handlers/github.go - Update GitHubWebhookPayload
 
 Add fields to capture PR size data:
 
@@ -93,9 +93,9 @@ func (s *SlackService) PostPRMessage(
 }
 ```
 
-#### handlers/webhook_worker.go
+#### handlers/github.go
 
-Update the call to PostPRMessage:
+Update the call to PostPRMessage in handlePROpened method:
 
 ```go
 // Calculate PR size

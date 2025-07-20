@@ -23,15 +23,15 @@ import (
 
 // App represents the main application structure with all services and handlers.
 type App struct {
-	config               *config.Config
-	firestoreService     *services.FirestoreService
-	slackService         *services.SlackService
-	cloudTasksService    *services.CloudTasksService
-	githubAuthService    *services.GitHubAuthService
-	githubHandler        *handlers.GitHubHandler
-	webhookWorkerHandler *handlers.WebhookWorkerHandler
-	slackHandler         *handlers.SlackHandler
-	oauthHandler         *handlers.OAuthHandler
+	config            *config.Config
+	firestoreService  *services.FirestoreService
+	slackService      *services.SlackService
+	cloudTasksService *services.CloudTasksService
+	githubAuthService *services.GitHubAuthService
+	githubHandler     *handlers.GitHubHandler
+	slackHandler      *handlers.SlackHandler
+	jobProcessor      *handlers.JobProcessor
+	oauthHandler      *handlers.OAuthHandler
 }
 
 func main() {
@@ -107,24 +107,29 @@ func main() {
 
 	githubHandler := handlers.NewGitHubHandler(
 		cloudTasksService,
+		firestoreService,
+		slackService,
 		cfg.GitHubWebhookSecret,
 	)
-	webhookWorkerHandler := handlers.NewWebhookWorkerHandler(firestoreService, slackService, cfg)
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
 	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService)
 
+	slackHandler := handlers.NewSlackHandler(
+		firestoreService, slackService, cloudTasksService, githubAuthService, cfg,
+	)
+
+	jobProcessor := handlers.NewJobProcessor(githubHandler, slackHandler, cfg)
+
 	app := &App{
-		config:               cfg,
-		firestoreService:     firestoreService,
-		slackService:         slackService,
-		cloudTasksService:    cloudTasksService,
-		githubAuthService:    githubAuthService,
-		githubHandler:        githubHandler,
-		webhookWorkerHandler: webhookWorkerHandler,
-		slackHandler: handlers.NewSlackHandler(
-			firestoreService, slackService, cloudTasksService, githubAuthService, cfg,
-		),
-		oauthHandler: oauthHandler,
+		config:            cfg,
+		firestoreService:  firestoreService,
+		slackService:      slackService,
+		cloudTasksService: cloudTasksService,
+		githubAuthService: githubAuthService,
+		githubHandler:     githubHandler,
+		slackHandler:      slackHandler,
+		jobProcessor:      jobProcessor,
+		oauthHandler:      oauthHandler,
 	}
 
 	router := gin.Default()
@@ -134,8 +139,9 @@ func main() {
 
 	// Configure webhook routes
 	router.POST("/webhooks/github", app.githubHandler.HandleWebhook)
-	router.POST("/process-webhook", app.webhookWorkerHandler.ProcessWebhook)
-	router.POST("/process-manual-link", app.webhookWorkerHandler.ProcessManualLink)
+
+	// Configure unified job processing route
+	router.POST("/jobs/process", app.jobProcessor.ProcessJob)
 
 	// Configure OAuth routes
 	router.GET("/auth/github/link", app.oauthHandler.HandleGitHubLink)

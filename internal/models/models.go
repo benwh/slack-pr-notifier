@@ -1,14 +1,17 @@
 package models
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 )
 
 var (
-	ErrJobIDRequired     = errors.New("job ID is required")
-	ErrEventTypeRequired = errors.New("event type is required")
-	ErrPayloadRequired   = errors.New("payload is required")
+	ErrJobIDRequired      = errors.New("job ID is required")
+	ErrEventTypeRequired  = errors.New("event type is required")
+	ErrPayloadRequired    = errors.New("payload is required")
+	ErrJobTypeRequired    = errors.New("job type is required")
+	ErrUnsupportedJobType = errors.New("unsupported job type")
 )
 
 type User struct {
@@ -89,6 +92,20 @@ type ManualLinkJob struct {
 	TraceID        string `json:"trace_id"`
 }
 
+// Job types for the unified job processing system.
+const (
+	JobTypeGitHubWebhook = "github_webhook"
+	JobTypeManualPRLink  = "manual_pr_link"
+)
+
+// Job represents a unified job structure for all async processing.
+type Job struct {
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	TraceID string          `json:"trace_id"`
+	Payload json.RawMessage `json:"payload"`
+}
+
 func (wj *WebhookJob) Validate() error {
 	if wj.ID == "" {
 		return ErrJobIDRequired
@@ -97,6 +114,19 @@ func (wj *WebhookJob) Validate() error {
 		return ErrEventTypeRequired
 	}
 	if len(wj.Payload) == 0 {
+		return ErrPayloadRequired
+	}
+	return nil
+}
+
+func (j *Job) Validate() error {
+	if j.ID == "" {
+		return ErrJobIDRequired
+	}
+	if j.Type == "" {
+		return ErrJobTypeRequired
+	}
+	if len(j.Payload) == 0 {
 		return ErrPayloadRequired
 	}
 	return nil

@@ -9,8 +9,7 @@ This document covers all HTTP endpoints provided by the GitHub-Slack Notifier.
 | Method | Path | Description | Authentication |
 |--------|------|-------------|----------------|
 | `POST` | `/webhooks/github` | GitHub webhook fast ingress (queues to Cloud Tasks) | Webhook signature |
-| `POST` | `/process-webhook` | Internal webhook worker (called by Cloud Tasks) | Internal only |
-| `POST` | `/process-manual-link` | Internal manual PR link worker (called by Cloud Tasks) | Internal only |
+| `POST` | `/jobs/process` | Unified job processor (called by Cloud Tasks for all async work) | Internal only |
 | `POST` | `/webhooks/slack/interactions` | Slack interactive components processor (App Home) | Slack signature |
 | `POST` | `/webhooks/slack/events` | Slack Events API processor (detects manual PR links) | Slack signature |
 
@@ -28,7 +27,7 @@ This document covers all HTTP endpoints provided by the GitHub-Slack Notifier.
 | `POST` | `/api/repos` | Repository registration | `X-API-Key` header |
 | `GET` | `/health` | Health check | None |
 
-**⚠️ Security Note**: The `/process-webhook` and `/process-manual-link` endpoints should not be exposed publicly - they're designed to be called only by Google Cloud Tasks.
+**⚠️ Security Note**: The `/jobs/process` endpoint should not be exposed publicly - it's designed to be called only by Google Cloud Tasks for processing all queued jobs.
 
 ## Slack App Home
 

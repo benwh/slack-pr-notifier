@@ -111,7 +111,7 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		jobID := uuid.New().String()
 		traceID := uuid.New().String()
 
-		job := &models.ManualLinkJob{
+		manualLinkJob := &models.ManualLinkJob{
 			ID:             jobID,
 			PRNumber:       prLink.PRNumber,
 			RepoFullName:   prLink.FullRepoName,
@@ -120,8 +120,27 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 			TraceID:        traceID,
 		}
 
+		// Marshal the ManualLinkJob as the payload for the unified Job
+		jobPayload, err := json.Marshal(manualLinkJob)
+		if err != nil {
+			log.Error(ctx, "Failed to marshal manual link job",
+				"error", err,
+				"repo", prLink.FullRepoName,
+				"pr_number", prLink.PRNumber,
+			)
+			continue
+		}
+
+		// Create unified Job
+		unifiedJob := &models.Job{
+			ID:      jobID,
+			Type:    models.JobTypeManualPRLink,
+			TraceID: traceID,
+			Payload: jobPayload,
+		}
+
 		// Queue for async processing
-		err := sh.cloudTasksService.EnqueueManualLinkProcessing(ctx, job)
+		err = sh.cloudTasksService.EnqueueJob(ctx, unifiedJob)
 		if err != nil {
 			log.Error(ctx, "Failed to enqueue manual link processing",
 				"error", err,
@@ -466,5 +485,37 @@ func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {
 		return fmt.Errorf("signature verification failed: %w", err)
 	}
 
+	return nil
+}
+
+// ProcessManualPRLinkJob processes a manual PR link job from the unified job system.
+func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.Job) error {
+	// Parse the ManualLinkJob from the unified job payload
+	var manualLinkJob models.ManualLinkJob
+	if err := json.Unmarshal(job.Payload, &manualLinkJob); err != nil {
+		log.Error(ctx, "Failed to unmarshal manual link job from unified job payload",
+			"error", err,
+			"job_id", job.ID,
+		)
+		return fmt.Errorf("failed to unmarshal manual link job: %w", err)
+	}
+
+	// Create TrackedMessage for this manual PR link
+	trackedMessage := &models.TrackedMessage{
+		PRNumber:       manualLinkJob.PRNumber,
+		RepoFullName:   manualLinkJob.RepoFullName,
+		SlackChannel:   manualLinkJob.SlackChannel,
+		SlackMessageTS: manualLinkJob.SlackMessageTS,
+		MessageSource:  "manual",
+	}
+
+	log.Debug(ctx, "Creating tracked message for manual PR link")
+	err := sh.firestoreService.CreateTrackedMessage(ctx, trackedMessage)
+	if err != nil {
+		log.Error(ctx, "Failed to create tracked message for manual PR link", "error", err)
+		return err
+	}
+
+	log.Info(ctx, "Manual PR link tracked successfully")
 	return nil
 }

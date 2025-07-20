@@ -55,24 +55,25 @@ func (cts *CloudTasksService) Close() error {
 	return cts.client.Close()
 }
 
-func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.WebhookJob) error {
+// EnqueueJob enqueues a unified job for processing.
+func (cts *CloudTasksService) EnqueueJob(ctx context.Context, job *models.Job) error {
 	if err := job.Validate(); err != nil {
-		log.Error(ctx, "Invalid webhook job for Cloud Tasks",
+		log.Error(ctx, "Invalid unified job for Cloud Tasks",
 			"error", err,
 			"job_id", job.ID,
-			"event_type", job.EventType,
-			"operation", "validate_webhook_job",
+			"job_type", job.Type,
+			"operation", "validate_unified_job",
 		)
 		return fmt.Errorf("invalid job: %w", err)
 	}
 
 	payload, err := json.Marshal(job)
 	if err != nil {
-		log.Error(ctx, "Failed to marshal webhook job for Cloud Tasks",
+		log.Error(ctx, "Failed to marshal unified job for Cloud Tasks",
 			"error", err,
 			"job_id", job.ID,
-			"event_type", job.EventType,
-			"operation", "marshal_webhook_job",
+			"job_type", job.Type,
+			"operation", "marshal_unified_job",
 		)
 		return fmt.Errorf("failed to marshal job: %w", err)
 	}
@@ -84,7 +85,7 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 		MessageType: &cloudtaskspb.Task_HttpRequest{
 			HttpRequest: &cloudtaskspb.HttpRequest{
 				HttpMethod: cloudtaskspb.HttpMethod_POST,
-				Url:        cts.config.WebhookWorkerURL(),
+				Url:        cts.config.JobProcessorURL(),
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 					"X-Job-ID":     job.ID,
@@ -103,83 +104,21 @@ func (cts *CloudTasksService) EnqueueWebhook(ctx context.Context, job *models.We
 
 	createdTask, err := cts.client.CreateTask(ctx, req)
 	if err != nil {
-		log.Error(ctx, "Failed to create Cloud Tasks task",
+		log.Error(ctx, "Failed to create unified job processing task",
 			"error", err,
 			"job_id", job.ID,
-			"event_type", job.EventType,
+			"job_type", job.Type,
 			"queue_path", queuePath,
-			"worker_url", cts.config.WebhookWorkerURL(),
-			"operation", "create_cloud_tasks_task",
+			"worker_url", cts.config.JobProcessorURL(),
+			"operation", "create_unified_job_task",
 		)
 		return fmt.Errorf("failed to create task: %w", err)
 	}
 
-	log.Info(ctx, "Webhook job queued",
+	log.Info(ctx, "Unified job queued",
 		"job_id", job.ID,
+		"job_type", job.Type,
 		"task_name", createdTask.GetName(),
-		"event_type", job.EventType,
-	)
-
-	return nil
-}
-
-// EnqueueManualLinkProcessing enqueues a manual PR link for processing.
-func (cts *CloudTasksService) EnqueueManualLinkProcessing(ctx context.Context, job *models.ManualLinkJob) error {
-	payload, err := json.Marshal(job)
-	if err != nil {
-		log.Error(ctx, "Failed to marshal manual link job for Cloud Tasks",
-			"error", err,
-			"job_id", job.ID,
-			"repo", job.RepoFullName,
-			"pr_number", job.PRNumber,
-			"operation", "marshal_manual_link_job",
-		)
-		return fmt.Errorf("failed to marshal job: %w", err)
-	}
-
-	queuePath := fmt.Sprintf("projects/%s/locations/%s/queues/%s",
-		cts.projectID, cts.location, cts.queueName)
-
-	task := &cloudtaskspb.Task{
-		MessageType: &cloudtaskspb.Task_HttpRequest{
-			HttpRequest: &cloudtaskspb.HttpRequest{
-				HttpMethod: cloudtaskspb.HttpMethod_POST,
-				Url:        cts.config.ManualLinkWorkerURL(),
-				Headers: map[string]string{
-					"Content-Type": "application/json",
-					"X-Job-ID":     job.ID,
-					"X-Trace-ID":   job.TraceID,
-				},
-				Body: payload,
-			},
-		},
-		ScheduleTime: timestamppb.Now(),
-	}
-
-	req := &cloudtaskspb.CreateTaskRequest{
-		Parent: queuePath,
-		Task:   task,
-	}
-
-	createdTask, err := cts.client.CreateTask(ctx, req)
-	if err != nil {
-		log.Error(ctx, "Failed to create manual link processing task",
-			"error", err,
-			"job_id", job.ID,
-			"repo", job.RepoFullName,
-			"pr_number", job.PRNumber,
-			"queue_path", queuePath,
-			"worker_url", cts.config.WebhookWorkerURL(),
-			"operation", "create_manual_link_task",
-		)
-		return fmt.Errorf("failed to create task: %w", err)
-	}
-
-	log.Info(ctx, "Manual link processing job queued",
-		"job_id", job.ID,
-		"task_name", createdTask.GetName(),
-		"repo", job.RepoFullName,
-		"pr_number", job.PRNumber,
 	)
 
 	return nil

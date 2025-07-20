@@ -68,16 +68,34 @@ type Repo struct {
 ### Cloud Tasks Job Model
 
 ```go
+// Unified job structure for all async processing
+type Job struct {
+    ID      string          // Job UUID
+    Type    string          // Job type (github_webhook, manual_pr_link)
+    TraceID string          // Request trace ID
+    Payload json.RawMessage // Type-specific payload
+}
+
+// GitHub webhook job payload
 type WebhookJob struct {
-    ID          string          // Job UUID
-    Event       string          // GitHub event type
-    Payload     json.RawMessage // Raw webhook payload
-    Repository  string          // Repository full name
-    ReceivedAt  time.Time      
-    RetryCount  int            // Retry attempt counter
-    LastError   string         // Last processing error
-    ProcessedAt *time.Time     // Completion timestamp
-    Status      string         // pending/processing/completed/failed
+    ID         string          // Job UUID
+    EventType  string          // GitHub event type
+    DeliveryID string          // GitHub delivery ID
+    TraceID    string          // Request trace ID
+    Payload    []byte          // Raw webhook payload
+    ReceivedAt time.Time
+    Status     string          // queued/processing/completed/failed
+    RetryCount int
+}
+
+// Manual PR link job payload
+type ManualLinkJob struct {
+    ID             string // Job UUID
+    PRNumber       int    // PR number
+    RepoFullName   string // Repository full name
+    SlackChannel   string // Slack channel ID
+    SlackMessageTS string // Slack message timestamp
+    TraceID        string // Request trace ID
 }
 ```
 
@@ -98,9 +116,9 @@ Fast ingress endpoint for GitHub webhooks.
 - `400 Bad Request`: Invalid payload or unsupported event
 - `401 Unauthorized`: Invalid signature
 
-#### `POST /process-webhook`
+#### `POST /jobs/process`
 
-Internal worker endpoint called by Cloud Tasks.
+Unified job processor endpoint called by Cloud Tasks for all async work.
 
 **Headers:**
 - Cloud Tasks authentication headers
@@ -108,11 +126,10 @@ Internal worker endpoint called by Cloud Tasks.
 **Request Body:**
 ```json
 {
-  "job_id": "uuid",
-  "event": "pull_request",
-  "payload": {}, // GitHub webhook payload
-  "repository": "org/repo",
-  "received_at": "2024-01-01T00:00:00Z"
+  "id": "uuid",
+  "type": "github_webhook", // or "manual_pr_link"
+  "trace_id": "trace-uuid",
+  "payload": {} // Type-specific payload (WebhookJob or ManualLinkJob)
 }
 ```
 
@@ -155,13 +172,21 @@ Returns service health status.
 
 ## Event Processing Logic
 
+### Unified Job Processing
+
+All async work is processed through a unified job system:
+
+1. **Fast Path**: Ingress endpoints create unified Job objects and queue to Cloud Tasks
+2. **Slow Path**: JobProcessor routes jobs to appropriate handlers based on job type
+3. **Domain Handlers**: GitHubHandler and SlackHandler contain domain-specific business logic
+
 ### GitHub Events
 
 #### PR Opened
 1. Validate webhook signature
 2. Check if PR is draft → skip if true
-3. Create WebhookJob and queue to Cloud Tasks
-4. Worker processes:
+3. Create WebhookJob wrapped in unified Job and queue to Cloud Tasks
+4. JobProcessor routes to GitHubHandler which processes:
    - Look up author in users collection
    - Determine target channel (user default → repo default)
    - Post Slack message
@@ -169,28 +194,28 @@ Returns service health status.
 
 #### Review Submitted
 1. Validate and queue to Cloud Tasks
-2. Worker processes:
-   - Find existing Slack message
-   - Add reaction based on review state:
+2. JobProcessor routes to GitHubHandler which processes:
+   - Find existing Slack messages across all channels
+   - Sync reactions based on review state:
      - ✅ approved
      - 🔄 changes_requested
      - 💬 commented
-   - Update message status
+   - Handle dismissed reviews by removing all review reactions
 
 #### PR Closed
 1. Validate and queue to Cloud Tasks
-2. Worker processes:
-   - Find existing Slack message
-   - Add reaction:
+2. JobProcessor routes to GitHubHandler which processes:
+   - Find existing Slack messages across all channels
+   - Add reaction to all tracked messages:
      - 🎉 if merged
      - ❌ if closed without merge
-   - Update final status
 
 ### Error Handling
 
 - **Retryable errors**: Network issues, rate limits, timeouts
-- **Non-retryable errors**: Invalid payloads, missing users, validation failures
+- **Non-retryable errors**: Invalid payloads, missing users, validation failures, unsupported job types
 - Cloud Tasks handles retry logic with exponential backoff
+- JobProcessor provides unified error handling and retry logic
 - "Already exists" errors (e.g., duplicate reactions) are gracefully ignored
 
 ## Slack Message Format
@@ -219,7 +244,7 @@ API_ADMIN_KEY           # Admin API authentication key
 
 # Async Processing
 GOOGLE_CLOUD_PROJECT     # GCP project for Cloud Tasks
-WEBHOOK_WORKER_URL       # Full URL to /process-webhook endpoint
+JOB_PROCESSOR_URL        # Full URL to /jobs/process endpoint
 ```
 
 ### Optional
@@ -262,8 +287,8 @@ spec:
             cpu: "2"
             memory: "2Gi"
         env:
-        - name: WEBHOOK_WORKER_URL
-          value: "https://{service-url}/process-webhook"
+        - name: JOB_PROCESSOR_URL
+          value: "https://{service-url}/jobs/process"
 ```
 
 ### Cloud Tasks Queue

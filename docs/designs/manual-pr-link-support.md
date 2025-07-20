@@ -166,7 +166,7 @@ The new model is more flexible and handles all use cases that the old `Message` 
 
 #### Phase 2: Async PR Link Processing
 
-1. **New Cloud Task Type**: `process-manual-link`
+1. **Unified Job Processing**: Manual PR links are processed through the unified job system with type `manual_pr_link`
 
 2. **Processing Steps**:
 
@@ -181,7 +181,7 @@ The new model is more flexible and handles all use cases that the old `Message` 
 
 #### Phase 3: Webhook Updates
 
-Update `WebhookWorkerHandler` to use the new `TrackedMessage` model:
+Update `GitHubHandler` to use the new `TrackedMessage` model:
 
 ```go
 // Check if we already posted a bot message for this PR in this channel
@@ -270,8 +270,8 @@ Track:
 - [ ] Add `/webhooks/slack/events` endpoint in SlackHandler
 - [ ] Implement PR link detection utility function
 - [ ] Create TrackedMessage model and Firestore collection
-- [ ] Create manual link processing worker
-- [ ] Update webhook worker to handle multiple tracked messages
+- [ ] Add manual link processing to SlackHandler
+- [ ] Update GitHubHandler to handle multiple tracked messages
 - [ ] Implement reaction synchronization logic
 - [ ] Write comprehensive tests
 - [ ] Update Slack app manifest with new scopes

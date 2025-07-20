@@ -56,14 +56,9 @@ type Config struct {
 	Emoji EmojiConfig
 }
 
-// WebhookWorkerURL returns the full URL for the webhook worker endpoint.
-func (c *Config) WebhookWorkerURL() string {
-	return c.BaseURL + "/process-webhook"
-}
-
-// ManualLinkWorkerURL returns the full URL for the manual link worker endpoint.
-func (c *Config) ManualLinkWorkerURL() string {
-	return c.BaseURL + "/process-manual-link"
+// JobProcessorURL returns the full URL for the unified job processor endpoint.
+func (c *Config) JobProcessorURL() string {
+	return c.BaseURL + "/jobs/process"
 }
 
 // Load reads configuration from environment variables.
