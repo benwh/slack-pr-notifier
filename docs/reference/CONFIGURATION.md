@@ -68,22 +68,42 @@ Ensure all required environment variables from `.env.example` are set in your de
 - **API Keys**: Use strong random strings for admin endpoints
 - **Secrets**: Never log or expose secrets in responses
 - **HTTPS**: Always use HTTPS in production for OAuth callbacks
-- **Cloud Tasks Authentication**: OIDC tokens protect job processing endpoints
+- **Cloud Tasks Authentication**: Static secret protects job processing endpoints
 
-### Cloud Tasks OIDC Authentication
+### Cloud Tasks Static Secret Authentication
 
-The `/jobs/process` endpoint is protected by OIDC token verification to ensure only Google Cloud Tasks can execute jobs.
+The `/jobs/process` endpoint is protected by a static secret to ensure only Google Cloud Tasks can execute jobs.
 
 **Configuration:**
-- `CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL` - Service account email for OIDC token generation (optional for development)
+- `CLOUD_TASKS_SECRET` - Static secret added to Cloud Tasks HTTP headers (required)
 
 **How it works:**
-1. Cloud Tasks generates OIDC tokens signed by the configured service account
-2. Job processing endpoint verifies tokens against Google's public keys
-3. Tokens are validated for audience, issuer, and service account email
-4. If no service account is configured, authentication is bypassed (development mode)
+1. Cloud Tasks adds `X-Cloud-Tasks-Secret` header to all job processing requests
+2. Job processing endpoint validates the secret matches the configured value
+3. Requests without the correct secret are rejected with 401 Unauthorized
+
+**Authentication Design Decision:**
+We chose static secret authentication over Google Cloud OIDC tokens for practical Cloud Run considerations:
+
+**Static Secret Advantages:**
+- **Performance**: Ultra-fast validation (~1-2ms) vs OIDC (~100-500ms cold start penalty)
+- **No cold start latency**: No external API calls to fetch Google's public keys
+- **Simple debugging**: Clear success/failure without JWT complexity
+- **Cloud Run optimized**: No network dependency on Google's cert endpoint
+- **Fewer failure modes**: Only secret validation can fail
+
+**OIDC Trade-offs Considered:**
+- OIDC provides service account audit trails and automatic key rotation
+- However, Cloud Run's frequent cold starts make certificate fetching expensive
+- For internal endpoint protection, static secret provides sufficient security
 
 **Setup:**
-1. Create or use existing service account with Cloud Tasks permissions
-2. Set `CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL` environment variable
-3. Ensure the service account has permissions to execute Cloud Tasks
+1. Generate a secure random 64+ character secret (e.g., `openssl rand -base64 64`)
+2. Set `CLOUD_TASKS_SECRET` environment variable in your deployment
+3. Keep the secret secure and rotate it periodically via deployment updates
+
+**Security Notes:**
+- Use a cryptographically secure random string (64+ characters recommended)
+- Rotate the secret periodically by updating the environment variable
+- Never log or expose the secret in application responses
+- The secret provides adequate protection for internal service-to-service communication

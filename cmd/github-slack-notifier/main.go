@@ -140,8 +140,8 @@ func main() {
 	// Configure webhook routes
 	router.POST("/webhooks/github", app.githubHandler.HandleWebhook)
 
-	// Configure unified job processing route with OIDC authentication
-	router.POST("/jobs/process", middleware.OIDCMiddleware(cfg), app.jobProcessor.ProcessJob)
+	// Configure unified job processing route with Cloud Tasks authentication
+	router.POST("/jobs/process", middleware.CloudTasksAuthMiddleware(cfg), app.jobProcessor.ProcessJob)
 
 	// Configure OAuth routes
 	router.GET("/auth/github/link", app.oauthHandler.HandleGitHubLink)

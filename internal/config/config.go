@@ -33,11 +33,11 @@ type Config struct {
 	GitHubOAuthRedirectURL string
 
 	// Cloud Tasks settings
-	GoogleCloudProject            string
-	BaseURL                       string
-	GCPRegion                     string
-	CloudTasksQueue               string
-	CloudTasksServiceAccountEmail string
+	GoogleCloudProject string
+	BaseURL            string
+	GCPRegion          string
+	CloudTasksQueue    string
+	CloudTasksSecret   string
 
 	// Cloud Tasks retry configuration
 	CloudTasksMaxAttempts int32
@@ -80,11 +80,11 @@ func Load() *Config {
 		GitHubOAuthRedirectURL: getEnvRequired("GITHUB_OAUTH_REDIRECT_URL"),
 
 		// Cloud Tasks settings
-		GoogleCloudProject:            getEnvRequired("GOOGLE_CLOUD_PROJECT"),
-		BaseURL:                       getEnvRequired("BASE_URL"),
-		GCPRegion:                     getEnvDefault("GCP_REGION", "europe-west1"),
-		CloudTasksQueue:               getEnvDefault("CLOUD_TASKS_QUEUE", "webhook-processing"),
-		CloudTasksServiceAccountEmail: getEnvDefault("CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL", ""),
+		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),
+		BaseURL:            getEnvRequired("BASE_URL"),
+		GCPRegion:          getEnvDefault("GCP_REGION", "europe-west1"),
+		CloudTasksQueue:    getEnvDefault("CLOUD_TASKS_QUEUE", "webhook-processing"),
+		CloudTasksSecret:   getEnvRequired("CLOUD_TASKS_SECRET"),
 
 		// Server settings
 		Port:     getEnvDefault("PORT", "8080"),
@@ -141,6 +141,7 @@ func (c *Config) validateRequiredFields() {
 		"GITHUB_OAUTH_REDIRECT_URL": c.GitHubOAuthRedirectURL,
 		"GOOGLE_CLOUD_PROJECT":      c.GoogleCloudProject,
 		"BASE_URL":                  c.BaseURL,
+		"CLOUD_TASKS_SECRET":        c.CloudTasksSecret,
 	}
 
 	for name, value := range required {

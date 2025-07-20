@@ -87,24 +87,15 @@ func (cts *CloudTasksService) EnqueueJob(ctx context.Context, job *models.Job) e
 				HttpMethod: cloudtaskspb.HttpMethod_POST,
 				Url:        cts.config.JobProcessorURL(),
 				Headers: map[string]string{
-					"Content-Type": "application/json",
-					"X-Job-ID":     job.ID,
-					"X-Trace-ID":   job.TraceID,
+					"Content-Type":         "application/json",
+					"X-Job-ID":             job.ID,
+					"X-Trace-ID":           job.TraceID,
+					"X-Cloud-Tasks-Secret": cts.config.CloudTasksSecret,
 				},
 				Body: payload,
 			},
 		},
 		ScheduleTime: timestamppb.Now(),
-	}
-
-	// Add OIDC token authorization if service account email is configured
-	if cts.config.CloudTasksServiceAccountEmail != "" {
-		task.GetHttpRequest().AuthorizationHeader = &cloudtaskspb.HttpRequest_OidcToken{
-			OidcToken: &cloudtaskspb.OidcToken{
-				ServiceAccountEmail: cts.config.CloudTasksServiceAccountEmail,
-				Audience:            cts.config.JobProcessorURL(),
-			},
-		}
 	}
 
 	req := &cloudtaskspb.CreateTaskRequest{
