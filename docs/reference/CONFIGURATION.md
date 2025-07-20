@@ -68,3 +68,22 @@ Ensure all required environment variables from `.env.example` are set in your de
 - **API Keys**: Use strong random strings for admin endpoints
 - **Secrets**: Never log or expose secrets in responses
 - **HTTPS**: Always use HTTPS in production for OAuth callbacks
+- **Cloud Tasks Authentication**: OIDC tokens protect job processing endpoints
+
+### Cloud Tasks OIDC Authentication
+
+The `/jobs/process` endpoint is protected by OIDC token verification to ensure only Google Cloud Tasks can execute jobs.
+
+**Configuration:**
+- `CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL` - Service account email for OIDC token generation (optional for development)
+
+**How it works:**
+1. Cloud Tasks generates OIDC tokens signed by the configured service account
+2. Job processing endpoint verifies tokens against Google's public keys
+3. Tokens are validated for audience, issuer, and service account email
+4. If no service account is configured, authentication is bypassed (development mode)
+
+**Setup:**
+1. Create or use existing service account with Cloud Tasks permissions
+2. Set `CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL` environment variable
+3. Ensure the service account has permissions to execute Cloud Tasks

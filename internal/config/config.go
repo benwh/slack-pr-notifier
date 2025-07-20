@@ -33,10 +33,11 @@ type Config struct {
 	GitHubOAuthRedirectURL string
 
 	// Cloud Tasks settings
-	GoogleCloudProject string
-	BaseURL            string
-	GCPRegion          string
-	CloudTasksQueue    string
+	GoogleCloudProject            string
+	BaseURL                       string
+	GCPRegion                     string
+	CloudTasksQueue               string
+	CloudTasksServiceAccountEmail string
 
 	// Cloud Tasks retry configuration
 	CloudTasksMaxAttempts int32
@@ -79,10 +80,11 @@ func Load() *Config {
 		GitHubOAuthRedirectURL: getEnvRequired("GITHUB_OAUTH_REDIRECT_URL"),
 
 		// Cloud Tasks settings
-		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),
-		BaseURL:            getEnvRequired("BASE_URL"),
-		GCPRegion:          getEnvDefault("GCP_REGION", "europe-west1"),
-		CloudTasksQueue:    getEnvDefault("CLOUD_TASKS_QUEUE", "webhook-processing"),
+		GoogleCloudProject:            getEnvRequired("GOOGLE_CLOUD_PROJECT"),
+		BaseURL:                       getEnvRequired("BASE_URL"),
+		GCPRegion:                     getEnvDefault("GCP_REGION", "europe-west1"),
+		CloudTasksQueue:               getEnvDefault("CLOUD_TASKS_QUEUE", "webhook-processing"),
+		CloudTasksServiceAccountEmail: getEnvDefault("CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL", ""),
 
 		// Server settings
 		Port:     getEnvDefault("PORT", "8080"),
