@@ -154,7 +154,12 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
 
-	log.Info(ctx, "Starting server", "component", "server", "port", cfg.Port)
+	// Setup server logging context
+	serverCtx := log.WithFields(ctx, log.LogFields{
+		"component": "server",
+	})
+
+	log.Info(serverCtx, "Starting server", "port", cfg.Port)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.Port),
@@ -166,7 +171,7 @@ func main() {
 	// Start server in a goroutine
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error(context.Background(), "Server failed to start", "component", "server", "error", err)
+			log.Error(serverCtx, "Server failed to start", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -176,18 +181,18 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info(context.Background(), "Shutting down server...", "component", "server")
+	log.Info(serverCtx, "Shutting down server...")
 
 	// Give outstanding requests time to complete
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ServerShutdownTimeout)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Error(ctx, "Server forced to shutdown", "component", "server", "error", err)
+		log.Error(serverCtx, "Server forced to shutdown", "error", err)
 		os.Exit(1)
 	}
 
-	log.Info(context.Background(), "Server exited gracefully", "component", "server")
+	log.Info(serverCtx, "Server exited gracefully")
 }
 
 func (app *App) handleRepoRegistration(c *gin.Context) {

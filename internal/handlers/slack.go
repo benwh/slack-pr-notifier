@@ -111,6 +111,15 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		jobID := uuid.New().String()
 		traceID := uuid.New().String()
 
+		// Add PR and Slack context for this iteration
+		linkCtx := log.WithFields(ctx, log.LogFields{
+			"repo":             prLink.FullRepoName,
+			"pr_number":        prLink.PRNumber,
+			"slack_channel":    event.Channel,
+			"slack_message_ts": event.TimeStamp,
+			"job_id":           jobID,
+		})
+
 		manualLinkJob := &models.ManualLinkJob{
 			ID:             jobID,
 			PRNumber:       prLink.PRNumber,
@@ -123,11 +132,7 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		// Marshal the ManualLinkJob as the payload for the unified Job
 		jobPayload, err := json.Marshal(manualLinkJob)
 		if err != nil {
-			log.Error(ctx, "Failed to marshal manual link job",
-				"error", err,
-				"repo", prLink.FullRepoName,
-				"pr_number", prLink.PRNumber,
-			)
+			log.Error(linkCtx, "Failed to marshal manual link job", "error", err)
 			continue
 		}
 
@@ -140,22 +145,11 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		}
 
 		// Queue for async processing
-		err = sh.cloudTasksService.EnqueueJob(ctx, unifiedJob)
+		err = sh.cloudTasksService.EnqueueJob(linkCtx, unifiedJob)
 		if err != nil {
-			log.Error(ctx, "Failed to enqueue manual link processing",
-				"error", err,
-				"repo", prLink.FullRepoName,
-				"pr_number", prLink.PRNumber,
-				"slack_channel", event.Channel,
-				"slack_message_ts", event.TimeStamp,
-			)
+			log.Error(linkCtx, "Failed to enqueue manual link processing", "error", err)
 		} else {
-			log.Info(ctx, "Manual PR link detected and queued for processing",
-				"repo", prLink.FullRepoName,
-				"pr_number", prLink.PRNumber,
-				"slack_channel", event.Channel,
-				"job_id", jobID,
-			)
+			log.Info(linkCtx, "Manual PR link detected and queued for processing")
 		}
 	}
 }
@@ -267,12 +261,16 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 	}
 
 	userID := event.User
-	log.Info(ctx, "App Home opened", "user_id", userID)
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
+	log.Info(ctx, "App Home opened")
 
 	// Get user data
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
 	if err != nil {
-		log.Error(ctx, "Failed to get user data for App Home", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to get user data for App Home", "error", err)
 		return
 	}
 
@@ -280,15 +278,19 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 	view := sh.slackService.BuildHomeView(user)
 	err = sh.slackService.PublishHomeView(ctx, userID, view)
 	if err != nil {
-		log.Error(ctx, "Failed to publish App Home view", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to publish App Home view", "error", err)
 	}
 }
 
 // handleConnectGitHubAction handles the "Connect GitHub Account" button.
 func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
 	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID, "")
 	if err != nil {
-		log.Error(ctx, "Failed to create OAuth state for App Home", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to create OAuth state for App Home", "error", err)
 		c.JSON(http.StatusOK, gin.H{
 			"response_action": "errors",
 			"errors": map[string]string{
@@ -302,19 +304,19 @@ func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, t
 	state.ReturnToHome = true
 	err = sh.githubAuthService.SaveOAuthState(ctx, state)
 	if err != nil {
-		log.Error(ctx, "Failed to update OAuth state", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to update OAuth state", "error", err)
 	}
 
 	oauthURL := fmt.Sprintf("%s/auth/github/link?state=%s", sh.config.BaseURL, state.ID)
 
-	log.Info(ctx, "Generated OAuth URL for App Home", "oauth_url", oauthURL, "user_id", userID)
+	log.Info(ctx, "Generated OAuth URL for App Home", "oauth_url", oauthURL)
 
 	// Open a modal with the OAuth link
 	modalView := sh.slackService.BuildOAuthModal(oauthURL)
 
 	_, err = sh.slackService.OpenView(ctx, triggerID, modalView)
 	if err != nil {
-		log.Error(ctx, "Failed to open OAuth modal", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to open OAuth modal", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
@@ -324,9 +326,13 @@ func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, t
 
 // handleDisconnectGitHubAction handles the "Disconnect GitHub Account" button.
 func (sh *SlackHandler) handleDisconnectGitHubAction(ctx context.Context, userID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
 	if err != nil {
-		log.Error(ctx, "Failed to get user for disconnect", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to get user for disconnect", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
@@ -345,7 +351,7 @@ func (sh *SlackHandler) handleDisconnectGitHubAction(ctx context.Context, userID
 
 	err = sh.firestoreService.SaveUser(ctx, user)
 	if err != nil {
-		log.Error(ctx, "Failed to disconnect GitHub account", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to disconnect GitHub account", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
@@ -357,11 +363,15 @@ func (sh *SlackHandler) handleDisconnectGitHubAction(ctx context.Context, userID
 
 // handleSelectChannelAction opens a modal for channel selection.
 func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, _ string, triggerID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
 	modalView := sh.slackService.BuildChannelSelectorModal()
 
 	_, err := sh.slackService.OpenView(ctx, triggerID, modalView)
 	if err != nil {
-		log.Error(ctx, "Failed to open channel selection modal", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to open channel selection modal", "error", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
@@ -371,6 +381,10 @@ func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, _
 func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	userID := interaction.User.ID
 	teamID := interaction.Team.ID
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
 
 	// Extract selected channel from the view submission
 	channelID := ""
@@ -420,7 +434,7 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 	// Update user's default channel
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
 	if err != nil {
-		log.Error(ctx, "Failed to get user for channel update", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to get user for channel update", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
@@ -436,7 +450,7 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 	user.DefaultChannel = channelID
 	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
 	if err != nil {
-		log.Error(ctx, "Failed to update user channel", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to update user channel", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
@@ -454,16 +468,20 @@ func (sh *SlackHandler) handleRefreshViewAction(ctx context.Context, userID stri
 
 // refreshHomeView refreshes the App Home view for a user.
 func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
 	if err != nil {
-		log.Error(ctx, "Failed to get user data for refresh", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to get user data for refresh", "error", err)
 		return
 	}
 
 	view := sh.slackService.BuildHomeView(user)
 	err = sh.slackService.PublishHomeView(ctx, userID, view)
 	if err != nil {
-		log.Error(ctx, "Failed to refresh App Home view", "error", err, "user_id", userID)
+		log.Error(ctx, "Failed to refresh App Home view", "error", err)
 	}
 }
 

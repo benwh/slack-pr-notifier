@@ -52,10 +52,14 @@ func (h *OAuthHandler) HandleGitHubLink(c *gin.Context) {
 		return
 	}
 
+	ctx = log.WithFields(ctx, log.LogFields{
+		"state_id": stateID,
+	})
+
 	// Validate state exists and is not expired (don't consume yet)
 	state, err := h.firestoreService.GetOAuthState(ctx, stateID)
 	if err != nil {
-		log.Error(ctx, "Invalid OAuth state in link request", "state_id", stateID, "error", err)
+		log.Error(ctx, "Invalid OAuth state in link request", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid Request",
 			"message": "Invalid or expired authorization request",
@@ -65,7 +69,7 @@ func (h *OAuthHandler) HandleGitHubLink(c *gin.Context) {
 
 	// Check if state is expired
 	if time.Now().After(state.ExpiresAt) {
-		log.Warn(ctx, "Expired OAuth state in link request", "state_id", stateID)
+		log.Warn(ctx, "Expired OAuth state in link request")
 		_ = h.firestoreService.DeleteOAuthState(ctx, stateID)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Expired Request",
@@ -95,7 +99,12 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	code := c.Query("code")
 	stateID := c.Query("state")
 
-	log.Info(ctx, "GitHub OAuth callback received", "has_code", code != "", "has_state", stateID != "")
+	ctx = log.WithFields(ctx, log.LogFields{
+		"state_id": stateID,
+		"has_code": code != "",
+	})
+
+	log.Info(ctx, "GitHub OAuth callback received")
 
 	// Check for error from GitHub
 	if errorParam := c.Query("error"); errorParam != "" {
@@ -110,7 +119,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 
 	// Validate required parameters
 	if code == "" || stateID == "" {
-		log.Error(ctx, "Missing required parameters in OAuth callback", "has_code", code != "", "has_state", stateID != "")
+		log.Error(ctx, "Missing required parameters in OAuth callback")
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid Callback",
 			"message": "Missing required parameters from GitHub",
@@ -121,7 +130,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	// Validate and consume OAuth state
 	state, err := h.githubAuthService.ValidateAndConsumeState(ctx, stateID)
 	if err != nil {
-		log.Error(ctx, "OAuth state validation failed", "state_id", stateID, "error", err)
+		log.Error(ctx, "OAuth state validation failed", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid Request",
 			"message": "Invalid or expired authorization request",
