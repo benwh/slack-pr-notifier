@@ -9,7 +9,7 @@ This document covers all HTTP endpoints provided by the GitHub-Slack Notifier.
 | Method | Path | Description | Authentication |
 |--------|------|-------------|----------------|
 | `POST` | `/webhooks/github` | GitHub webhook fast ingress (queues to Cloud Tasks) | Webhook signature |
-| `POST` | `/jobs/process` | Unified job processor (called by Cloud Tasks for all async work) | Internal only |
+| `POST` | `/jobs/process` | Job processor (called by Cloud Tasks for all async work) | Internal only |
 | `POST` | `/webhooks/slack/interactions` | Slack interactive components processor (App Home) | Slack signature |
 | `POST` | `/webhooks/slack/events` | Slack Events API processor (detects manual PR links) | Slack signature |
 
@@ -120,4 +120,3 @@ No explicit rate limiting is implemented, but the system is designed to handle:
 
 - CSRF protection via state parameters
 - No additional authentication (public endpoints)
-

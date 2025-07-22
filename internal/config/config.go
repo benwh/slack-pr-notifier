@@ -56,7 +56,7 @@ type Config struct {
 	Emoji EmojiConfig
 }
 
-// JobProcessorURL returns the full URL for the unified job processor endpoint.
+// JobProcessorURL returns the full URL for the job processor endpoint.
 func (c *Config) JobProcessorURL() string {
 	return c.BaseURL + "/jobs/process"
 }

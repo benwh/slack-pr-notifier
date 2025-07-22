@@ -55,25 +55,25 @@ func (cts *CloudTasksService) Close() error {
 	return cts.client.Close()
 }
 
-// EnqueueJob enqueues a unified job for processing.
+// EnqueueJob enqueues a job for processing.
 func (cts *CloudTasksService) EnqueueJob(ctx context.Context, job *models.Job) error {
 	if err := job.Validate(); err != nil {
-		log.Error(ctx, "Invalid unified job for Cloud Tasks",
+		log.Error(ctx, "Invalid job for Cloud Tasks",
 			"error", err,
 			"job_id", job.ID,
 			"job_type", job.Type,
-			"operation", "validate_unified_job",
+			"operation", "validate_job",
 		)
 		return fmt.Errorf("invalid job: %w", err)
 	}
 
 	payload, err := json.Marshal(job)
 	if err != nil {
-		log.Error(ctx, "Failed to marshal unified job for Cloud Tasks",
+		log.Error(ctx, "Failed to marshal job for Cloud Tasks",
 			"error", err,
 			"job_id", job.ID,
 			"job_type", job.Type,
-			"operation", "marshal_unified_job",
+			"operation", "marshal_job",
 		)
 		return fmt.Errorf("failed to marshal job: %w", err)
 	}
@@ -105,18 +105,18 @@ func (cts *CloudTasksService) EnqueueJob(ctx context.Context, job *models.Job) e
 
 	createdTask, err := cts.client.CreateTask(ctx, req)
 	if err != nil {
-		log.Error(ctx, "Failed to create unified job processing task",
+		log.Error(ctx, "Failed to create job processing task",
 			"error", err,
 			"job_id", job.ID,
 			"job_type", job.Type,
 			"queue_path", queuePath,
 			"worker_url", cts.config.JobProcessorURL(),
-			"operation", "create_unified_job_task",
+			"operation", "create_job_task",
 		)
 		return fmt.Errorf("failed to create task: %w", err)
 	}
 
-	log.Info(ctx, "Unified job queued",
+	log.Info(ctx, "Job queued",
 		"job_id", job.ID,
 		"job_type", job.Type,
 		"task_name", createdTask.GetName(),

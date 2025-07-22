@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The documentation is organized into three main categories:
 
 ### Reference Documentation (`docs/reference/`)
+
 Stable, production-ready documentation for end users and developers:
+
 - **[docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md)** - Environment variables, GitHub/Slack app setup, deployment config
 - **[docs/reference/OAUTH.md](docs/reference/OAUTH.md)** - GitHub OAuth authentication implementation and architecture decisions
 - **[docs/reference/API.md](docs/reference/API.md)** - HTTP endpoints, Slack App Home interactions, authentication methods
@@ -15,17 +17,22 @@ Stable, production-ready documentation for end users and developers:
 - **[docs/reference/SLACK_APP_MANIFEST.md](docs/reference/SLACK_APP_MANIFEST.md)** - Slack app manifest for easy setup
 
 ### Design Documentation (`docs/designs/`)
+
 Technical design documents and architectural specifications:
+
 - **[docs/designs/project.md](docs/designs/project.md)** - High-level project overview and features
 - **[docs/designs/technical-spec.md](docs/designs/technical-spec.md)** - Detailed technical specifications
 - **[docs/designs/manual-pr-link-support.md](docs/designs/manual-pr-link-support.md)** - Feature design for manual PR link detection
 
 ### Planning Documentation (`docs/planning/`)
+
 Work-in-progress planning and improvement tracking:
+
 - **[docs/planning/TODO.md](docs/planning/TODO.md)** - Development tasks and technical debt
 - **[docs/planning/FUTURE_IMPROVEMENTS.md](docs/planning/FUTURE_IMPROVEMENTS.md)** - 2024-25 best practices and future enhancements
 
 ### Other Documentation
+
 - **[README.md](README.md)** - Project overview, quick start, usage examples
 - **This file (CLAUDE.md)** - Development patterns, code architecture, and AI coding assistance
 
@@ -71,23 +78,27 @@ staticcheck ./...
 **CRITICAL**: Always write lint-free code from the start. Follow these patterns to avoid common linter errors:
 
 **Function Signatures & Line Length:**
+
 - Keep lines under 120 characters
 - For long function signatures, use multi-line format:
+
 ```go
 func NewSlackHandler(
-	fs *services.FirestoreService, slack *services.SlackService,
-	cloudTasks *services.CloudTasksService, githubAuth *services.GitHubAuthService,
-	cfg *config.Config,
+ fs *services.FirestoreService, slack *services.SlackService,
+ cloudTasks *services.CloudTasksService, githubAuth *services.GitHubAuthService,
+ cfg *config.Config,
 ) *SlackHandler {
 ```
 
 **Error Handling:**
+
 - Use static errors instead of dynamic `fmt.Errorf()` calls:
+
 ```go
 // Good - static errors
 var (
-	ErrStateRequired = fmt.Errorf("state parameter is required")
-	ErrInvalidState  = fmt.Errorf("invalid or expired state")
+ ErrStateRequired = fmt.Errorf("state parameter is required")
+ ErrInvalidState  = fmt.Errorf("invalid or expired state")
 )
 
 // For contextual errors, wrap static errors:
@@ -98,17 +109,21 @@ return fmt.Errorf("state parameter is required")
 ```
 
 **Constants vs Magic Numbers:**
+
 - Always define constants for any numeric values:
+
 ```go
 const (
-	stateIDLength     = 16
-	oauthStateTimeout = 15 * time.Minute
-	httpClientTimeout = 30 * time.Second
+ stateIDLength     = 16
+ oauthStateTimeout = 15 * time.Minute
+ httpClientTimeout = 30 * time.Second
 )
 ```
 
 **HTTP Methods:**
+
 - Use standard library constants:
+
 ```go
 // Good
 http.NewRequestWithContext(ctx, http.MethodPost, url, body)
@@ -118,7 +133,9 @@ http.NewRequestWithContext(ctx, "POST", url, body)
 ```
 
 **Resource Cleanup:**
+
 - Always handle `Close()` return values:
+
 ```go
 // Good
 defer func() { _ = resp.Body.Close() }()
@@ -128,7 +145,9 @@ defer resp.Body.Close()
 ```
 
 **Comments:**
+
 - End all comments with periods:
+
 ```go
 // CreateOAuthState creates a new OAuth state for CSRF protection.
 func CreateOAuthState(...) { // Good
@@ -138,18 +157,22 @@ func CreateOAuthState(...) { // Bad (triggers godot)
 ```
 
 **Security (gosec):**
+
 - Use `#nosec` comments for false positives:
+
 ```go
 // #nosec G101 -- Public GitHub OAuth endpoint, not credentials
 githubTokenURL = "https://github.com/login/oauth/access_token"
 ```
 
 **Test Function Signatures:**
+
 - Ensure test calls match current function signatures
 - When adding parameters to constructors, update ALL test files
 - Example: `NewSlackHandler(fs, slack, cloudTasks, githubAuth, cfg)` needs 5 parameters, not 4
 
 **Formatting:**
+
 - Run `gofmt -s -w` on files after making changes
 - Use `gofmt -s` (simplify) flag to clean up formatting automatically
 
@@ -186,7 +209,7 @@ export SLACK_APP_ID=A1234567890
 ### Core Components
 
 - **cmd/github-slack-notifier/main.go**: Application entry point with HTTP server setup, graceful shutdown, and dependency injection
-- **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`), unified job processing (`job_processor.go`), and Slack webhooks (`slack.go`)
+- **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`), job processing (`job_processor.go`), and Slack webhooks (`slack.go`)
 - **internal/services/**: Business logic layer with `FirestoreService`, `SlackService`, and `CloudTasksService`
 - **internal/models/**: Data structures for `User`, `Message`, `Repo`, `Job`, `WebhookJob`, and `ManualLinkJob` entities
 - **internal/middleware/**: HTTP middleware including structured logging with trace IDs
@@ -284,24 +307,25 @@ Utility functions are appropriate for:
 
 **Fast Path (< 100ms):**
 
-1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` wrapped in unified `Job` → queues to Cloud Tasks → returns 200
-2. **Slack Events** → `handlers/slack.go` → detects manual PR links → creates `ManualLinkJob` wrapped in unified `Job` → queues to Cloud Tasks
+1. **GitHub Webhook** → `handlers/github.go` → validates signature & payload → creates `WebhookJob` wrapped in `Job` → queues to Cloud Tasks → returns 200
+2. **Slack Events** → `handlers/slack.go` → detects manual PR links → creates `ManualLinkJob` wrapped in `Job` → queues to Cloud Tasks
 
 **Slow Path (reliable, retryable):**
-3. **Cloud Tasks** → `handlers/job_processor.go` → routes unified `Job` by type → calls appropriate domain handler → processes business logic → updates Firestore → sends Slack notifications → syncs review reactions
+3. **Cloud Tasks** → `handlers/job_processor.go` → routes `Job` by type → calls appropriate domain handler → processes business logic → updates Firestore → sends Slack notifications → syncs review reactions
 
-**Unified Job Processing:**
-- **JobProcessor** provides single entrypoint for all async work with unified retry/timeout/logging logic
+**Job Processing:**
+
+- **JobProcessor** provides single entrypoint for all async work with retry/timeout/logging logic
 - **Domain Handlers** (GitHubHandler, SlackHandler) contain domain-specific business logic
 - **Job Types**: `github_webhook` (routed to GitHubHandler) and `manual_pr_link` (routed to SlackHandler)
 
 ### Data Flow
 
-1. **GitHub Webhook** → Fast ingress handler → Cloud Tasks queue → Unified job processor → Domain handler → Slack/Firestore
-2. **Slack Events** → `handlers/slack.go` → detects PR links → Cloud Tasks queue → Unified job processor → Domain handler → Firestore
+1. **GitHub Webhook** → Fast ingress handler → Cloud Tasks queue → Job processor → Domain handler → Slack/Firestore
+2. **Slack Events** → `handlers/slack.go` → detects PR links → Cloud Tasks queue → Job processor → Domain handler → Firestore
 3. **Slack Interactions** → `handlers/slack.go` → validates signing secret → processes user configuration
 4. **Services Layer** → `services/firestore.go` for persistence, `services/slack.go` for messaging, `services/cloud_tasks.go` for queuing
-5. **Models** → Firestore documents and unified Cloud Tasks job payloads with struct tags
+5. **Models** → Firestore documents and Cloud Tasks job payloads with struct tags
 
 ### Review Reaction Management
 
@@ -340,12 +364,14 @@ The system automatically manages Slack emoji reactions on PR notification messag
 **Decision**: We chose to extend our existing **GitHub App** with OAuth capabilities rather than creating a separate OAuth App.
 
 **Rationale:**
+
 - Single app to manage (webhooks + user auth)
-- Consistent with existing webhook infrastructure  
+- Consistent with existing webhook infrastructure
 - GitHub Apps support both webhook events and user authorization
 - Simpler deployment (fewer secrets to manage)
 
 **Tradeoffs considered:**
+
 - Slightly more complex configuration (need to enable OAuth on existing app)
 - Mixing webhook and auth concerns in one app
 - Alternative: Separate OAuth App would provide cleaner separation of concerns but add operational complexity
@@ -427,7 +453,6 @@ go test -v ./...
 5. Install the app to your workspace to generate the bot token
 
 See `docs/reference/SLACK_APP_MANIFEST.md` for detailed setup instructions.
-
 
 ## Development Tips
 

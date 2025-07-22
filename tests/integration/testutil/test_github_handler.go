@@ -52,7 +52,7 @@ func NewTestGitHubHandler(
 // ProcessWebhookJob overrides the real method to use our mock Slack service.
 // This duplicates some logic from the real handler but allows us to test without API calls.
 func (h *TestGitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) error {
-	// Parse the WebhookJob from the unified job payload
+	// Parse the WebhookJob from the job payload
 	var webhookJob models.WebhookJob
 	if err := json.Unmarshal(job.Payload, &webhookJob); err != nil {
 		return err

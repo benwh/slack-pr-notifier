@@ -136,15 +136,15 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 			TraceID:        traceID,
 		}
 
-		// Marshal the ManualLinkJob as the payload for the unified Job
+		// Marshal the ManualLinkJob as the payload for the Job
 		jobPayload, err := json.Marshal(manualLinkJob)
 		if err != nil {
 			log.Error(linkCtx, "Failed to marshal manual link job", "error", err)
 			continue
 		}
 
-		// Create unified Job
-		unifiedJob := &models.Job{
+		// Create Job
+		job := &models.Job{
 			ID:      jobID,
 			Type:    models.JobTypeManualPRLink,
 			TraceID: traceID,
@@ -152,7 +152,7 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		}
 
 		// Queue for async processing
-		err = sh.cloudTasksService.EnqueueJob(linkCtx, unifiedJob)
+		err = sh.cloudTasksService.EnqueueJob(linkCtx, job)
 		if err != nil {
 			log.Error(linkCtx, "Failed to enqueue manual link processing", "error", err)
 		} else {
@@ -518,12 +518,12 @@ func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {
 	return nil
 }
 
-// ProcessManualPRLinkJob processes a manual PR link job from the unified job system.
+// ProcessManualPRLinkJob processes a manual PR link job from the job system.
 func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.Job) error {
-	// Parse the ManualLinkJob from the unified job payload
+	// Parse the ManualLinkJob from the job payload
 	var manualLinkJob models.ManualLinkJob
 	if err := json.Unmarshal(job.Payload, &manualLinkJob); err != nil {
-		log.Error(ctx, "Failed to unmarshal manual link job from unified job payload",
+		log.Error(ctx, "Failed to unmarshal manual link job from job payload",
 			"error", err,
 			"job_id", job.ID,
 		)

@@ -3,6 +3,7 @@
 ## Architecture Overview
 
 The service uses a two-phase async processing model:
+
 1. **Fast Path**: GitHub webhook ingress validates and queues to Cloud Tasks (< 100ms)
 2. **Slow Path**: Worker processes business logic, updates Firestore, sends Slack notifications
 
@@ -68,7 +69,7 @@ type Repo struct {
 ### Cloud Tasks Job Model
 
 ```go
-// Unified job structure for all async processing
+// Job structure for all async processing
 type Job struct {
     ID      string          // Job UUID
     Type    string          // Job type (github_webhook, manual_pr_link)
@@ -108,22 +109,26 @@ type ManualLinkJob struct {
 Fast ingress endpoint for GitHub webhooks.
 
 **Headers:**
+
 - `X-Hub-Signature-256`: HMAC signature (required)
 - `X-GitHub-Event`: Event type (required)
 
 **Response:**
+
 - `200 OK`: Event queued successfully
 - `400 Bad Request`: Invalid payload or unsupported event
 - `401 Unauthorized`: Invalid signature
 
 #### `POST /jobs/process`
 
-Unified job processor endpoint called by Cloud Tasks for all async work.
+Job processor endpoint called by Cloud Tasks for all async work.
 
 **Headers:**
+
 - Cloud Tasks authentication headers
 
 **Request Body:**
+
 ```json
 {
   "id": "uuid",
@@ -138,10 +143,12 @@ Unified job processor endpoint called by Cloud Tasks for all async work.
 Handles Slack slash commands.
 
 **Headers:**
+
 - `X-Slack-Signature`: Request signature
 - `X-Slack-Request-Timestamp`: Request timestamp
 
 **Commands:**
+
 - `/notify-channel #channel` - Set default notification channel
 - `/notify-link github-username` - Link GitHub account
 - `/notify-status` - View current configuration
@@ -149,6 +156,7 @@ Handles Slack slash commands.
 ### Repository Configuration
 
 Repository configurations are managed automatically through the Slack App Home interface:
+
 - Users connect GitHub accounts via OAuth
 - Default channels are set through the App Home
 - Repository configurations are created automatically when PRs are opened
@@ -161,20 +169,21 @@ Returns service health status.
 
 ## Event Processing Logic
 
-### Unified Job Processing
+### Job Processing
 
-All async work is processed through a unified job system:
+All async work is processed through a job system:
 
-1. **Fast Path**: Ingress endpoints create unified Job objects and queue to Cloud Tasks
+1. **Fast Path**: Ingress endpoints create Job objects and queue to Cloud Tasks
 2. **Slow Path**: JobProcessor routes jobs to appropriate handlers based on job type
 3. **Domain Handlers**: GitHubHandler and SlackHandler contain domain-specific business logic
 
 ### GitHub Events
 
 #### PR Opened
+
 1. Validate webhook signature
 2. Check if PR is draft → skip if true
-3. Create WebhookJob wrapped in unified Job and queue to Cloud Tasks
+3. Create WebhookJob wrapped in Job and queue to Cloud Tasks
 4. JobProcessor routes to GitHubHandler which processes:
    - Look up author in users collection
    - Determine target channel (user default → repo default)
@@ -182,6 +191,7 @@ All async work is processed through a unified job system:
    - Store message info in Firestore
 
 #### Review Submitted
+
 1. Validate and queue to Cloud Tasks
 2. JobProcessor routes to GitHubHandler which processes:
    - Find existing Slack messages across all channels
@@ -192,6 +202,7 @@ All async work is processed through a unified job system:
    - Handle dismissed reviews by removing all review reactions
 
 #### PR Closed
+
 1. Validate and queue to Cloud Tasks
 2. JobProcessor routes to GitHubHandler which processes:
    - Find existing Slack messages across all channels
@@ -204,7 +215,7 @@ All async work is processed through a unified job system:
 - **Retryable errors**: Network issues, rate limits, timeouts
 - **Non-retryable errors**: Invalid payloads, missing users, validation failures, unsupported job types
 - Cloud Tasks handles retry logic with exponential backoff
-- JobProcessor provides unified error handling and retry logic
+- JobProcessor provides error handling and retry logic
 - "Already exists" errors (e.g., duplicate reactions) are gracefully ignored
 
 ## Slack Message Format
@@ -214,6 +225,7 @@ All async work is processed through a unified job system:
 ```
 
 Simple, concise format with:
+
 - Ant emoji prefix (🐜)
 - Hyperlinked PR title
 - Author attribution

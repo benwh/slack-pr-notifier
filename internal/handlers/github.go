@@ -145,7 +145,7 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		RetryCount: 0,
 	}
 
-	// Marshal the WebhookJob as the payload for the unified Job
+	// Marshal the WebhookJob as the payload for the Job
 	jobPayload, err := json.Marshal(webhookJob)
 	if err != nil {
 		log.Error(ctx, "Failed to marshal webhook job", "error", err)
@@ -153,15 +153,15 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// Create unified Job
-	unifiedJob := &models.Job{
+	// Create Job
+	job := &models.Job{
 		ID:      webhookJob.ID,
 		Type:    models.JobTypeGitHubWebhook,
 		TraceID: traceID,
 		Payload: jobPayload,
 	}
 
-	if err := h.cloudTasksService.EnqueueJob(ctx, unifiedJob); err != nil {
+	if err := h.cloudTasksService.EnqueueJob(ctx, job); err != nil {
 		log.Error(ctx, "Failed to enqueue webhook", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue webhook"})
 		return
@@ -206,7 +206,7 @@ func (h *GitHubHandler) validateGitHubPayload(payload []byte) error {
 	return nil
 }
 
-// ProcessWebhookJob processes a GitHub webhook job from the unified job system.
+// ProcessWebhookJob processes a GitHub webhook job from the job system.
 func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) error {
 	var webhookJob models.WebhookJob
 	if err := json.Unmarshal(job.Payload, &webhookJob); err != nil {

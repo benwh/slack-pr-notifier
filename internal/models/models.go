@@ -136,13 +136,13 @@ func (mlj *ManualLinkJob) Validate() error {
 	return nil
 }
 
-// Job types for the unified job processing system.
+// Job types for the job processing system.
 const (
 	JobTypeGitHubWebhook = "github_webhook"
 	JobTypeManualPRLink  = "manual_pr_link"
 )
 
-// Job represents a unified job structure for all async processing.
+// Job represents a job structure for all async processing.
 type Job struct {
 	ID      string          `json:"id"`
 	Type    string          `json:"type"`
