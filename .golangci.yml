@@ -27,6 +27,15 @@ linters:
     - gci               # Actually... using gofumpt instead
     - gofumpt           # gofumpt conflicts with gci, and gci does a better job with imports
 
+  exclusions:
+    rules:
+      - path: 'internal/testing'
+        linters:
+          - errcheck
+          - gosec
+          - err113
+          - lll
+
 linters-settings:
   lll:
     line-length: 140
@@ -37,6 +46,8 @@ linters-settings:
     # Default: []
     ignored-files:
       - 'config.go$'
+      - 'tests/'
+      - 'internal/testing/'
     # List of function patterns to exclude from analysis.
     # Following functions are always ignored: `time.Date`,
     # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
