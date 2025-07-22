@@ -24,7 +24,6 @@ This document covers all HTTP endpoints provided by the GitHub-Slack Notifier.
 
 | Method | Path | Description | Authentication |
 |--------|------|-------------|----------------|
-| `POST` | `/api/repos` | Repository registration | `X-API-Key` header |
 | `GET` | `/health` | Health check | None |
 
 **⚠️ Security Note**: The `/jobs/process` endpoint should not be exposed publicly - it's designed to be called only by Google Cloud Tasks for processing all queued jobs.
@@ -36,15 +35,18 @@ User configuration is handled through the Slack App Home interface instead of sl
 ### App Home Features
 
 **GitHub Account Management:**
+
 - Connect GitHub account via OAuth
 - Disconnect GitHub account
 - View verification status
 
 **Channel Configuration:**
+
 - Set default notification channel
 - View current channel setting
 
 **Status Display:**
+
 - Current GitHub account (if connected)
 - Default notification channel (if set)
 - Account verification status
@@ -88,6 +90,7 @@ All endpoints return JSON error responses:
 ```
 
 Common HTTP status codes:
+
 - `400` - Bad Request (invalid payload, missing parameters)
 - `401` - Unauthorized (invalid API key, webhook signature)
 - `404` - Not Found
@@ -96,6 +99,7 @@ Common HTTP status codes:
 ## Rate Limiting
 
 No explicit rate limiting is implemented, but the system is designed to handle:
+
 - GitHub webhook bursts via async processing
 - Slack command rate limits (handled by Slack)
 - Cloud Tasks processing limits
@@ -103,17 +107,17 @@ No explicit rate limiting is implemented, but the system is designed to handle:
 ## Authentication
 
 ### GitHub Webhooks
+
 - HMAC-SHA256 signature validation
 - Secret configured per repository
 
 ### Slack Requests
+
 - Request signature validation for events and interactions
 - Timestamp validation (max 5 minutes age)
 
-### Admin Endpoints
-- Simple API key authentication
-- Header: `X-API-Key: your-admin-key`
-
 ### OAuth Endpoints
+
 - CSRF protection via state parameters
 - No additional authentication (public endpoints)
+

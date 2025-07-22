@@ -154,21 +154,14 @@ cp .env.example .env
    gcloud run services update github-slack-notifier \
      --region=europe-west1 \
      --project=your-project-id \
-     --set-env-vars="SLACK_BOT_TOKEN=xoxb-...,GITHUB_WEBHOOK_SECRET=...,SLACK_SIGNING_SECRET=...,API_ADMIN_KEY=..."
+     --set-env-vars="SLACK_BOT_TOKEN=xoxb-...,GITHUB_WEBHOOK_SECRET=...,SLACK_SIGNING_SECRET=..."
    ```
 
-2. **Register repositories** (optional - repos can use default channels):
-
-   ```bash
-   curl -X POST https://your-domain/api/repos \
-     -H "X-API-Key: your-admin-api-key" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "repo_full_name": "owner/repo",
-       "default_channel": "engineering",
-       "webhook_secret": "your-webhook-secret"
-     }'
-   ```
+2. **Configure repositories through Slack App Home**:
+   - Open the Slack app home tab
+   - Connect your GitHub account via OAuth
+   - Set your default notification channel
+   - Repository configurations are created automatically when PRs are opened
 
 ## Usage
 

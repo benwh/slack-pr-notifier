@@ -85,20 +85,13 @@ If you prefer to set up manually instead of using the manifest:
 ## Testing Your Setup
 
 1. Invite the bot to a test channel: `/invite @GitHub PR Bot`
-2. Use the API endpoint to register a repository:
-
-   ```bash
-   curl -X POST http://localhost:5005/api/repos \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: your-admin-api-key" \
-     -d '{
-       "repo_full_name": "owner/repo",
-       "default_channel": "your-test-channel",
-       "webhook_secret": "your-webhook-secret"
-     }'
-   ```
+2. Configure through the Slack App Home:
+   - Open the app home tab
+   - Connect your GitHub account via OAuth
+   - Set your default notification channel
 
 3. Trigger a test webhook from GitHub to verify notifications work
+   - Repository configurations are created automatically when PRs are opened
 
 ## Production Deployment
 

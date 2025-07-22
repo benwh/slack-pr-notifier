@@ -15,7 +15,6 @@ import (
 	"github-slack-notifier/internal/handlers"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/middleware"
-	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
@@ -84,7 +83,9 @@ func main() {
 	}()
 
 	firestoreService := services.NewFirestoreService(firestoreClient)
-	slackService := services.NewSlackService(slack.New(cfg.SlackBotToken), cfg.Emoji)
+
+	slackClient := slack.New(cfg.SlackBotToken)
+	slackService := services.NewSlackService(slackClient, cfg.Emoji)
 
 	// Initialize Cloud Tasks service
 	cloudTasksConfig := services.CloudTasksConfig{
@@ -149,7 +150,6 @@ func main() {
 
 	router.POST("/webhooks/slack/events", app.slackHandler.HandleEvent)
 	router.POST("/webhooks/slack/interactions", app.slackHandler.HandleInteraction)
-	router.POST("/api/repos", app.handleRepoRegistration)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
@@ -193,51 +193,4 @@ func main() {
 	}
 
 	log.Info(serverCtx, "Server exited gracefully")
-}
-
-func (app *App) handleRepoRegistration(c *gin.Context) {
-	apiKey := c.GetHeader("X-API-Key")
-	if apiKey == "" || apiKey != app.config.APIAdminKey {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
-		return
-	}
-
-	var req struct {
-		RepoFullName   string `json:"repo_full_name"`
-		DefaultChannel string `json:"default_channel"`
-		WebhookSecret  string `json:"webhook_secret"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		ctx := c.Request.Context()
-		log.Error(ctx, "Invalid JSON in repository registration request",
-			"error", err,
-			"content_type", c.ContentType(),
-			"content_length", c.Request.ContentLength,
-		)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
-		return
-	}
-
-	repo := &models.Repo{
-		ID:             req.RepoFullName,
-		DefaultChannel: req.DefaultChannel,
-		WebhookSecret:  req.WebhookSecret,
-		Enabled:        true,
-	}
-
-	ctx := c.Request.Context()
-	err := app.firestoreService.CreateRepo(ctx, repo)
-	if err != nil {
-		log.Error(ctx, "Failed to create repository registration",
-			"error", err,
-			"repo_full_name", req.RepoFullName,
-			"default_channel", req.DefaultChannel,
-			"operation", "register_repository",
-		)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"message": "Repository registered successfully"})
 }

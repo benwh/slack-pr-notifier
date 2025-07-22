@@ -146,23 +146,12 @@ Handles Slack slash commands.
 - `/notify-link github-username` - Link GitHub account
 - `/notify-status` - View current configuration
 
-### Admin APIs
+### Repository Configuration
 
-#### `POST /api/repos`
-
-Register a repository (requires admin API key).
-
-**Headers:**
-- `X-API-Key`: Admin API key
-
-**Request:**
-```json
-{
-  "repo_full_name": "org/repo",
-  "default_channel": "#engineering",
-  "webhook_secret": "secret"
-}
-```
+Repository configurations are managed automatically through the Slack App Home interface:
+- Users connect GitHub accounts via OAuth
+- Default channels are set through the App Home
+- Repository configurations are created automatically when PRs are opened
 
 ### Health Check
 

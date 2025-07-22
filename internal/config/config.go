@@ -25,7 +25,6 @@ type Config struct {
 	SlackBotToken       string
 	GitHubWebhookSecret string
 	SlackSigningSecret  string
-	APIAdminKey         string
 
 	// GitHub OAuth settings
 	GitHubClientID         string
@@ -72,7 +71,6 @@ func Load() *Config {
 		SlackBotToken:       getEnvRequired("SLACK_BOT_TOKEN"),
 		GitHubWebhookSecret: getEnvRequired("GITHUB_WEBHOOK_SECRET"),
 		SlackSigningSecret:  getEnvRequired("SLACK_SIGNING_SECRET"),
-		APIAdminKey:         getEnvRequired("API_ADMIN_KEY"),
 
 		// GitHub OAuth settings (required)
 		GitHubClientID:         getEnvRequired("GITHUB_CLIENT_ID"),
@@ -135,7 +133,6 @@ func (c *Config) validateRequiredFields() {
 		"SLACK_BOT_TOKEN":           c.SlackBotToken,
 		"GITHUB_WEBHOOK_SECRET":     c.GitHubWebhookSecret,
 		"SLACK_SIGNING_SECRET":      c.SlackSigningSecret,
-		"API_ADMIN_KEY":             c.APIAdminKey,
 		"GITHUB_CLIENT_ID":          c.GitHubClientID,
 		"GITHUB_CLIENT_SECRET":      c.GitHubClientSecret,
 		"GITHUB_OAUTH_REDIRECT_URL": c.GitHubOAuthRedirectURL,
