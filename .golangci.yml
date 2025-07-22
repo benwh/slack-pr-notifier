@@ -6,6 +6,7 @@ run:
 linters:
   enable-all: true
   disable:
+    - tenv              # Deprecated
     - gochecknoglobals  # Too restrictive for this project
     - exhaustruct       # Too verbose for simple structs
     - testpackage       # Not always necessary
@@ -19,11 +20,9 @@ linters:
     - goheader          # No header requirements
     - forbidigo         # No forbidden identifiers
     - revive            # We can live without comments
-    - gomnd             # Replaced by mnd
     - stylecheck        # Temporarily disabled for package comments
     - nilnil            # nil returns are fine
     - perfsprint        # Temporarily disabled for string concatenation
-    - execinquery       # Deprecated linter
     - goimports         # Using gci instead
     - gci               # Actually... using gofumpt instead
     - gofumpt           # gofumpt conflicts with gci, and gci does a better job with imports
@@ -104,5 +103,8 @@ issues:
         - gocognit
         - maintidx
     - path: main\.go
+      linters:
+        - funlen
+    - path: internal/handlers/oauth\.go
       linters:
         - funlen
