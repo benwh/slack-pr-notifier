@@ -19,7 +19,7 @@ echo "🚀 Starting local development environment..."
 mkdir -p tmp
 
 # Truncate the log file at startup
-> tmp/app.log
+true > tmp/app.log
 echo "📝 Logging output to tmp/app.log"
 
 # Check if watchexec is installed
