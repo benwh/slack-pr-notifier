@@ -84,9 +84,9 @@ func (sh *SlackHandler) HandleEvent(c *gin.Context) {
 		innerEvent := eventsAPIEvent.InnerEvent
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.MessageEvent:
-			sh.handleMessageEvent(c.Request.Context(), ev)
+			sh.handleMessageEvent(c.Request.Context(), ev, eventsAPIEvent.TeamID)
 		case *slackevents.AppHomeOpenedEvent:
-			sh.handleAppHomeOpened(c.Request.Context(), ev)
+			sh.handleAppHomeOpened(c.Request.Context(), ev, eventsAPIEvent.TeamID)
 		}
 	}
 
@@ -94,7 +94,7 @@ func (sh *SlackHandler) HandleEvent(c *gin.Context) {
 }
 
 // handleMessageEvent processes message events to detect and track GitHub PR links.
-func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackevents.MessageEvent) {
+func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackevents.MessageEvent, teamID string) {
 	// Skip bot messages, edited messages, and messages without text
 	if event.BotID != "" || event.SubType == "message_changed" || event.Text == "" {
 		return
@@ -126,6 +126,7 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 			RepoFullName:   prLink.FullRepoName,
 			SlackChannel:   event.Channel,
 			SlackMessageTS: event.TimeStamp,
+			SlackTeamID:    teamID,
 			TraceID:        traceID,
 		}
 
@@ -255,7 +256,7 @@ func (sh *SlackHandler) handleViewSubmission(ctx context.Context, interaction *s
 }
 
 // handleAppHomeOpened processes app_home_opened events.
-func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackevents.AppHomeOpenedEvent) {
+func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackevents.AppHomeOpenedEvent, teamID string) {
 	if event.Tab != "home" {
 		return
 	}
@@ -276,7 +277,7 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 
 	// Build and publish home view
 	view := sh.slackService.BuildHomeView(user)
-	err = sh.slackService.PublishHomeView(ctx, userID, view)
+	err = sh.slackService.PublishHomeView(ctx, teamID, userID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to publish App Home view", "error", err)
 	}
@@ -314,7 +315,7 @@ func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, t
 	// Open a modal with the OAuth link
 	modalView := sh.slackService.BuildOAuthModal(oauthURL)
 
-	_, err = sh.slackService.OpenView(ctx, triggerID, modalView)
+	_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
 	if err != nil {
 		log.Error(ctx, "Failed to open OAuth modal", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
@@ -362,14 +363,14 @@ func (sh *SlackHandler) handleDisconnectGitHubAction(ctx context.Context, userID
 }
 
 // handleSelectChannelAction opens a modal for channel selection.
-func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, _ string, triggerID string, c *gin.Context) {
+func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, teamID string, triggerID string, c *gin.Context) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
 	})
 
 	modalView := sh.slackService.BuildChannelSelectorModal()
 
-	_, err := sh.slackService.OpenView(ctx, triggerID, modalView)
+	_, err := sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
 	if err != nil {
 		log.Error(ctx, "Failed to open channel selection modal", "error", err)
 	}
@@ -405,7 +406,7 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 	}
 
 	// Validate the channel and check bot access
-	err := sh.slackService.ValidateChannel(ctx, channelID)
+	err := sh.slackService.ValidateChannel(ctx, interaction.Team.ID, channelID)
 	if err != nil {
 		errorMsg := "Channel not found or bot doesn't have access."
 
@@ -414,7 +415,7 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 			errorMsg = "Private channels are not supported for PR notifications. Please select a public channel."
 		} else if errors.Is(err, services.ErrCannotJoinChannel) {
 			// Get channel name for better error message
-			channelName, nameErr := sh.slackService.GetChannelName(ctx, channelID)
+			channelName, nameErr := sh.slackService.GetChannelName(ctx, interaction.Team.ID, channelID)
 			if nameErr == nil {
 				errorMsg = fmt.Sprintf("Cannot join #%s. The channel may be archived or have restrictions.", channelName)
 			} else {
@@ -478,8 +479,13 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 		return
 	}
 
+	if user == nil || user.SlackTeamID == "" {
+		log.Error(ctx, "User not found or missing team ID for home view refresh", "user_id", userID)
+		return
+	}
+
 	view := sh.slackService.BuildHomeView(user)
-	err = sh.slackService.PublishHomeView(ctx, userID, view)
+	err = sh.slackService.PublishHomeView(ctx, user.SlackTeamID, userID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to refresh App Home view", "error", err)
 	}
@@ -518,12 +524,22 @@ func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.
 		return fmt.Errorf("failed to unmarshal manual link job: %w", err)
 	}
 
+	// Validate the manual link job
+	if err := manualLinkJob.Validate(); err != nil {
+		log.Error(ctx, "Invalid manual link job payload",
+			"error", err,
+			"job_id", job.ID,
+		)
+		return fmt.Errorf("invalid manual link job: %w", err)
+	}
+
 	// Create TrackedMessage for this manual PR link
 	trackedMessage := &models.TrackedMessage{
 		PRNumber:       manualLinkJob.PRNumber,
 		RepoFullName:   manualLinkJob.RepoFullName,
 		SlackChannel:   manualLinkJob.SlackChannel,
 		SlackMessageTS: manualLinkJob.SlackMessageTS,
+		SlackTeamID:    manualLinkJob.SlackTeamID,
 		MessageSource:  "manual",
 	}
 

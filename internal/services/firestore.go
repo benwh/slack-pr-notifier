@@ -216,8 +216,9 @@ func (fs *FirestoreService) UpdateMessage(ctx context.Context, message *models.M
 	return nil
 }
 
-func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*models.Repo, error) {
-	doc, err := fs.client.Collection("repos").Doc(fs.encodeRepoName(repoFullName)).Get(ctx)
+func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName, slackTeamID string) (*models.Repo, error) {
+	docID := fs.encodeRepoDocID(slackTeamID, repoFullName)
+	doc, err := fs.client.Collection("repos").Doc(docID).Get(ctx)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
@@ -225,9 +226,10 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 		log.Error(ctx, "Failed to get repository",
 			"error", err,
 			"repo", repoFullName,
+			"slack_team_id", slackTeamID,
 			"operation", "get_repo",
 		)
-		return nil, fmt.Errorf("failed to get repo %s: %w", repoFullName, err)
+		return nil, fmt.Errorf("failed to get repo %s for team %s: %w", repoFullName, slackTeamID, err)
 	}
 
 	var repo models.Repo
@@ -236,9 +238,10 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 		log.Error(ctx, "Failed to unmarshal repository data",
 			"error", err,
 			"repo", repoFullName,
+			"slack_team_id", slackTeamID,
 			"operation", "unmarshal_repo_data",
 		)
-		return nil, fmt.Errorf("failed to unmarshal repo data for %s: %w", repoFullName, err)
+		return nil, fmt.Errorf("failed to unmarshal repo data for %s team %s: %w", repoFullName, slackTeamID, err)
 	}
 
 	return &repo, nil
@@ -246,16 +249,49 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName string) (*
 
 func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) error {
 	repo.CreatedAt = time.Now()
-	_, err := fs.client.Collection("repos").Doc(fs.encodeRepoName(repo.ID)).Set(ctx, repo)
+	docID := fs.encodeRepoDocID(repo.SlackTeamID, repo.ID)
+
+	// Use a transaction to atomically create the repo and workspace mapping
+	err := fs.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		// Create the repository document
+		repoRef := fs.client.Collection("repos").Doc(docID)
+		if err := tx.Set(repoRef, repo); err != nil {
+			return fmt.Errorf("failed to create repo document: %w", err)
+		}
+
+		// Create the workspace mapping document
+		mappingID := fs.encodeMappingDocID(repo.ID, repo.SlackTeamID)
+		mapping := &models.RepoWorkspaceMapping{
+			ID:           mappingID,
+			RepoFullName: repo.ID,
+			WorkspaceID:  repo.SlackTeamID,
+			CreatedAt:    time.Now(),
+		}
+
+		mappingRef := fs.client.Collection("repo_workspace_mappings").Doc(mappingID)
+		if err := tx.Set(mappingRef, mapping); err != nil {
+			return fmt.Errorf("failed to create workspace mapping: %w", err)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		log.Error(ctx, "Failed to create repository",
+		log.Error(ctx, "Failed to create repository with workspace mapping",
 			"error", err,
 			"repo", repo.ID,
+			"slack_team_id", repo.SlackTeamID,
 			"default_channel", repo.DefaultChannel,
-			"operation", "create_repo",
+			"operation", "create_repo_with_mapping",
 		)
-		return fmt.Errorf("failed to create repo %s: %w", repo.ID, err)
+		return fmt.Errorf("failed to create repo %s for team %s: %w", repo.ID, repo.SlackTeamID, err)
 	}
+
+	log.Info(ctx, "Repository created with workspace mapping",
+		"repo", repo.ID,
+		"slack_team_id", repo.SlackTeamID,
+	)
+
 	return nil
 }
 
@@ -268,11 +304,13 @@ func (fs *FirestoreService) GetTrackedMessages(
 	repoFullName string,
 	prNumber int,
 	slackChannel string,
+	slackTeamID string,
 	messageSource string,
 ) ([]*models.TrackedMessage, error) {
 	query := fs.client.Collection("trackedmessages").
 		Where("repo_full_name", "==", repoFullName).
-		Where("pr_number", "==", prNumber)
+		Where("pr_number", "==", prNumber).
+		Where("slack_team_id", "==", slackTeamID)
 
 	if slackChannel != "" {
 		query = query.Where("slack_channel", "==", slackChannel)
@@ -297,10 +335,11 @@ func (fs *FirestoreService) GetTrackedMessages(
 				"repo", repoFullName,
 				"pr_number", prNumber,
 				"slack_channel", slackChannel,
+				"slack_team_id", slackTeamID,
 				"message_source", messageSource,
 				"operation", "query_tracked_messages",
 			)
-			return nil, fmt.Errorf("failed to query tracked messages for repo %s PR %d: %w", repoFullName, prNumber, err)
+			return nil, fmt.Errorf("failed to query tracked messages for repo %s PR %d team %s: %w", repoFullName, prNumber, slackTeamID, err)
 		}
 
 		var message models.TrackedMessage
@@ -461,4 +500,129 @@ func (fs *FirestoreService) DeleteOAuthState(ctx context.Context, stateID string
 // Forward slashes are not allowed in document IDs, so we URL encode the name.
 func (fs *FirestoreService) encodeRepoName(repoFullName string) string {
 	return url.QueryEscape(repoFullName)
+}
+
+// encodeRepoDocID creates a workspace-scoped document ID for repositories.
+// Format: {slack_team_id}#{encoded_repo_name}.
+func (fs *FirestoreService) encodeRepoDocID(slackTeamID, repoFullName string) string {
+	return slackTeamID + "#" + fs.encodeRepoName(repoFullName)
+}
+
+// encodeMappingDocID creates a document ID for repo-workspace mappings.
+// Format: {encoded_repo_name}#{slack_team_id}.
+func (fs *FirestoreService) encodeMappingDocID(repoFullName, slackTeamID string) string {
+	return fs.encodeRepoName(repoFullName) + "#" + slackTeamID
+}
+
+// GetReposForAllWorkspaces retrieves all repository configurations for a given repository across all workspaces.
+// Uses workspace mappings to efficiently find all relevant workspaces.
+func (fs *FirestoreService) GetReposForAllWorkspaces(ctx context.Context, repoFullName string) ([]*models.Repo, error) {
+	// Query all mapping documents that start with the repo name
+	mappings, err := fs.getWorkspaceMappingsForRepo(ctx, repoFullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace mappings for %s: %w", repoFullName, err)
+	}
+
+	if len(mappings) == 0 {
+		log.Debug(ctx, "No workspace mappings found for repository", "repo", repoFullName)
+		return []*models.Repo{}, nil
+	}
+
+	// Get the actual repository configurations for each workspace
+	var repos []*models.Repo
+	for _, mapping := range mappings {
+		repo, err := fs.GetRepo(ctx, repoFullName, mapping.WorkspaceID)
+		if err != nil {
+			log.Error(ctx, "Failed to get repository configuration for workspace",
+				"error", err,
+				"repo", repoFullName,
+				"slack_team_id", mapping.WorkspaceID,
+			)
+			continue // Continue with other workspaces
+		}
+
+		if repo != nil {
+			repos = append(repos, repo)
+		} else {
+			log.Warn(ctx, "Workspace mapping exists but repository configuration not found",
+				"repo", repoFullName,
+				"slack_team_id", mapping.WorkspaceID,
+			)
+		}
+	}
+
+	return repos, nil
+}
+
+// getWorkspaceMappingsForRepo queries all workspace mappings for a specific repository.
+func (fs *FirestoreService) getWorkspaceMappingsForRepo(ctx context.Context, repoFullName string) ([]*models.RepoWorkspaceMapping, error) {
+	// Query documents where repo_full_name equals the given repository
+	iter := fs.client.Collection("repo_workspace_mappings").
+		Where("repo_full_name", "==", repoFullName).
+		Documents(ctx)
+	defer iter.Stop()
+
+	var mappings []*models.RepoWorkspaceMapping
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			if errors.Is(err, iterator.Done) {
+				break
+			}
+			return nil, fmt.Errorf("failed to query workspace mappings: %w", err)
+		}
+
+		var mapping models.RepoWorkspaceMapping
+		if err := doc.DataTo(&mapping); err != nil {
+			log.Error(ctx, "Failed to unmarshal workspace mapping",
+				"error", err,
+				"doc_id", doc.Ref.ID,
+			)
+			continue // Skip malformed documents
+		}
+
+		mappings = append(mappings, &mapping)
+	}
+
+	return mappings, nil
+}
+
+// DeleteRepo removes a repository configuration and updates the workspace mapping.
+func (fs *FirestoreService) DeleteRepo(ctx context.Context, repoFullName, slackTeamID string) error {
+	docID := fs.encodeRepoDocID(slackTeamID, repoFullName)
+	mappingID := fs.encodeMappingDocID(repoFullName, slackTeamID)
+
+	// Use a transaction to atomically delete the repo and workspace mapping
+	err := fs.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		// Delete the repository document
+		repoRef := fs.client.Collection("repos").Doc(docID)
+		if err := tx.Delete(repoRef); err != nil {
+			return fmt.Errorf("failed to delete repo document: %w", err)
+		}
+
+		// Delete the workspace mapping document
+		mappingRef := fs.client.Collection("repo_workspace_mappings").Doc(mappingID)
+		if err := tx.Delete(mappingRef); err != nil {
+			return fmt.Errorf("failed to delete workspace mapping: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Error(ctx, "Failed to delete repository with workspace mapping",
+			"error", err,
+			"repo", repoFullName,
+			"slack_team_id", slackTeamID,
+			"operation", "delete_repo_with_mapping",
+		)
+		return fmt.Errorf("failed to delete repo %s for team %s: %w", repoFullName, slackTeamID, err)
+	}
+
+	log.Info(ctx, "Repository deleted with workspace mapping update",
+		"repo", repoFullName,
+		"slack_team_id", slackTeamID,
+	)
+
+	return nil
 }

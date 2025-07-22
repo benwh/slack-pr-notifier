@@ -111,6 +111,7 @@ func main() {
 		firestoreService,
 		slackService,
 		cfg.GitHubWebhookSecret,
+		cfg.Emoji,
 	)
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
 	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService)

@@ -81,6 +81,7 @@ func (jp *JobProcessor) ProcessJob(c *gin.Context) {
 	log.Debug(ctx, "Processing job")
 
 	// Check if we've exceeded the configured max retries
+	// #nosec G115 -- retryCountInt is validated to be non-negative
 	if int32(retryCountInt) >= jp.config.CloudTasksMaxAttempts {
 		log.Error(ctx, "Maximum retry attempts exceeded, failing task permanently",
 			"max_retries_configured", jp.config.CloudTasksMaxAttempts,
@@ -102,7 +103,7 @@ func (jp *JobProcessor) ProcessJob(c *gin.Context) {
 		)
 	}
 
-	if err := jp.routeJob(ctx, &job); err != nil {
+	if err := jp.RouteJob(ctx, &job); err != nil {
 		processingTime := time.Since(startTime)
 		log.Error(ctx, "Failed to process job",
 			"error", err,
@@ -136,7 +137,9 @@ func (jp *JobProcessor) ProcessJob(c *gin.Context) {
 	})
 }
 
-func (jp *JobProcessor) routeJob(ctx context.Context, job *models.Job) error {
+// RouteJob routes a job to the appropriate handler based on its type.
+// This method is exported for testing purposes.
+func (jp *JobProcessor) RouteJob(ctx context.Context, job *models.Job) error {
 	switch job.Type {
 	case models.JobTypeGitHubWebhook:
 		return jp.githubHandler.ProcessWebhookJob(ctx, job)

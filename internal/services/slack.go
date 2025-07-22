@@ -12,6 +12,7 @@ import (
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/ui"
+	"github-slack-notifier/internal/utils"
 
 	"github.com/slack-go/slack"
 )
@@ -42,38 +43,10 @@ func NewSlackService(client *slack.Client, emojiConfig config.EmojiConfig) *Slac
 	}
 }
 
-// getPRSizeEmoji returns an animal emoji based on the number of lines changed in a PR.
-//
-//nolint:mnd
-func (s *SlackService) getPRSizeEmoji(linesChanged int) string {
-	switch {
-	case linesChanged < 5:
-		return "🐜" // ant
-	case linesChanged <= 20:
-		return "🐭" // mouse
-	case linesChanged <= 50:
-		return "🐰" // rabbit
-	case linesChanged <= 100:
-		return "🐱" // cat
-	case linesChanged <= 250:
-		return "🐕" // dog
-	case linesChanged <= 500:
-		return "🐴" // horse
-	case linesChanged <= 1000:
-		return "🐻" // bear
-	case linesChanged <= 1500:
-		return "🐘" // elephant
-	case linesChanged <= 2000:
-		return "🦕" // dinosaur
-	default:
-		return "🐋" // whale
-	}
-}
-
 func (s *SlackService) PostPRMessage(
-	ctx context.Context, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
+	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 ) (string, error) {
-	emoji := s.getPRSizeEmoji(prSize)
+	emoji := utils.GetPRSizeEmoji(prSize)
 	text := fmt.Sprintf("%s <%s|%s by %s>", emoji, prURL, prTitle, prAuthor)
 
 	_, timestamp, err := s.client.PostMessage(channel,
@@ -84,20 +57,21 @@ func (s *SlackService) PostPRMessage(
 		log.Error(ctx, "Failed to post PR message to Slack",
 			"error", err,
 			"channel", channel,
+			"team_id", teamID,
 			"repo_name", repoName,
 			"pr_title", prTitle,
 			"pr_author", prAuthor,
 			"pr_url", prURL,
 			"operation", "post_pr_message",
 		)
-		return "", fmt.Errorf("failed to post PR message to channel %s for repo %s: %w", channel, repoName, err)
+		return "", fmt.Errorf("failed to post PR message to channel %s for team %s repo %s: %w", channel, teamID, repoName, err)
 	}
 
 	return timestamp, nil
 }
 
 // SendEphemeralMessage sends an ephemeral message visible only to a specific user.
-func (s *SlackService) SendEphemeralMessage(ctx context.Context, channel, userID, text string) error {
+func (s *SlackService) SendEphemeralMessage(ctx context.Context, teamID, channel, userID, text string) error {
 	_, err := s.client.PostEphemeral(channel, userID,
 		slack.MsgOptionText(text, false),
 		slack.MsgOptionDisableLinkUnfurl(),
@@ -106,16 +80,17 @@ func (s *SlackService) SendEphemeralMessage(ctx context.Context, channel, userID
 		log.Error(ctx, "Failed to send ephemeral message to Slack",
 			"error", err,
 			"channel", channel,
+			"team_id", teamID,
 			"user_id", userID,
 			"operation", "send_ephemeral_message",
 		)
-		return fmt.Errorf("failed to send ephemeral message to user %s in channel %s: %w", userID, channel, err)
+		return fmt.Errorf("failed to send ephemeral message to user %s in channel %s for team %s: %w", userID, channel, teamID, err)
 	}
 
 	return nil
 }
 
-func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoji string) error {
+func (s *SlackService) AddReaction(ctx context.Context, teamID, channel, timestamp, emoji string) error {
 	msgRef := slack.NewRefToMessage(channel, timestamp)
 	err := s.client.AddReaction(emoji, msgRef)
 	if err != nil {
@@ -125,6 +100,7 @@ func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoj
 			// This is not an error - the reaction already exists, which is fine
 			log.Info(ctx, "Reaction already exists on Slack message",
 				"channel", channel,
+				"team_id", teamID,
 				"message_timestamp", timestamp,
 				"emoji", emoji,
 			)
@@ -136,6 +112,7 @@ func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoj
 			if slackErr.Err == "already_reacted" {
 				log.Info(ctx, "Reaction already exists on Slack message",
 					"channel", channel,
+					"team_id", teamID,
 					"message_timestamp", timestamp,
 					"emoji", emoji,
 				)
@@ -149,25 +126,27 @@ func (s *SlackService) AddReaction(ctx context.Context, channel, timestamp, emoj
 		log.Error(ctx, "Failed to add reaction to Slack message",
 			"error", err,
 			"channel", channel,
+			"team_id", teamID,
 			"message_timestamp", timestamp,
 			"emoji", emoji,
 			"operation", "add_reaction",
 		)
-		return fmt.Errorf("failed to add reaction %s to message %s in channel %s: %w", emoji, timestamp, channel, err)
+		return fmt.Errorf("failed to add reaction %s to message %s in channel %s for team %s: %w", emoji, timestamp, channel, teamID, err)
 	}
 	return nil
 }
 
-func (s *SlackService) ValidateChannel(ctx context.Context, channel string) error {
+func (s *SlackService) ValidateChannel(ctx context.Context, teamID, channel string) error {
 	// Resolve channel name to channel ID if needed
 	channelID, err := s.resolveChannelID(ctx, channel)
 	if err != nil {
 		log.Error(ctx, "Failed to resolve Slack channel",
 			"error", err,
 			"channel", channel,
+			"team_id", teamID,
 			"operation", "resolve_channel",
 		)
-		return fmt.Errorf("failed to resolve channel %s: %w", channel, err)
+		return fmt.Errorf("failed to resolve channel %s for team %s: %w", channel, teamID, err)
 	}
 
 	// Check if channel exists and get info including membership status
@@ -178,10 +157,11 @@ func (s *SlackService) ValidateChannel(ctx context.Context, channel string) erro
 		log.Error(ctx, "Failed to get channel info",
 			"error", err,
 			"channel", channel,
+			"team_id", teamID,
 			"channel_id", channelID,
 			"operation", "validate_channel",
 		)
-		return fmt.Errorf("failed to get channel info for %s: %w", channel, err)
+		return fmt.Errorf("failed to get channel info for %s in team %s: %w", channel, teamID, err)
 	}
 
 	// Explicitly reject private channels for security and privacy reasons
@@ -228,28 +208,6 @@ func (s *SlackService) ValidateChannel(ctx context.Context, channel string) erro
 	return nil
 }
 
-func (s *SlackService) GetEmojiForReviewState(state string) string {
-	switch state {
-	case "approved":
-		return s.emojiConfig.Approved
-	case "changes_requested":
-		return s.emojiConfig.ChangesRequested
-	case "commented":
-		return s.emojiConfig.Commented
-	case "dismissed":
-		return s.emojiConfig.Dismissed
-	default:
-		return ""
-	}
-}
-
-func (s *SlackService) GetEmojiForPRState(state string, merged bool) string {
-	if merged {
-		return s.emojiConfig.Merged
-	}
-	return s.emojiConfig.Closed
-}
-
 // AddReactionToMultipleMessages adds the same reaction to multiple Slack messages.
 func (s *SlackService) AddReactionToMultipleMessages(ctx context.Context, messages []MessageRef, emoji string) error {
 	if emoji == "" {
@@ -260,7 +218,7 @@ func (s *SlackService) AddReactionToMultipleMessages(ctx context.Context, messag
 	successCount := 0
 
 	for _, msg := range messages {
-		err := s.AddReaction(ctx, msg.Channel, msg.Timestamp, emoji)
+		err := s.AddReaction(ctx, "", msg.Channel, msg.Timestamp, emoji)
 		if err != nil {
 			log.Error(ctx, "Failed to add reaction to tracked message",
 				"error", err,
@@ -291,7 +249,7 @@ func (s *SlackService) AddReactionToMultipleMessages(ctx context.Context, messag
 }
 
 // RemoveReaction removes a reaction from a Slack message.
-func (s *SlackService) RemoveReaction(ctx context.Context, channel, timestamp, emoji string) error {
+func (s *SlackService) RemoveReaction(ctx context.Context, teamID, channel, timestamp, emoji string) error {
 	err := s.client.RemoveReaction(emoji, slack.ItemRef{
 		Channel:   channel,
 		Timestamp: timestamp,
@@ -335,7 +293,7 @@ func (s *SlackService) RemoveReactionFromMultipleMessages(
 	noReactionCount := 0
 
 	for _, msg := range messages {
-		err := s.RemoveReaction(ctx, msg.Channel, msg.Timestamp, emoji)
+		err := s.RemoveReaction(ctx, "", msg.Channel, msg.Timestamp, emoji)
 		if err != nil {
 			// Check if this is our expected "reaction not found" error
 			if errors.Is(err, ErrReactionNotFound) {
@@ -405,7 +363,7 @@ func (s *SlackService) SyncAllReviewReactions(
 	}
 
 	// Add the current review state reaction if applicable
-	currentEmoji := s.GetEmojiForReviewState(currentReviewState)
+	currentEmoji := utils.GetEmojiForReviewState(currentReviewState, s.emojiConfig)
 	if currentEmoji != "" {
 		err := s.AddReactionToMultipleMessages(ctx, messages, currentEmoji)
 		if err != nil {
@@ -486,21 +444,22 @@ func (s *SlackService) ExtractChannelFromDescription(description string) string 
 }
 
 // PublishHomeView publishes the home tab view for a user.
-func (s *SlackService) PublishHomeView(ctx context.Context, userID string, view slack.HomeTabViewRequest) error {
+func (s *SlackService) PublishHomeView(ctx context.Context, teamID, userID string, view slack.HomeTabViewRequest) error {
 	_, err := s.client.PublishViewContext(ctx, userID, view, "")
 	if err != nil {
 		log.Error(ctx, "Failed to publish home view",
 			"error", err,
 			"user_id", userID,
+			"team_id", teamID,
 			"operation", "publish_home_view",
 		)
-		return fmt.Errorf("failed to publish home view for user %s: %w", userID, err)
+		return fmt.Errorf("failed to publish home view for user %s in team %s: %w", userID, teamID, err)
 	}
 	return nil
 }
 
 // OpenView opens a modal or app home view.
-func (s *SlackService) OpenView(ctx context.Context, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
+func (s *SlackService) OpenView(ctx context.Context, teamID, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
 	response, err := s.client.OpenViewContext(ctx, triggerID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to open view",
@@ -529,7 +488,7 @@ func (s *SlackService) BuildChannelSelectorModal() slack.ModalViewRequest {
 }
 
 // GetChannelName retrieves the channel name for a given channel ID.
-func (s *SlackService) GetChannelName(ctx context.Context, channelID string) (string, error) {
+func (s *SlackService) GetChannelName(ctx context.Context, teamID, channelID string) (string, error) {
 	channel, err := s.client.GetConversationInfo(&slack.GetConversationInfoInput{
 		ChannelID: channelID,
 	})
@@ -537,9 +496,10 @@ func (s *SlackService) GetChannelName(ctx context.Context, channelID string) (st
 		log.Error(ctx, "Failed to get channel info for name",
 			"error", err,
 			"channel_id", channelID,
+			"team_id", teamID,
 			"operation", "get_channel_name",
 		)
-		return "", fmt.Errorf("failed to get channel info for %s: %w", channelID, err)
+		return "", fmt.Errorf("failed to get channel info for %s in team %s: %w", channelID, teamID, err)
 	}
 
 	return channel.Name, nil

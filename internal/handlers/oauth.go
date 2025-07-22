@@ -195,7 +195,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	// If this was initiated from App Home, refresh the home view
 	if state.ReturnToHome {
 		homeView := h.slackService.BuildHomeView(user)
-		err := h.slackService.PublishHomeView(ctx, state.SlackUserID, homeView)
+		err := h.slackService.PublishHomeView(ctx, state.SlackTeamID, state.SlackUserID, homeView)
 		if err != nil {
 			log.Warn(ctx, "Failed to refresh App Home after OAuth success",
 				"error", err,
@@ -211,7 +211,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 			"✅ *GitHub Account Linked!*\n\nYour GitHub account `@%s` has been successfully connected. "+
 				"You'll now receive personalized PR notifications!", githubUser.Login)
 
-		err := h.slackService.SendEphemeralMessage(ctx, state.SlackChannel, state.SlackUserID, successMessage)
+		err := h.slackService.SendEphemeralMessage(ctx, state.SlackTeamID, state.SlackChannel, state.SlackUserID, successMessage)
 		if err != nil {
 			log.Warn(ctx, "Failed to send OAuth success message to channel",
 				"error", err,

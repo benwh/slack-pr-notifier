@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,18 @@ type mockCloudTasksService struct{}
 
 func (m *mockCloudTasksService) EnqueueJob(ctx context.Context, job *models.Job) error {
 	return nil
+}
+
+// testEmojiConfig returns a test emoji configuration.
+func testEmojiConfig() config.EmojiConfig {
+	return config.EmojiConfig{
+		Approved:         "white_check_mark",
+		ChangesRequested: "arrows_counterclockwise",
+		Commented:        "speech_balloon",
+		Merged:           "purple_heart",
+		Closed:           "x",
+		Dismissed:        "",
+	}
 }
 
 // TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration tests our integration with the go-github library.
@@ -111,7 +124,7 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			if !tt.expectError {
 				cloudTasksService = &mockCloudTasksService{}
 			}
-			handler := NewGitHubHandler(cloudTasksService, nil, nil, tt.webhookSecret)
+			handler := NewGitHubHandler(cloudTasksService, nil, nil, tt.webhookSecret, testEmojiConfig())
 
 			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(tt.body))
 			for key, values := range tt.setupHeaders() {
@@ -195,7 +208,7 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewGitHubHandler(nil, nil, nil, "")
+			handler := NewGitHubHandler(nil, nil, nil, "", testEmojiConfig())
 
 			body := `{"action":"opened","repository":{"name":"test"}}`
 			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(body))
@@ -224,7 +237,7 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	handler := NewGitHubHandler(nil, nil, nil, "")
+	handler := NewGitHubHandler(nil, nil, nil, "", testEmojiConfig())
 
 	// Create request with body that causes read error
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", &errorReader{})

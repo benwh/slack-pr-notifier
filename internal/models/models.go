@@ -7,11 +7,17 @@ import (
 )
 
 var (
-	ErrJobIDRequired      = errors.New("job ID is required")
-	ErrEventTypeRequired  = errors.New("event type is required")
-	ErrPayloadRequired    = errors.New("payload is required")
-	ErrJobTypeRequired    = errors.New("job type is required")
-	ErrUnsupportedJobType = errors.New("unsupported job type")
+	ErrJobIDRequired          = errors.New("job ID is required")
+	ErrEventTypeRequired      = errors.New("event type is required")
+	ErrPayloadRequired        = errors.New("payload is required")
+	ErrJobTypeRequired        = errors.New("job type is required")
+	ErrUnsupportedJobType     = errors.New("unsupported job type")
+	ErrPRNumberRequired       = errors.New("PR number is required")
+	ErrRepoFullNameRequired   = errors.New("repository full name is required")
+	ErrSlackChannelRequired   = errors.New("Slack channel is required")
+	ErrSlackMessageTSRequired = errors.New("Slack message timestamp is required")
+	ErrSlackTeamIDRequired    = errors.New("Slack team ID is required")
+	ErrTraceIDRequired        = errors.New("trace ID is required")
 )
 
 type User struct {
@@ -44,6 +50,7 @@ type TrackedMessage struct {
 	RepoFullName   string    `firestore:"repo_full_name"`   // e.g., "owner/repo"
 	SlackChannel   string    `firestore:"slack_channel"`    // Slack channel ID
 	SlackMessageTS string    `firestore:"slack_message_ts"` // Slack message timestamp
+	SlackTeamID    string    `firestore:"slack_team_id"`    // Slack workspace/team ID
 	MessageSource  string    `firestore:"message_source"`   // "bot" or "manual"
 	CreatedAt      time.Time `firestore:"created_at"`       // When we started tracking this message
 }
@@ -63,10 +70,20 @@ type Message struct {
 
 type Repo struct {
 	ID             string    `firestore:"id"`
+	SlackTeamID    string    `firestore:"slack_team_id"` // Slack workspace/team ID
 	DefaultChannel string    `firestore:"default_channel"`
 	WebhookSecret  string    `firestore:"webhook_secret"`
 	Enabled        bool      `firestore:"enabled"`
 	CreatedAt      time.Time `firestore:"created_at"`
+}
+
+// RepoWorkspaceMapping represents a single repo-workspace relationship.
+// Each document represents one workspace that has registered a specific repository.
+type RepoWorkspaceMapping struct {
+	ID           string    `firestore:"id"`             // Format: {repo_full_name}#{workspace_id}
+	RepoFullName string    `firestore:"repo_full_name"` // Repository full name (e.g., "owner/repo")
+	WorkspaceID  string    `firestore:"workspace_id"`   // Slack team ID that has this repo registered
+	CreatedAt    time.Time `firestore:"created_at"`     // When this mapping was created
 }
 
 type WebhookJob struct {
@@ -89,7 +106,34 @@ type ManualLinkJob struct {
 	RepoFullName   string `json:"repo_full_name"`
 	SlackChannel   string `json:"slack_channel"`
 	SlackMessageTS string `json:"slack_message_ts"`
+	SlackTeamID    string `json:"slack_team_id"` // Slack workspace/team ID
 	TraceID        string `json:"trace_id"`
+}
+
+// Validate validates required fields for ManualLinkJob.
+func (mlj *ManualLinkJob) Validate() error {
+	if mlj.ID == "" {
+		return ErrJobIDRequired
+	}
+	if mlj.PRNumber <= 0 {
+		return ErrPRNumberRequired
+	}
+	if mlj.RepoFullName == "" {
+		return ErrRepoFullNameRequired
+	}
+	if mlj.SlackChannel == "" {
+		return ErrSlackChannelRequired
+	}
+	if mlj.SlackMessageTS == "" {
+		return ErrSlackMessageTSRequired
+	}
+	if mlj.SlackTeamID == "" {
+		return ErrSlackTeamIDRequired
+	}
+	if mlj.TraceID == "" {
+		return ErrTraceIDRequired
+	}
+	return nil
 }
 
 // Job types for the unified job processing system.
