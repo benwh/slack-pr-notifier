@@ -60,7 +60,6 @@ type Message struct {
 type Repo struct {
     ID             string    // Repository full name (document ID)
     DefaultChannel string    // Default notification channel
-    WebhookSecret  string    // Encrypted webhook secret
     Enabled        bool      // Repository active status
     CreatedAt      time.Time
 }

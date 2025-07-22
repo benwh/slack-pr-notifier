@@ -611,7 +611,6 @@ func (h *GitHubHandler) attemptAutoRegistration(
 			ID:             payload.Repository.FullName,
 			SlackTeamID:    user.SlackTeamID,
 			DefaultChannel: user.DefaultChannel,
-			WebhookSecret:  "", // Use global webhook secret
 			Enabled:        true,
 		}
 

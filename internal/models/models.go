@@ -72,7 +72,6 @@ type Repo struct {
 	ID             string    `firestore:"id"`
 	SlackTeamID    string    `firestore:"slack_team_id"` // Slack workspace/team ID
 	DefaultChannel string    `firestore:"default_channel"`
-	WebhookSecret  string    `firestore:"webhook_secret"`
 	Enabled        bool      `firestore:"enabled"`
 	CreatedAt      time.Time `firestore:"created_at"`
 }
