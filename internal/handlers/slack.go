@@ -82,11 +82,17 @@ func (sh *SlackHandler) HandleEvent(c *gin.Context) {
 	// Handle events
 	if eventsAPIEvent.Type == slackevents.CallbackEvent {
 		innerEvent := eventsAPIEvent.InnerEvent
+		// Log the event type for debugging
+		ctx := c.Request.Context()
+		log.Info(ctx, "Processing Slack event",
+			"event_type", innerEvent.Type,
+			"team_id", eventsAPIEvent.TeamID)
+
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.MessageEvent:
-			sh.handleMessageEvent(c.Request.Context(), ev, eventsAPIEvent.TeamID)
+			sh.handleMessageEvent(ctx, ev, eventsAPIEvent.TeamID)
 		case *slackevents.AppHomeOpenedEvent:
-			sh.handleAppHomeOpened(c.Request.Context(), ev, eventsAPIEvent.TeamID)
+			sh.handleAppHomeOpened(ctx, ev, eventsAPIEvent.TeamID)
 		}
 	}
 
@@ -550,6 +556,11 @@ func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.
 		return err
 	}
 
-	log.Info(ctx, "Manual PR link tracked successfully")
+	log.Info(ctx, "Manual PR link tracked successfully",
+		"repo", manualLinkJob.RepoFullName,
+		"pr_number", manualLinkJob.PRNumber,
+		"slack_channel", manualLinkJob.SlackChannel,
+		"slack_team_id", manualLinkJob.SlackTeamID,
+		"message_ts", manualLinkJob.SlackMessageTS)
 	return nil
 }
