@@ -462,11 +462,23 @@ func (s *SlackService) PublishHomeView(ctx context.Context, teamID, userID strin
 func (s *SlackService) OpenView(ctx context.Context, teamID, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
 	response, err := s.client.OpenViewContext(ctx, triggerID, view)
 	if err != nil {
-		log.Error(ctx, "Failed to open view",
-			"error", err,
-			"trigger_id", triggerID,
-			"operation", "open_view",
-		)
+		// Check if it's a Slack API error with more details
+		var slackErr slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
+			log.Error(ctx, "Failed to open view - Slack API error",
+				"error", err,
+				"trigger_id", triggerID,
+				"slack_error", slackErr.Err,
+				"response_metadata", slackErr.ResponseMetadata,
+				"operation", "open_view",
+			)
+		} else {
+			log.Error(ctx, "Failed to open view",
+				"error", err,
+				"trigger_id", triggerID,
+				"operation", "open_view",
+			)
+		}
 		return nil, fmt.Errorf("failed to open view with trigger %s: %w", triggerID, err)
 	}
 	return response, nil
@@ -485,6 +497,30 @@ func (s *SlackService) BuildOAuthModal(oauthURL string) slack.ModalViewRequest {
 // BuildChannelSelectorModal builds the channel selector modal.
 func (s *SlackService) BuildChannelSelectorModal() slack.ModalViewRequest {
 	return s.uiBuilder.BuildChannelSelectorModal()
+}
+
+// BuildChannelTrackingModal builds the channel tracking configuration modal.
+func (s *SlackService) BuildChannelTrackingModal(configs []*models.ChannelConfig) slack.ModalViewRequest {
+	return s.uiBuilder.BuildChannelTrackingModal(configs)
+}
+
+// BuildChannelTrackingConfigModal builds the modal for configuring a specific channel's tracking settings.
+func (s *SlackService) BuildChannelTrackingConfigModal(channelID, channelName string, currentlyEnabled bool) slack.ModalViewRequest {
+	return s.uiBuilder.BuildChannelTrackingConfigModal(channelID, channelName, currentlyEnabled)
+}
+
+// UpdateView updates an existing modal view.
+func (s *SlackService) UpdateView(ctx context.Context, viewID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
+	response, err := s.client.UpdateViewContext(ctx, view, "", "", viewID)
+	if err != nil {
+		log.Error(ctx, "Failed to update view",
+			"error", err,
+			"view_id", viewID,
+			"operation", "update_view",
+		)
+		return nil, fmt.Errorf("failed to update view %s: %w", viewID, err)
+	}
+	return response, nil
 }
 
 // GetChannelName retrieves the channel name for a given channel ID.

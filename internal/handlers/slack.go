@@ -106,6 +106,26 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		return
 	}
 
+	// Check if manual tracking is enabled for this channel
+	channelConfig, err := sh.firestoreService.GetChannelConfig(ctx, teamID, event.Channel)
+	if err != nil {
+		log.Error(ctx, "Failed to get channel config", "error", err)
+		// Continue with default behavior on error
+	}
+
+	// Default to enabled if no config exists
+	trackingEnabled := true
+	if channelConfig != nil {
+		trackingEnabled = channelConfig.ManualTrackingEnabled
+	}
+
+	if !trackingEnabled {
+		log.Info(ctx, "Manual PR tracking disabled for channel",
+			"channel", event.Channel,
+			"message_ts", event.TimeStamp)
+		return
+	}
+
 	// Extract PR links from message text
 	prLinks := utils.ExtractPRLinks(event.Text)
 	if len(prLinks) == 0 {
@@ -247,6 +267,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleSelectChannelAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "refresh_view":
 		sh.handleRefreshViewAction(ctx, userID, c)
+	case "manage_channel_tracking":
+		sh.handleManageChannelTrackingAction(ctx, userID, teamID, interaction.TriggerID, c)
 	default:
 		c.JSON(http.StatusOK, gin.H{})
 	}
@@ -254,11 +276,18 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 
 // handleViewSubmission processes view submission interactions.
 func (sh *SlackHandler) handleViewSubmission(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
-	if interaction.View.CallbackID == "channel_selector" {
+	switch interaction.View.CallbackID {
+	case "channel_selector":
 		sh.handleChannelSelection(ctx, interaction, c)
-		return
+	case "channel_tracking_selector":
+		sh.handleChannelTrackingSelection(ctx, interaction, c)
+	case "save_channel_tracking":
+		sh.handleSaveChannelTracking(ctx, interaction, c)
+	default:
+		log.Warn(ctx, "Unknown view submission callback ID",
+			"callback_id", interaction.View.CallbackID)
+		c.JSON(http.StatusOK, gin.H{})
 	}
-	c.JSON(http.StatusOK, gin.H{})
 }
 
 // handleAppHomeOpened processes app_home_opened events.
@@ -495,6 +524,155 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 	if err != nil {
 		log.Error(ctx, "Failed to refresh App Home view", "error", err)
 	}
+}
+
+// handleManageChannelTrackingAction opens the channel tracking management modal.
+func (sh *SlackHandler) handleManageChannelTrackingAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+		"team_id": teamID,
+	})
+
+	// Get current channel configurations for the workspace
+	configs, err := sh.firestoreService.ListChannelConfigs(ctx, teamID)
+	if err != nil {
+		log.Error(ctx, "Failed to list channel configs", "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	// Build the tracking modal with current configs
+	modalView := sh.slackService.BuildChannelTrackingModal(configs)
+
+	_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
+	if err != nil {
+		log.Error(ctx, "Failed to open channel tracking modal", "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{})
+}
+
+// handleChannelTrackingSelection processes channel selection from the tracking modal.
+func (sh *SlackHandler) handleChannelTrackingSelection(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
+	userID := interaction.User.ID
+	teamID := interaction.Team.ID
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+		"team_id": teamID,
+	})
+
+	// Extract selected channel from the view submission
+	channelID := ""
+	if values, ok := interaction.View.State.Values["channel_tracking_input"]; ok {
+		if channelSelect, ok := values["tracking_channel_select"]; ok {
+			channelID = channelSelect.SelectedChannel
+		}
+	}
+
+	if channelID == "" {
+		c.JSON(http.StatusOK, map[string]interface{}{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"channel_tracking_input": "Please select a channel.",
+			},
+		})
+		return
+	}
+
+	// Get channel name
+	channelName, err := sh.slackService.GetChannelName(ctx, teamID, channelID)
+	if err != nil {
+		log.Error(ctx, "Failed to get channel name", "error", err, "channel_id", channelID)
+		channelName = channelID // Fallback to ID if name lookup fails
+	}
+
+	// Get current config for this channel if it exists
+	currentConfig, err := sh.firestoreService.GetChannelConfig(ctx, teamID, channelID)
+	if err != nil {
+		log.Error(ctx, "Failed to get channel config", "error", err)
+	}
+
+	// Default to enabled if no config exists
+	currentlyEnabled := true
+	if currentConfig != nil {
+		currentlyEnabled = currentConfig.ManualTrackingEnabled
+	}
+
+	// Build the configuration modal for the selected channel
+	configModal := sh.slackService.BuildChannelTrackingConfigModal(channelID, channelName, currentlyEnabled)
+
+	// Push the configuration modal as a new view
+	c.JSON(http.StatusOK, map[string]interface{}{
+		"response_action": "push",
+		"view":            configModal,
+	})
+}
+
+// handleSaveChannelTracking saves the channel tracking configuration.
+func (sh *SlackHandler) handleSaveChannelTracking(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
+	userID := interaction.User.ID
+	teamID := interaction.Team.ID
+	channelID := interaction.View.PrivateMetadata // Channel ID stored in private metadata
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id":    userID,
+		"team_id":    teamID,
+		"channel_id": channelID,
+	})
+
+	// Extract tracking enabled setting
+	trackingEnabled := true // Default to enabled
+	if values, ok := interaction.View.State.Values["tracking_enabled_input"]; ok {
+		if radioButtons, ok := values["tracking_enabled_radio"]; ok {
+			if radioButtons.SelectedOption.Value != "" {
+				trackingEnabled = radioButtons.SelectedOption.Value == "true"
+			}
+		}
+	}
+
+	// Get channel name for the config
+	channelName, err := sh.slackService.GetChannelName(ctx, teamID, channelID)
+	if err != nil {
+		log.Error(ctx, "Failed to get channel name", "error", err)
+		channelName = channelID // Fallback to ID
+	}
+
+	// Create or update the channel config
+	config := &models.ChannelConfig{
+		ID:                    teamID + "#" + channelID,
+		SlackTeamID:           teamID,
+		SlackChannelID:        channelID,
+		SlackChannelName:      channelName,
+		ManualTrackingEnabled: trackingEnabled,
+		ConfiguredBy:          userID,
+	}
+
+	err = sh.firestoreService.SaveChannelConfig(ctx, config)
+	if err != nil {
+		log.Error(ctx, "Failed to save channel config", "error", err)
+		c.JSON(http.StatusOK, map[string]interface{}{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"save_error": "Failed to save configuration. Please try again.",
+			},
+		})
+		return
+	}
+
+	log.Info(ctx, "Channel tracking configuration saved",
+		"tracking_enabled", trackingEnabled,
+		"channel_name", channelName)
+
+	// Close the modal with success
+	c.JSON(http.StatusOK, gin.H{
+		"response_action": "clear",
+	})
+
+	// Refresh the home view to show updated state
+	sh.refreshHomeView(ctx, userID)
 }
 
 func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {

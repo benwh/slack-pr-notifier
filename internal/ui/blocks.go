@@ -19,13 +19,19 @@ func NewHomeViewBuilder() *HomeViewBuilder {
 
 // BuildHomeView constructs the home tab view based on user data.
 func (b *HomeViewBuilder) BuildHomeView(user *models.User) slack.HomeTabViewRequest {
-	blocks := []slack.Block{
-		// Header section
+	blocks := []slack.Block{}
+
+	// My Options section
+	blocks = append(blocks,
 		slack.NewHeaderBlock(
-			slack.NewTextBlockObject(slack.PlainTextType, "Configuration options", false, false),
+			slack.NewTextBlockObject(slack.PlainTextType, "User options", false, false),
+		),
+		slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType, "_Personal settings for PR notifications_", false, false),
 		),
 		slack.NewDividerBlock(),
-	}
+	)
 
 	// GitHub connection status section
 	blocks = append(blocks, b.buildGitHubConnectionSection(user)...)
@@ -34,6 +40,22 @@ func (b *HomeViewBuilder) BuildHomeView(user *models.User) slack.HomeTabViewRequ
 
 	// Default channel configuration section
 	blocks = append(blocks, b.buildChannelConfigSection(user)...)
+
+	// Global Options section
+	blocks = append(blocks,
+		slack.NewDividerBlock(),
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject(slack.PlainTextType, "Global options", false, false),
+		),
+		slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType, "_Workspace-wide settings that affect all users_", false, false),
+		),
+		slack.NewDividerBlock(),
+	)
+
+	// Channel tracking settings section
+	blocks = append(blocks, b.buildChannelTrackingSection()...)
 
 	blocks = append(blocks, slack.NewDividerBlock())
 
@@ -99,7 +121,7 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 		return []slack.Block{
 			slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*Default PR channel*\nCurrent: <#%s>", user.DefaultChannel),
+					fmt.Sprintf("*Default channel for PRs*\nCurrent: <#%s>", user.DefaultChannel),
 					false, false),
 				nil,
 				slack.NewAccessory(
@@ -131,6 +153,25 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 	}
 }
 
+// buildChannelTrackingSection builds the channel tracking settings section.
+func (b *HomeViewBuilder) buildChannelTrackingSection() []slack.Block {
+	return []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"*Manually-posted PR reaction settings*\nConfigure which channels automatically track and react to GitHub PR links",
+				false, false),
+			nil,
+			slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"manage_channel_tracking",
+					"manage_tracking",
+					slack.NewTextBlockObject(slack.PlainTextType, "Manage reaction syncing", false, false),
+				),
+			),
+		),
+	}
+}
+
 // buildQuickActionsSection builds the quick actions section.
 func (b *HomeViewBuilder) buildQuickActionsSection() []slack.Block {
 	return []slack.Block{
@@ -143,7 +184,7 @@ func (b *HomeViewBuilder) buildQuickActionsSection() []slack.Block {
 			slack.NewButtonBlockElement(
 				"refresh_view",
 				"refresh",
-				slack.NewTextBlockObject(slack.PlainTextType, "🔄 Refresh", false, false),
+				slack.NewTextBlockObject(slack.PlainTextType, "🔄 Refresh page", false, false),
 			),
 		),
 	}
@@ -188,12 +229,132 @@ func (b *HomeViewBuilder) BuildChannelSelectorModal() slack.ModalViewRequest {
 				slack.NewInputBlock(
 					"channel_input",
 					slack.NewTextBlockObject(slack.PlainTextType, "Channel", false, false),
-					slack.NewTextBlockObject(slack.PlainTextType, "Select a channel", false, false),
-					&slack.SelectBlockElement{
-						Type:        slack.OptTypeChannels,
-						ActionID:    "channel_select",
-						Placeholder: slack.NewTextBlockObject(slack.PlainTextType, "Choose a public channel", false, false),
-					},
+					nil, // No hint text
+					slack.NewOptionsSelectBlockElement(
+						slack.OptTypeChannels,
+						slack.NewTextBlockObject(slack.PlainTextType, "Choose a public channel", false, false),
+						"channel_select",
+					),
+				),
+			},
+		},
+	}
+}
+
+// BuildChannelTrackingModal builds the channel tracking configuration modal.
+func (b *HomeViewBuilder) BuildChannelTrackingModal(configs []*models.ChannelConfig) slack.ModalViewRequest {
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"Select a channel to configure:",
+				false, false),
+			nil, nil,
+		),
+		slack.NewInputBlock(
+			"channel_tracking_input",
+			slack.NewTextBlockObject(slack.PlainTextType, "Channel", false, false),
+			nil, // No hint text
+			slack.NewOptionsSelectBlockElement(
+				slack.OptTypeChannels,
+				slack.NewTextBlockObject(slack.PlainTextType, "Choose a channel", false, false),
+				"tracking_channel_select",
+			),
+		),
+	}
+
+	// Add currently configured channels section if any exist
+	if len(configs) > 0 {
+		blocks = append(blocks,
+			slack.NewDividerBlock(),
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, "*Currently Configured Channels:*", false, false),
+				nil, nil,
+			),
+		)
+
+		for _, config := range configs {
+			status := "✅ Tracking Enabled"
+			if !config.ManualTrackingEnabled {
+				status = "❌ Tracking Disabled"
+			}
+			blocks = append(blocks, slack.NewContextBlock(
+				"",
+				slack.NewTextBlockObject(slack.MarkdownType,
+					fmt.Sprintf("<#%s> %s", config.SlackChannelID, status),
+					false, false),
+			))
+		}
+
+		blocks = append(blocks, slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"_Note: Channels not listed use the default setting (tracking enabled)_",
+				false, false),
+		))
+	}
+
+	return slack.ModalViewRequest{
+		Type:       slack.VTModal,
+		Title:      slack.NewTextBlockObject(slack.PlainTextType, "Channel Tracking", false, false),
+		Close:      slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
+		Submit:     slack.NewTextBlockObject(slack.PlainTextType, "Next", false, false),
+		CallbackID: "channel_tracking_selector",
+		Blocks:     slack.Blocks{BlockSet: blocks},
+	}
+}
+
+// BuildChannelTrackingConfigModal builds the modal for configuring a specific channel's tracking settings.
+func (b *HomeViewBuilder) BuildChannelTrackingConfigModal(channelID, channelName string, currentlyEnabled bool) slack.ModalViewRequest {
+	currentSettingText := "Enabled"
+	if !currentlyEnabled {
+		currentSettingText = "Disabled"
+	}
+
+	// Truncate channel name if needed to fit in title (max 24 chars)
+	const maxChannelNameLength = 15
+	const truncatedLength = 12
+	displayName := channelName
+	if len(displayName) > maxChannelNameLength {
+		displayName = displayName[:truncatedLength] + "..."
+	}
+
+	return slack.ModalViewRequest{
+		Type:            slack.VTModal,
+		Title:           slack.NewTextBlockObject(slack.PlainTextType, fmt.Sprintf("#%s", displayName), false, false),
+		CallbackID:      "save_channel_tracking",
+		Submit:          slack.NewTextBlockObject(slack.PlainTextType, "Save", false, false),
+		PrivateMetadata: channelID, // Store channel ID in private metadata
+		Blocks: slack.Blocks{
+			BlockSet: []slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(slack.MarkdownType,
+						"*Manual PR Link Tracking:*",
+						false, false),
+					nil, nil,
+				),
+				slack.NewInputBlock(
+					"tracking_enabled_input",
+					slack.NewTextBlockObject(slack.PlainTextType, "Setting", false, false),
+					slack.NewTextBlockObject(slack.PlainTextType, "Choose setting", false, false),
+					slack.NewRadioButtonsBlockElement(
+						"tracking_enabled_radio",
+						slack.NewOptionBlockObject(
+							"true",
+							slack.NewTextBlockObject(slack.PlainTextType, "Enabled (Default)", false, false),
+							slack.NewTextBlockObject(slack.PlainTextType, "The bot will track GitHub PR links posted by users in this channel", false, false),
+						),
+						slack.NewOptionBlockObject(
+							"false",
+							slack.NewTextBlockObject(slack.PlainTextType, "Disabled", false, false),
+							slack.NewTextBlockObject(slack.PlainTextType, "The bot will ignore GitHub PR links posted by users in this channel", false, false),
+						),
+					),
+				),
+				slack.NewContextBlock(
+					"",
+					slack.NewTextBlockObject(slack.MarkdownType,
+						fmt.Sprintf("_Current Setting: %s_", currentSettingText),
+						false, false),
 				),
 			},
 		},

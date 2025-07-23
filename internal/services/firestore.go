@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -625,4 +626,74 @@ func (fs *FirestoreService) DeleteRepo(ctx context.Context, repoFullName, slackT
 	)
 
 	return nil
+}
+
+// GetChannelConfig retrieves channel configuration.
+func (fs *FirestoreService) GetChannelConfig(ctx context.Context, slackTeamID, channelID string) (*models.ChannelConfig, error) {
+	docID := slackTeamID + "#" + channelID
+	doc, err := fs.client.Collection("channel_configs").Doc(docID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, nil // No config means use defaults
+		}
+		return nil, fmt.Errorf("failed to get channel config: %w", err)
+	}
+
+	var config models.ChannelConfig
+	err = doc.DataTo(&config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal channel config: %w", err)
+	}
+
+	return &config, nil
+}
+
+// SaveChannelConfig creates or updates channel configuration.
+func (fs *FirestoreService) SaveChannelConfig(ctx context.Context, config *models.ChannelConfig) error {
+	config.UpdatedAt = time.Now()
+	if config.CreatedAt.IsZero() {
+		config.CreatedAt = time.Now()
+	}
+
+	docID := config.SlackTeamID + "#" + config.SlackChannelID
+	_, err := fs.client.Collection("channel_configs").Doc(docID).Set(ctx, config)
+	if err != nil {
+		return fmt.Errorf("failed to save channel config: %w", err)
+	}
+
+	return nil
+}
+
+// ListChannelConfigs retrieves all channel configurations for a workspace.
+func (fs *FirestoreService) ListChannelConfigs(ctx context.Context, slackTeamID string) ([]*models.ChannelConfig, error) {
+	iter := fs.client.Collection("channel_configs").
+		Where("slack_team_id", "==", slackTeamID).
+		Documents(ctx)
+	defer iter.Stop()
+
+	var configs []*models.ChannelConfig
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			if errors.Is(err, iterator.Done) {
+				break
+			}
+			return nil, fmt.Errorf("failed to list channel configs: %w", err)
+		}
+
+		var config models.ChannelConfig
+		err = doc.DataTo(&config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal channel config: %w", err)
+		}
+
+		configs = append(configs, &config)
+	}
+
+	// Sort by channel name in memory to avoid Firestore index requirement
+	sort.Slice(configs, func(i, j int) bool {
+		return configs[i].SlackChannelName < configs[j].SlackChannelName
+	})
+
+	return configs, nil
 }

@@ -149,6 +149,18 @@ type Job struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+// ChannelConfig represents per-channel configuration for manual PR tracking.
+type ChannelConfig struct {
+	ID                    string    `firestore:"id"`                      // Document ID: {slack_team_id}#{channel_id}
+	SlackTeamID           string    `firestore:"slack_team_id"`           // Slack workspace ID
+	SlackChannelID        string    `firestore:"slack_channel_id"`        // Slack channel ID
+	SlackChannelName      string    `firestore:"slack_channel_name"`      // Cached channel name for display
+	ManualTrackingEnabled bool      `firestore:"manual_tracking_enabled"` // Whether to track manual PR links
+	ConfiguredBy          string    `firestore:"configured_by"`           // Slack user ID who last updated
+	CreatedAt             time.Time `firestore:"created_at"`
+	UpdatedAt             time.Time `firestore:"updated_at"`
+}
+
 func (wj *WebhookJob) Validate() error {
 	if wj.ID == "" {
 		return ErrJobIDRequired
