@@ -380,7 +380,11 @@ The system automatically manages Slack emoji reactions on PR notification messag
 
 ## Testing Strategy
 
-Use Go's built-in testing framework:
+The project uses a comprehensive testing approach with multiple test types:
+
+### Unit Tests
+
+Use Go's built-in testing framework for individual components:
 
 ```bash
 # Run all tests
@@ -392,6 +396,25 @@ go test ./internal/handlers
 # Test with verbose output
 go test -v ./...
 ```
+
+### End-to-End Integration Tests
+
+The project includes comprehensive e2e integration tests that provide black-box testing of the entire application:
+
+```bash
+# Run e2e integration tests
+go test ./tests/integration/e2e/... -v
+
+# Run with race detection
+go test ./tests/integration/e2e/... -v -race
+```
+
+**E2E Test Architecture (`tests/integration/e2e/`):**
+
+- **Test Harness (`harness.go`)**: Starts the real application with dependency injection for testing
+- **Fake Cloud Tasks (`fake_cloud_tasks.go`)**: Replaces Cloud Tasks with HTTP callback-based execution
+- **HTTP Mocking**: Uses `httpmock` for external API calls (Slack, GitHub)
+- **Firestore Emulator**: Real database operations against an emulated Firestore instance
 
 ## Common Development Patterns
 

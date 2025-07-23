@@ -212,13 +212,37 @@ shellcheck scripts/*.sh
 
 ### Testing
 
+The project uses comprehensive testing with both unit tests and end-to-end integration tests:
+
 ```bash
-# Run tests
+# Run all tests (unit + integration)
 go test ./...
+
+# Run unit tests only
+go test ./internal/...
+
+# Run end-to-end integration tests only
+go test ./tests/integration/e2e/... -v
 
 # Test with coverage
 go test -cover ./...
+
+# Run tests with race detection
+go test -race ./...
 ```
+
+**End-to-End Integration Tests:**
+
+The e2e tests in `tests/integration/e2e/` provide comprehensive black-box testing by starting the real application and testing complete workflows:
+
+- **GitHub webhook processing** with signature validation and async job execution
+- **Slack event handling** including manual PR link detection and security validation  
+- **Slack interactions** for App Home functionality and user configuration
+- **Concurrent processing** validation and error handling
+- **External API mocking** for Slack and GitHub using httpmock
+- **Real database operations** against Firestore emulator
+
+These tests ensure the entire application works correctly end-to-end without mocking internal components.
 
 ### Building
 

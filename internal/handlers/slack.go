@@ -24,7 +24,7 @@ import (
 type SlackHandler struct {
 	firestoreService  *services.FirestoreService
 	slackService      *services.SlackService
-	cloudTasksService *services.CloudTasksService
+	cloudTasksService CloudTasksServiceInterface
 	githubAuthService *services.GitHubAuthService
 	signingSecret     string
 	config            *config.Config
@@ -34,7 +34,7 @@ type SlackHandler struct {
 func NewSlackHandler(
 	fs *services.FirestoreService,
 	slack *services.SlackService,
-	cloudTasks *services.CloudTasksService,
+	cloudTasks CloudTasksServiceInterface,
 	githubAuth *services.GitHubAuthService,
 	cfg *config.Config,
 ) *SlackHandler {

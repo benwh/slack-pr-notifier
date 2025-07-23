@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	cloudtaskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
+	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -22,15 +24,23 @@ type CloudTasksService struct {
 }
 
 type CloudTasksConfig struct {
-	ProjectID string
-	Location  string
-	QueueName string
-	Config    *config.Config
+	ProjectID  string
+	Location   string
+	QueueName  string
+	Config     *config.Config
+	HTTPClient *http.Client // Optional: custom HTTP client for testing
 }
 
 func NewCloudTasksService(config CloudTasksConfig) (*CloudTasksService, error) {
 	ctx := context.Background()
-	client, err := cloudtasks.NewClient(ctx)
+
+	// Create client options
+	var opts []option.ClientOption
+	if config.HTTPClient != nil {
+		opts = append(opts, option.WithHTTPClient(config.HTTPClient))
+	}
+
+	client, err := cloudtasks.NewClient(ctx, opts...)
 	if err != nil {
 		log.Error(ctx, "Failed to create Cloud Tasks client",
 			"error", err,

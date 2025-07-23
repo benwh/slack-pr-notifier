@@ -113,6 +113,13 @@ issues:
         - funlen
         - gocognit
         - maintidx
+        - contextcheck  # Test files often create their own contexts
+        - err113       # Dynamic errors are fine in tests
+        - unparam      # Test helpers may not use all params
+    - path: tests/integration/e2e/
+      linters:
+        - contextcheck  # Integration tests create their own contexts
+        - bodyclose    # Helper functions handle closing
     - path: main\.go
       linters:
         - funlen
