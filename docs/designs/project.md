@@ -66,7 +66,6 @@ PR Bot is a high-performance GitHub webhook service that provides PR mirroring a
 ### User Configuration
 - Users link their GitHub username to Slack identity
 - Set default notification channel per user
-- Repository-specific default channels supported
 
 ## Current Limitations
 

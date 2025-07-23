@@ -26,9 +26,9 @@ func SetupTestUserAndRepo(t *testing.T, app *TestApp, ctx context.Context, const
 
 	// Create test repository configuration
 	repo := &models.Repo{
-		ID:             constants.DefaultRepoFullName,
-		SlackTeamID:    constants.DefaultSlackTeamID,
-		DefaultChannel: constants.DefaultSlackChannel,
+		ID:          constants.DefaultRepoFullName,
+		SlackTeamID: constants.DefaultSlackTeamID,
+		Enabled:     true,
 	}
 	require.NoError(t, app.FirestoreService.CreateRepo(ctx, repo))
 }

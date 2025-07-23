@@ -390,7 +390,6 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 			log.Error(ctx, "Failed to process notification for workspace",
 				"error", err,
 				"slack_team_id", repo.SlackTeamID,
-				"default_channel", repo.DefaultChannel,
 			)
 			// Continue processing other workspaces even if one fails
 		}
@@ -409,17 +408,15 @@ func (h *GitHubHandler) processWorkspaceNotification(
 ) error {
 	var targetChannel string
 
-	// Channel priority: annotated channel -> user default (if user is in same workspace and notifications enabled) -> repo default
+	// Channel priority: annotated channel -> user default (if user is in same workspace and notifications enabled)
 	if annotatedChannel != "" {
 		targetChannel = annotatedChannel
+		log.Debug(ctx, "Using annotated channel from PR description",
+			"channel", targetChannel,
+			"slack_team_id", repo.SlackTeamID)
 	} else if user != nil && user.SlackTeamID == repo.SlackTeamID && user.DefaultChannel != "" && user.NotificationsEnabled {
 		targetChannel = user.DefaultChannel
 		log.Debug(ctx, "Using user default channel",
-			"channel", targetChannel,
-			"slack_team_id", repo.SlackTeamID)
-	} else {
-		targetChannel = repo.DefaultChannel
-		log.Debug(ctx, "Using repo default channel",
 			"channel", targetChannel,
 			"slack_team_id", repo.SlackTeamID)
 	}
@@ -602,17 +599,15 @@ func (h *GitHubHandler) getAllTrackedMessagesForPR(
 func (h *GitHubHandler) attemptAutoRegistration(
 	ctx context.Context, payload *GitHubWebhookPayload, user *models.User,
 ) (*models.Repo, error) {
-	if user != nil && user.Verified && user.DefaultChannel != "" && user.NotificationsEnabled {
+	if user != nil && user.Verified && user.NotificationsEnabled {
 		log.Info(ctx, "Auto-registering repository for verified user's workspace",
 			"github_username", user.GitHubUsername,
-			"slack_team_id", user.SlackTeamID,
-			"default_channel", user.DefaultChannel)
+			"slack_team_id", user.SlackTeamID)
 
 		repo := &models.Repo{
-			ID:             payload.Repository.FullName,
-			SlackTeamID:    user.SlackTeamID,
-			DefaultChannel: user.DefaultChannel,
-			Enabled:        true,
+			ID:          payload.Repository.FullName,
+			SlackTeamID: user.SlackTeamID,
+			Enabled:     true,
 		}
 
 		err := h.firestoreService.CreateRepo(ctx, repo)
@@ -636,8 +631,6 @@ func (h *GitHubHandler) attemptAutoRegistration(
 		skipReason = "no_user_found"
 	} else if !user.Verified {
 		skipReason = "user_not_verified"
-	} else if user.DefaultChannel == "" {
-		skipReason = "no_default_channel"
 	} else if !user.NotificationsEnabled {
 		skipReason = "notifications_disabled"
 	}
@@ -646,7 +639,6 @@ func (h *GitHubHandler) attemptAutoRegistration(
 		"skip_reason", skipReason,
 		"user_found", user != nil,
 		"user_verified", user != nil && user.Verified,
-		"has_default_channel", user != nil && user.DefaultChannel != "",
 		"notifications_enabled", user != nil && user.NotificationsEnabled)
 
 	return nil, nil // No auto-registration possible

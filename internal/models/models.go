@@ -70,11 +70,10 @@ type Message struct {
 }
 
 type Repo struct {
-	ID             string    `firestore:"id"`
-	SlackTeamID    string    `firestore:"slack_team_id"` // Slack workspace/team ID
-	DefaultChannel string    `firestore:"default_channel"`
-	Enabled        bool      `firestore:"enabled"`
-	CreatedAt      time.Time `firestore:"created_at"`
+	ID          string    `firestore:"id"`
+	SlackTeamID string    `firestore:"slack_team_id"` // Slack workspace/team ID
+	Enabled     bool      `firestore:"enabled"`
+	CreatedAt   time.Time `firestore:"created_at"`
 }
 
 // RepoWorkspaceMapping represents a single repo-workspace relationship.

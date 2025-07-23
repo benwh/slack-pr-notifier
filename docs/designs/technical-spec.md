@@ -58,10 +58,10 @@ type Message struct {
 
 ```go
 type Repo struct {
-    ID             string    // Repository full name (document ID)
-    DefaultChannel string    // Default notification channel
-    Enabled        bool      // Repository active status
-    CreatedAt      time.Time
+    ID          string    // Repository full name (document ID)
+    SlackTeamID string    // Slack workspace/team ID
+    Enabled     bool      // Repository active status
+    CreatedAt   time.Time
 }
 ```
 
@@ -185,7 +185,7 @@ All async work is processed through a job system:
 3. Create WebhookJob wrapped in Job and queue to Cloud Tasks
 4. JobProcessor routes to GitHubHandler which processes:
    - Look up author in users collection
-   - Determine target channel (user default → repo default)
+   - Determine target channel (annotated channel → user default)
    - Post Slack message
    - Store message info in Firestore
 

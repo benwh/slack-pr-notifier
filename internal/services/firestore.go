@@ -282,7 +282,6 @@ func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) e
 			"error", err,
 			"repo", repo.ID,
 			"slack_team_id", repo.SlackTeamID,
-			"default_channel", repo.DefaultChannel,
 			"operation", "create_repo_with_mapping",
 		)
 		return fmt.Errorf("failed to create repo %s for team %s: %w", repo.ID, repo.SlackTeamID, err)

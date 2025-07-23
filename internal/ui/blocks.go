@@ -151,8 +151,8 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 			// Channel set
 			blocks = append(blocks, slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*Step 3: Set your default channel*\nCurrent: <#%s> - This is where your PRs will be posted, unless specified otherwise in the PR description",
-						user.DefaultChannel),
+					fmt.Sprintf("*Step 3: Set your default channel*\nCurrent: <#%s> - This is where your PRs will be posted, "+
+						"unless specified otherwise in the PR description", user.DefaultChannel),
 					false, false),
 				nil,
 				slack.NewAccessory(

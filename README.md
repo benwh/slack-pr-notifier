@@ -184,7 +184,7 @@ Users can override the notification channel by adding this to their PR descripti
 
 ### Notification Flow
 
-1. **PR Opened**: Posts message to determined channel (annotation > user default > repo default)
+1. **PR Opened**: Posts message to determined channel (annotation > user default)
 2. **Reviews**: Syncs emoji reactions across all tracked messages (✅ approved, 🔄 changes requested, 💬 comments)
 3. **PR Closed**: Adds final emoji (🎉 merged, ❌ closed)
 

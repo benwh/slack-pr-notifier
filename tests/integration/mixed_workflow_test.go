@@ -320,9 +320,9 @@ func setupUserAndRepo(
 
 	// Create repository
 	repo := &models.Repo{
-		ID:             repoFullName,
-		SlackTeamID:    teamID,
-		DefaultChannel: channelID,
+		ID:          repoFullName,
+		SlackTeamID: teamID,
+		Enabled:     true,
 	}
 	require.NoError(t, app.FirestoreService.CreateRepo(ctx, repo))
 }
