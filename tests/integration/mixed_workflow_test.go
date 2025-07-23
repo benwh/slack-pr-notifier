@@ -307,13 +307,14 @@ func setupUserAndRepo(
 	t.Helper()
 	// Create user
 	user := &models.User{
-		ID:             userID,
-		SlackUserID:    userID,
-		SlackTeamID:    teamID,
-		GitHubUsername: githubUsername,
-		GitHubUserID:   githubUserID,
-		DefaultChannel: channelID,
-		Verified:       true,
+		ID:                   userID,
+		SlackUserID:          userID,
+		SlackTeamID:          teamID,
+		GitHubUsername:       githubUsername,
+		GitHubUserID:         githubUserID,
+		DefaultChannel:       channelID,
+		Verified:             true,
+		NotificationsEnabled: true,
 	}
 	require.NoError(t, app.FirestoreService.SaveUser(ctx, user))
 

@@ -13,6 +13,7 @@ import (
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	"github-slack-notifier/internal/utils"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-github/v73/github"
 	"github.com/google/uuid"
@@ -379,7 +380,7 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 		repos = []*models.Repo{autoRegisteredRepo}
 	}
 
-	log.Info(ctx, "Found repository configurations in multiple workspaces",
+	log.Info(ctx, "Found repository configurations in workspace(s)",
 		"workspace_count", len(repos))
 
 	// Process notifications for each workspace
@@ -408,10 +409,10 @@ func (h *GitHubHandler) processWorkspaceNotification(
 ) error {
 	var targetChannel string
 
-	// Channel priority: annotated channel -> user default (if user is in same workspace) -> repo default
+	// Channel priority: annotated channel -> user default (if user is in same workspace and notifications enabled) -> repo default
 	if annotatedChannel != "" {
 		targetChannel = annotatedChannel
-	} else if user != nil && user.SlackTeamID == repo.SlackTeamID && user.DefaultChannel != "" {
+	} else if user != nil && user.SlackTeamID == repo.SlackTeamID && user.DefaultChannel != "" && user.NotificationsEnabled {
 		targetChannel = user.DefaultChannel
 		log.Debug(ctx, "Using user default channel",
 			"channel", targetChannel,
@@ -601,7 +602,7 @@ func (h *GitHubHandler) getAllTrackedMessagesForPR(
 func (h *GitHubHandler) attemptAutoRegistration(
 	ctx context.Context, payload *GitHubWebhookPayload, user *models.User,
 ) (*models.Repo, error) {
-	if user != nil && user.Verified && user.DefaultChannel != "" {
+	if user != nil && user.Verified && user.DefaultChannel != "" && user.NotificationsEnabled {
 		log.Info(ctx, "Auto-registering repository for verified user's workspace",
 			"github_username", user.GitHubUsername,
 			"slack_team_id", user.SlackTeamID,
@@ -637,13 +638,16 @@ func (h *GitHubHandler) attemptAutoRegistration(
 		skipReason = "user_not_verified"
 	} else if user.DefaultChannel == "" {
 		skipReason = "no_default_channel"
+	} else if !user.NotificationsEnabled {
+		skipReason = "notifications_disabled"
 	}
 
 	log.Info(ctx, "No repository configurations and cannot auto-register",
 		"skip_reason", skipReason,
 		"user_found", user != nil,
 		"user_verified", user != nil && user.Verified,
-		"has_default_channel", user != nil && user.DefaultChannel != "")
+		"has_default_channel", user != nil && user.DefaultChannel != "",
+		"notifications_enabled", user != nil && user.NotificationsEnabled)
 
 	return nil, nil // No auto-registration possible
 }

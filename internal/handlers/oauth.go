@@ -161,13 +161,14 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 
 	// Create or update user with verified GitHub account
 	user := &models.User{
-		ID:             state.SlackUserID, // Use Slack user ID as document ID
-		GitHubUsername: githubUser.Login,
-		GitHubUserID:   githubUser.ID,
-		Verified:       true,
-		SlackUserID:    state.SlackUserID,
-		SlackTeamID:    state.SlackTeamID,
-		UpdatedAt:      time.Now(),
+		ID:                   state.SlackUserID, // Use Slack user ID as document ID
+		GitHubUsername:       githubUser.Login,
+		GitHubUserID:         githubUser.ID,
+		Verified:             true,
+		SlackUserID:          state.SlackUserID,
+		SlackTeamID:          state.SlackTeamID,
+		NotificationsEnabled: true, // Default to enabled for new users
+		UpdatedAt:            time.Now(),
 	}
 
 	// Check if user already exists
@@ -176,6 +177,8 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 		// Update existing user
 		user.DefaultChannel = existingUser.DefaultChannel
 		user.CreatedAt = existingUser.CreatedAt
+		// Preserve existing notification preference
+		user.NotificationsEnabled = existingUser.NotificationsEnabled
 	} else {
 		// New user
 		user.CreatedAt = time.Now()

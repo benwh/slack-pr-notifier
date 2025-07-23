@@ -79,6 +79,7 @@ The application uses **async processing** via Google Cloud Tasks for reliable we
 See the [Configuration Guide](docs/reference/CONFIGURATION.md) for detailed setup instructions.
 
 **Quick Start:**
+
 ```bash
 cp .env.example .env
 # Edit .env with your configuration

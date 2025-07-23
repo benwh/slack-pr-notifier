@@ -116,10 +116,37 @@ func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slac
 
 // buildChannelConfigSection builds the default channel configuration section.
 func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.Block {
-	if user != nil && user.DefaultChannel != "" {
-		// Channel set
-		return []slack.Block{
-			slack.NewSectionBlock(
+	blocks := []slack.Block{}
+
+	// Notifications enabled/disabled toggle
+	notificationStatus := "✅ Enabled"
+	toggleText := "Disable notifications"
+	toggleStyle := slack.StyleDanger
+	if user != nil && !user.NotificationsEnabled {
+		notificationStatus = "❌ Disabled"
+		toggleText = "Enable notifications"
+		toggleStyle = slack.StylePrimary
+	}
+
+	blocks = append(blocks, slack.NewSectionBlock(
+		slack.NewTextBlockObject(slack.MarkdownType,
+			fmt.Sprintf("*PR notifications*\n%s", notificationStatus),
+			false, false),
+		nil,
+		slack.NewAccessory(
+			slack.NewButtonBlockElement(
+				"toggle_notifications",
+				"toggle",
+				slack.NewTextBlockObject(slack.PlainTextType, toggleText, false, false),
+			).WithStyle(toggleStyle),
+		),
+	))
+
+	// Channel selection (only show if notifications are enabled)
+	if user == nil || user.NotificationsEnabled {
+		if user != nil && user.DefaultChannel != "" {
+			// Channel set
+			blocks = append(blocks, slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
 					fmt.Sprintf("*Default channel for PRs*\nCurrent: <#%s>", user.DefaultChannel),
 					false, false),
@@ -131,26 +158,26 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 						slack.NewTextBlockObject(slack.PlainTextType, "Change channel", false, false),
 					),
 				),
-			),
+			))
+		} else {
+			// No channel set
+			blocks = append(blocks, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType,
+					"*Default PR channel*\n:warning: No channel configured!",
+					false, false),
+				nil,
+				slack.NewAccessory(
+					slack.NewButtonBlockElement(
+						"select_channel",
+						"select_channel",
+						slack.NewTextBlockObject(slack.PlainTextType, "Select channel", false, false),
+					).WithStyle(slack.StylePrimary),
+				),
+			))
 		}
 	}
 
-	// No channel set
-	return []slack.Block{
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject(slack.MarkdownType,
-				"*Default PR channel*\n:warning: No channel configured!",
-				false, false),
-			nil,
-			slack.NewAccessory(
-				slack.NewButtonBlockElement(
-					"select_channel",
-					"select_channel",
-					slack.NewTextBlockObject(slack.PlainTextType, "Select channel", false, false),
-				).WithStyle(slack.StylePrimary),
-			),
-		),
-	}
+	return blocks
 }
 
 // buildChannelTrackingSection builds the channel tracking settings section.

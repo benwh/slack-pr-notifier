@@ -269,6 +269,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleRefreshViewAction(ctx, userID, c)
 	case "manage_channel_tracking":
 		sh.handleManageChannelTrackingAction(ctx, userID, teamID, interaction.TriggerID, c)
+	case "toggle_notifications":
+		sh.handleToggleNotificationsAction(ctx, userID, c)
 	default:
 		c.JSON(http.StatusOK, gin.H{})
 	}
@@ -477,9 +479,10 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 
 	if user == nil {
 		user = &models.User{
-			ID:          userID,
-			SlackUserID: userID,
-			SlackTeamID: teamID,
+			ID:                   userID,
+			SlackUserID:          userID,
+			SlackTeamID:          teamID,
+			NotificationsEnabled: true, // Default to enabled for new users
 		}
 	}
 
@@ -524,6 +527,44 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 	if err != nil {
 		log.Error(ctx, "Failed to refresh App Home view", "error", err)
 	}
+}
+
+// handleToggleNotificationsAction handles the notifications enable/disable toggle.
+func (sh *SlackHandler) handleToggleNotificationsAction(ctx context.Context, userID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
+	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	if err != nil {
+		log.Error(ctx, "Failed to get user for notification toggle", "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	if user == nil {
+		log.Warn(ctx, "User not found for notification toggle")
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	// Toggle the notifications state
+	user.NotificationsEnabled = !user.NotificationsEnabled
+
+	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
+	if err != nil {
+		log.Error(ctx, "Failed to update user notification settings", "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	log.Info(ctx, "User notification settings updated",
+		"notifications_enabled", user.NotificationsEnabled,
+		"github_username", user.GitHubUsername)
+
+	// Refresh the home view to show the updated state
+	sh.refreshHomeView(ctx, userID)
+	c.JSON(http.StatusOK, gin.H{})
 }
 
 // handleManageChannelTrackingAction opens the channel tracking management modal.
