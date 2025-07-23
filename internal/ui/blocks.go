@@ -28,7 +28,7 @@ func (b *HomeViewBuilder) BuildHomeView(user *models.User) slack.HomeTabViewRequ
 		),
 		slack.NewContextBlock(
 			"",
-			slack.NewTextBlockObject(slack.MarkdownType, "_Personal settings for PR notifications_", false, false),
+			slack.NewTextBlockObject(slack.MarkdownType, "_Personal settings for PRs_", false, false),
 		),
 		slack.NewDividerBlock(),
 	)
@@ -148,7 +148,7 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 			// Channel set
 			blocks = append(blocks, slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*Default channel for PRs*\nCurrent: <#%s>", user.DefaultChannel),
+					fmt.Sprintf("*Default channel for your PRs*\nCurrent: <#%s>", user.DefaultChannel),
 					false, false),
 				nil,
 				slack.NewAccessory(
