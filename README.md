@@ -5,7 +5,7 @@ A Go application that sends Slack notifications for GitHub pull request events w
 ## Features
 
 - 🔗 **PR Notifications**: Sends Slack messages when PRs are opened
-- 📝 **Review Updates**: Automatically syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬, dismissed 👋)
+- 📝 **Review Updates**: Automatically syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬)
 - 🎉 **Closure Updates**: Adds emoji reactions when PRs are merged or closed
 - 🔐 **Secure OAuth Authentication**: Users link GitHub accounts via OAuth (no more username trust)
 - ⚙️ **Slack Configuration**: Use the App Home interface to configure your settings
@@ -185,7 +185,7 @@ Users can override the notification channel by adding this to their PR descripti
 ### Notification Flow
 
 1. **PR Opened**: Posts message to determined channel (annotation > user default > repo default)
-2. **Reviews**: Syncs emoji reactions across all tracked messages (✅ approved, 🔄 changes requested, 💬 comments, 👋 dismissed)
+2. **Reviews**: Syncs emoji reactions across all tracked messages (✅ approved, 🔄 changes requested, 💬 comments)
 3. **PR Closed**: Adds final emoji (🎉 merged, ❌ closed)
 
 ## Development

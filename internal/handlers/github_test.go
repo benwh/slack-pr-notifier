@@ -34,7 +34,6 @@ func testEmojiConfig() config.EmojiConfig {
 		Commented:        "speech_balloon",
 		Merged:           "purple_heart",
 		Closed:           "x",
-		Dismissed:        "",
 	}
 }
 

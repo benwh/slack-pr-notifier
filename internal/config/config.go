@@ -14,7 +14,6 @@ type EmojiConfig struct {
 	Commented        string
 	Merged           string
 	Closed           string
-	Dismissed        string
 }
 
 // Config holds all application configuration.
@@ -106,7 +105,6 @@ func Load() *Config {
 		Commented:        getEnvDefault("EMOJI_COMMENTED", "speech_balloon"),
 		Merged:           getEnvDefault("EMOJI_MERGED", "merged"),
 		Closed:           getEnvDefault("EMOJI_CLOSED", "pr-closed"),
-		Dismissed:        getEnvDefault("EMOJI_DISMISSED", "wave"),
 	}
 
 	// Validate configuration

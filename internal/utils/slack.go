@@ -39,8 +39,6 @@ func GetEmojiForReviewState(state string, emojiConfig config.EmojiConfig) string
 		return emojiConfig.ChangesRequested
 	case "commented":
 		return emojiConfig.Commented
-	case "dismissed":
-		return emojiConfig.Dismissed
 	default:
 		return ""
 	}

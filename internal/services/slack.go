@@ -344,7 +344,6 @@ func (s *SlackService) SyncAllReviewReactions(
 		s.emojiConfig.Approved,
 		s.emojiConfig.ChangesRequested,
 		s.emojiConfig.Commented,
-		s.emojiConfig.Dismissed,
 	}
 
 	// Remove all existing review reactions

@@ -47,6 +47,8 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 			Approved:         "white_check_mark",
 			ChangesRequested: "arrows_counterclockwise",
 			Commented:        "speech_balloon",
+			Merged:           "purple_heart",
+			Closed:           "x",
 		},
 	}
 

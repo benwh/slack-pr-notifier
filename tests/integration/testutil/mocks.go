@@ -219,8 +219,6 @@ func (m *MockSlackService) GetEmojiForReviewState(state string) string {
 		return "arrows_counterclockwise"
 	case "commented":
 		return "speech_balloon"
-	case "dismissed":
-		return ""
 	default:
 		return ""
 	}

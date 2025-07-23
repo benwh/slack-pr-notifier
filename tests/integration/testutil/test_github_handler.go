@@ -32,7 +32,6 @@ func NewTestGitHubHandler(
 		Commented:        "speech_balloon",
 		Merged:           "purple_heart",
 		Closed:           "x",
-		Dismissed:        "",
 	}
 	realHandler := handlers.NewGitHubHandler(
 		cloudTasksService,
