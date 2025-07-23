@@ -1,12 +1,11 @@
-# GitHub-Slack Notifier
+# PR Bot
 
-A Go application that sends Slack notifications for GitHub pull request events with high-reliability async processing.
+A Go application that provides PR mirroring and status reactions between GitHub and Slack with high-reliability async processing.
 
 ## Features
 
-- 🔗 **PR Notifications**: Sends Slack messages when PRs are opened
-- 📝 **Review Updates**: Automatically syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬)
-- 🎉 **Closure Updates**: Adds emoji reactions when PRs are merged or closed
+- 🔗 **PR Mirroring**: Automatically posts PR notifications to Slack when opened (includes manual link detection)
+- 📝 **PR Status Reactions**: Syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬) and closures (🎉 merged, ❌ closed)
 - 🔐 **Secure OAuth Authentication**: Users link GitHub accounts via OAuth (no more username trust)
 - ⚙️ **Slack Configuration**: Use the App Home interface to configure your settings
 - 🚀 **Async Processing**: Uses Google Cloud Tasks for reliable webhook processing with automatic retries
@@ -89,7 +88,7 @@ cp .env.example .env
 
 1. **Create GitHub App**:
    - Go to <https://github.com/settings/apps/new>
-   - Name (make it unique): Slack PR notifier
+   - Name (make it unique): PR Bot
    - Homepage URL: <https://example.com>
    - Webhook URL: Retrieve from dev.sh output
    - Secret: Use `pwgen -s 32 1`
@@ -170,7 +169,7 @@ cp .env.example .env
 
 Users configure their preferences through the Slack App Home:
 
-1. **Open the App Home**: Click on the "GitHub PR Bot" app in your Slack sidebar
+1. **Open the App Home**: Click on the "PR Bot" app in your Slack sidebar
 2. **Connect GitHub**: Click the "Connect GitHub Account" button to link your account via OAuth
 3. **Set Channel**: Click "Set Default Channel" to choose where you receive PR notifications
 4. **View Status**: Your current configuration is always visible in the App Home

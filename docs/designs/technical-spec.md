@@ -1,4 +1,4 @@
-# GitHub-Slack Notifier Technical Specification
+# PR Bot Technical Specification
 
 ## Architecture Overview
 

@@ -21,14 +21,17 @@ func NewHomeViewBuilder() *HomeViewBuilder {
 func (b *HomeViewBuilder) BuildHomeView(user *models.User) slack.HomeTabViewRequest {
 	blocks := []slack.Block{}
 
+	// Introduction section
+	blocks = append(blocks, b.buildIntroductionSection()...)
+
 	// My Options section
 	blocks = append(blocks,
 		slack.NewHeaderBlock(
-			slack.NewTextBlockObject(slack.PlainTextType, "User options", false, false),
+			slack.NewTextBlockObject(slack.PlainTextType, "🔧 Setup your account", false, false),
 		),
 		slack.NewContextBlock(
 			"",
-			slack.NewTextBlockObject(slack.MarkdownType, "_Personal settings for PRs_", false, false),
+			slack.NewTextBlockObject(slack.MarkdownType, "_Configure your personal settings to start receiving PR notifications_", false, false),
 		),
 		slack.NewDividerBlock(),
 	)
@@ -45,11 +48,11 @@ func (b *HomeViewBuilder) BuildHomeView(user *models.User) slack.HomeTabViewRequ
 	blocks = append(blocks,
 		slack.NewDividerBlock(),
 		slack.NewHeaderBlock(
-			slack.NewTextBlockObject(slack.PlainTextType, "Global options", false, false),
+			slack.NewTextBlockObject(slack.PlainTextType, "⚙️ Advanced options", false, false),
 		),
 		slack.NewContextBlock(
 			"",
-			slack.NewTextBlockObject(slack.MarkdownType, "_Workspace-wide settings that affect all users_", false, false),
+			slack.NewTextBlockObject(slack.MarkdownType, "_Configure workspace-wide settings_", false, false),
 		),
 		slack.NewDividerBlock(),
 	)
@@ -75,7 +78,7 @@ func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slac
 		return []slack.Block{
 			slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*GitHub connection*\n✅ Connected as @%s\nStatus: Verified via OAuth", user.GitHubUsername),
+					fmt.Sprintf("*Step 1: Connect your GitHub account*\n✅ Connected as @%s (Verified via OAuth)", user.GitHubUsername),
 					false, false),
 				nil,
 				slack.NewAccessory(
@@ -100,7 +103,7 @@ func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slac
 	return []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*GitHub connection*\n❌ Not connected\nConnect your GitHub account to have the bot post your PRs for review",
+				"*Step 1: Connect your GitHub account*\n❌ Not connected - Link your GitHub account so PR Bot can identify your PRs",
 				false, false),
 			nil,
 			slack.NewAccessory(
@@ -130,7 +133,7 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 
 	blocks = append(blocks, slack.NewSectionBlock(
 		slack.NewTextBlockObject(slack.MarkdownType,
-			fmt.Sprintf("*PR notifications*\n%s", notificationStatus),
+			fmt.Sprintf("*Step 2: Enable PR mirroring*\n%s - When enabled, your PRs will be automatically posted", notificationStatus),
 			false, false),
 		nil,
 		slack.NewAccessory(
@@ -148,7 +151,8 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 			// Channel set
 			blocks = append(blocks, slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*Default channel for your PRs*\nCurrent: <#%s>", user.DefaultChannel),
+					fmt.Sprintf("*Step 3: Set your default channel*\nCurrent: <#%s> - This is where your PRs will be posted, unless specified otherwise in the PR description",
+						user.DefaultChannel),
 					false, false),
 				nil,
 				slack.NewAccessory(
@@ -163,7 +167,7 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 			// No channel set
 			blocks = append(blocks, slack.NewSectionBlock(
 				slack.NewTextBlockObject(slack.MarkdownType,
-					"*Default PR channel*\n:warning: No channel configured!",
+					"*Step 3: Set your default channel*\n:warning: No channel selected - Choose where your PRs should be posted",
 					false, false),
 				nil,
 				slack.NewAccessory(
@@ -185,7 +189,7 @@ func (b *HomeViewBuilder) buildChannelTrackingSection() []slack.Block {
 	return []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*Manually-posted PR reaction settings*\nConfigure which channels automatically track and react to GitHub PR links",
+				"*PR link detection settings*\nConfigure which channels automatically track and react to GitHub PR links _*not*_ managed by the bot",
 				false, false),
 			nil,
 			slack.NewAccessory(
@@ -385,5 +389,23 @@ func (b *HomeViewBuilder) BuildChannelTrackingConfigModal(channelID, channelName
 				),
 			},
 		},
+	}
+}
+
+// buildIntroductionSection builds the introduction section explaining what PR Bot does.
+func (b *HomeViewBuilder) buildIntroductionSection() []slack.Block {
+	return []slack.Block{
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject(slack.PlainTextType, "Welcome to PR Bot! 🤖", false, false),
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"*PR Bot provides seamless integration between GitHub and Slack with two key features:*\n\n"+
+					"• *PR mirroring*: Automatically posts your PRs to Slack when opened\n"+
+					"• *PR status reactions*: Adds emoji reactions to show review status (includes manually-posted links)",
+				false, false),
+			nil, nil,
+		),
+		slack.NewDividerBlock(),
 	}
 }

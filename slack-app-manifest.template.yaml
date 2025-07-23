@@ -1,4 +1,4 @@
-# Slack App Manifest Template for GitHub PR Notifier
+# Slack App Manifest Template for PR Bot
 # Use scripts/generate-manifest.sh to generate the final manifest with your service URL
 
 _metadata:
@@ -6,11 +6,11 @@ _metadata:
   minor_version: 1
 
 display_information:
-  name: GitHub PR Notifier
+  name: PR Bot
   description: >
-    Automatically notify Slack channels about GitHub pull request events and track manual PR links
+    PR mirroring and status reactions between GitHub and Slack
   long_description: >
-    This app receives GitHub webhook events and posts formatted notifications to Slack channels when pull requests are opened, reviewed, merged, or closed. It also detects manually posted GitHub PR links and adds status reactions. Supports per-repository channel configuration and reaction synchronization across all PR instances.
+    PR Bot provides seamless integration between GitHub and Slack with two key features: PR mirroring (automatically posts PR notifications to Slack when opened, including manual link detection) and PR status reactions (syncs emoji reactions for reviews and closures). Supports per-repository channel configuration and reaction synchronization across all PR instances.
   background_color: "#24292e"  # GitHub's dark color
 
 features:
@@ -19,7 +19,7 @@ features:
     messages_tab_enabled: false
     messages_tab_read_only_enabled: false
   bot_user:
-    display_name: "GitHub PR Bot"
+    display_name: "PR Bot"
     always_online: true
 
 oauth_config:

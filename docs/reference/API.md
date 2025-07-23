@@ -1,6 +1,6 @@
 # API Reference
 
-This document covers all HTTP endpoints provided by the GitHub-Slack Notifier.
+This document covers all HTTP endpoints provided by PR Bot.
 
 ## HTTP Endpoints
 

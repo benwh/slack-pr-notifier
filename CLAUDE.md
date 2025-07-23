@@ -40,7 +40,7 @@ When users ask about configuration, setup, or usage, refer them to the **referen
 
 ## Project Overview
 
-This is a Go-based GitHub-Slack notifier that sends Slack notifications for GitHub pull request events. It uses **async processing** via Google Cloud Tasks for high reliability, processing PR opens, reviews, and closures via webhooks, storing state in Cloud Firestore and sending notifications to Slack channels.
+This is **PR Bot**, a Go-based application that provides PR mirroring and status reactions between GitHub and Slack. It uses **async processing** via Google Cloud Tasks for high reliability, processing PR opens, reviews, and closures via webhooks, storing state in Cloud Firestore and sending notifications to Slack channels.
 
 ## Development Commands
 

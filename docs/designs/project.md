@@ -1,16 +1,15 @@
-# GitHub-Slack Notifier
+# PR Bot
 
 ## Overview
 
-A high-performance GitHub webhook service that monitors repositories for pull request events and sends notifications to Slack channels with real-time status updates. Built with an async-first architecture using Google Cloud Tasks for reliability and scalability.
+PR Bot is a high-performance GitHub webhook service that provides PR mirroring and status reactions between GitHub and Slack. Built with an async-first architecture using Google Cloud Tasks for reliability and scalability.
 
 ## Features
 
 ### Core Functionality
 
-- **PR Creation Notifications**: Monitor GitHub repositories for new pull requests (excluding draft PRs) and send notifications to configured Slack channels
-- **Review Status Updates**: Update Slack messages with appropriate emojis when reviews are submitted on pull requests
-- **PR Closure Updates**: Add closure status emojis when pull requests are merged or closed
+- **PR Mirroring**: Automatically posts PR notifications to Slack when opened (includes manual link detection for PRs not auto-posted)
+- **PR Status Reactions**: Syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬) and closures (🎉 merged, ❌ closed)
 - **User Configuration**: Slack slash commands for users to configure their notification preferences
 
 ### Async Processing Architecture
