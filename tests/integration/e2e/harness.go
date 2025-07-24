@@ -146,7 +146,7 @@ type appServices struct {
 // startApplication starts the real application with injected dependencies.
 func startApplication(
 	ctx context.Context, cfg *config.Config, firestoreClient *firestore.Client,
-	_ *http.Client, fakeCloudTasks *FakeCloudTasksService,
+	httpClient *http.Client, fakeCloudTasks *FakeCloudTasksService,
 	servicesChan chan<- *appServices,
 ) {
 	// Disable structured logging for tests
@@ -158,7 +158,7 @@ func startApplication(
 
 	// Create Slack service with OAuth support
 	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
-	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg)
+	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, httpClient)
 
 	// Create handlers
 	githubHandler := handlers.NewGitHubHandler(
@@ -170,7 +170,7 @@ func startApplication(
 	)
 
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
-	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg)
+	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg, httpClient)
 
 	slackHandler := handlers.NewSlackHandler(
 		firestoreService, slackService, fakeCloudTasks, githubAuthService, cfg,
@@ -398,6 +398,21 @@ func (h *TestHarness) SetupMockResponses() {
 			"deletions": 30,
 			"user": map[string]interface{}{
 				"login": "test-user",
+			},
+		}))
+
+	// Mock Slack OAuth endpoint
+	httpmock.RegisterResponder("POST", "https://slack.com/api/oauth.v2.access",
+		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
+			"ok":           true,
+			"access_token": "xoxb-test-token",
+			"scope":        "channels:read,chat:write,links:read,channels:history",
+			"team": map[string]interface{}{
+				"id":   "T12345TEST",
+				"name": "Test Workspace",
+			},
+			"authed_user": map[string]interface{}{
+				"id": "U12345USER",
 			},
 		}))
 

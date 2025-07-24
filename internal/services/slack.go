@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -34,18 +35,21 @@ type SlackService struct {
 	emojiConfig      config.EmojiConfig
 	uiBuilder        *ui.HomeViewBuilder
 	config           *config.Config
+	httpClient       *http.Client
 }
 
 func NewSlackService(
 	workspaceService *SlackWorkspaceService,
 	emojiConfig config.EmojiConfig,
 	config *config.Config,
+	httpClient *http.Client,
 ) *SlackService {
 	return &SlackService{
 		workspaceService: workspaceService,
 		emojiConfig:      emojiConfig,
 		uiBuilder:        ui.NewHomeViewBuilder(),
 		config:           config,
+		httpClient:       httpClient,
 	}
 }
 
@@ -59,7 +63,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 		}
 		return nil, fmt.Errorf("failed to get workspace token: %w", err)
 	}
-	return slack.New(token), nil
+	return slack.New(token, slack.OptionHTTPClient(s.httpClient)), nil
 }
 
 func (s *SlackService) PostPRMessage(

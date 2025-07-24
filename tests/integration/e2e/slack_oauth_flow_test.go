@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github-slack-notifier/internal/models"
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,24 +77,12 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 	})
 
 	t.Run("OAuth callback with invalid code fails token exchange", func(t *testing.T) {
-		// Mock Slack OAuth endpoint to return error
-		mockSlackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/oauth.v2.access" {
-				w.Header().Set("Content-Type", "application/json")
-				if err := json.NewEncoder(w).Encode(map[string]interface{}{
-					"ok":    false,
-					"error": "invalid_code",
-				}); err != nil {
-					http.Error(w, "encoding error", http.StatusInternalServerError)
-				}
-				return
-			}
-			http.NotFound(w, r)
-		}))
-		defer mockSlackServer.Close()
-
-		// Temporarily override the Slack API URL in the handler's HTTP client
-		// (In a real implementation, we'd inject this as a dependency)
+		// Override the global mock with an error response for this test
+		httpmock.RegisterResponder("POST", "https://slack.com/api/oauth.v2.access",
+			httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
+				"ok":    false,
+				"error": "invalid_code",
+			}))
 		req := httptest.NewRequest(http.MethodGet, "/slack/oauth/callback?code=invalid_code", nil)
 		w := httptest.NewRecorder()
 
@@ -106,6 +95,9 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		assert.Equal(t, "Installation Failed", response["error"])
+
+		// Restore the global mock for other tests
+		harness.SetupMockResponses()
 	})
 
 	t.Run("Successful OAuth installation flow", func(t *testing.T) {

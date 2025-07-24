@@ -23,6 +23,7 @@ type OAuthHandler struct {
 	slackService          *services.SlackService
 	slackWorkspaceService *services.SlackWorkspaceService
 	config                *config.Config
+	httpClient            *http.Client
 }
 
 // NewOAuthHandler creates a new OAuth handler.
@@ -32,6 +33,7 @@ func NewOAuthHandler(
 	slackService *services.SlackService,
 	slackWorkspaceService *services.SlackWorkspaceService,
 	config *config.Config,
+	httpClient *http.Client,
 ) *OAuthHandler {
 	return &OAuthHandler{
 		githubAuthService:     githubAuthService,
@@ -39,6 +41,7 @@ func NewOAuthHandler(
 		slackService:          slackService,
 		slackWorkspaceService: slackWorkspaceService,
 		config:                config,
+		httpClient:            httpClient,
 	}
 }
 
@@ -475,9 +478,7 @@ func (h *OAuthHandler) exchangeSlackOAuthCode(ctx context.Context, code string) 
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	const httpTimeout = 30 * time.Second
-	client := &http.Client{Timeout: httpTimeout}
-	resp, err := client.Do(req)
+	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("OAuth request failed: %w", err)
 	}

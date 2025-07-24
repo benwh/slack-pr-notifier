@@ -2,7 +2,9 @@ package testutil
 
 import (
 	"context"
+	"net/http"
 	"testing"
+	"time"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/handlers"
@@ -62,7 +64,8 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 
 	// Real Slack service - will fail API calls without valid workspace tokens
 	slackWorkspaceService := services.NewSlackWorkspaceService(emulator.Client)
-	realSlackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg)
+	slackHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	realSlackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, slackHTTPClient)
 
 	// Mock Slack service for testing assertions
 	mockSlackService := NewMockSlackService()

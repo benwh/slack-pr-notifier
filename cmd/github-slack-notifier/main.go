@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github-slack-notifier/internal/config"
@@ -83,7 +84,10 @@ func main() {
 
 	firestoreService := services.NewFirestoreService(firestoreClient)
 	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
-	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg)
+
+	// Create HTTP client for Slack service
+	slackHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, slackHTTPClient)
 
 	// Initialize Cloud Tasks service
 	cloudTasksConfig := services.CloudTasksConfig{
@@ -112,7 +116,10 @@ func main() {
 		cfg.Emoji,
 	)
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
-	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg)
+
+	// Create HTTP client for OAuth handler
+	oauthHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg, oauthHTTPClient)
 
 	slackHandler := handlers.NewSlackHandler(
 		firestoreService, slackService, cloudTasksService, githubAuthService, cfg,
