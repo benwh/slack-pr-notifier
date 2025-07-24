@@ -100,7 +100,7 @@ func (s *GitHubAuthService) GetOAuthURL(stateID string) string {
 	baseURL := "https://github.com/login/oauth/authorize"
 	params := url.Values{
 		"client_id":    {s.config.GitHubClientID},
-		"redirect_uri": {s.config.GitHubOAuthRedirectURL},
+		"redirect_uri": {s.config.GitHubOAuthRedirectURL()},
 		"scope":        {"read:user user:email"},
 		"state":        {stateID},
 	}

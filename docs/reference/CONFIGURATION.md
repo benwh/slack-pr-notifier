@@ -44,9 +44,10 @@ See [SLACK_APP_SETUP.md](./SLACK_APP_SETUP.md) for detailed setup instructions.
 **Required Environment Variables:**
 - `SLACK_CLIENT_ID` - App Client ID for OAuth flow
 - `SLACK_CLIENT_SECRET` - App Client Secret for OAuth flow  
-- `SLACK_REDIRECT_URL` - OAuth callback URL (e.g., `https://your-domain.com/slack/oauth/callback`)
 - `SLACK_SIGNING_SECRET` - Signing secret for webhook verification
 - `SLACK_CONFIG_ACCESS_TOKEN` - App-Level Token for CLI management (optional, starts with `xoxe-1-`)
+
+**Note**: Slack OAuth redirect URL is automatically constructed as `BASE_URL + "/slack/oauth/callback"`
 
 **Multi-Workspace Installation:**
 - Each workspace installs the app via OAuth at: `https://your-domain.com/slack/install`

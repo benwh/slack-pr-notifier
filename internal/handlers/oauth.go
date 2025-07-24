@@ -330,7 +330,7 @@ func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
 		"https://slack.com/oauth/v2/authorize?client_id=%s&scope=%s&redirect_uri=%s",
 		url.QueryEscape(h.config.SlackClientID),
 		url.QueryEscape("channels:read,chat:write,links:read,channels:history"),
-		url.QueryEscape(h.config.SlackRedirectURL),
+		url.QueryEscape(h.config.SlackRedirectURL()),
 	)
 
 	log.Info(ctx, "Redirecting to Slack OAuth installation")
@@ -465,7 +465,7 @@ func (h *OAuthHandler) exchangeSlackOAuthCode(ctx context.Context, code string) 
 	data.Set("client_id", h.config.SlackClientID)
 	data.Set("client_secret", h.config.SlackClientSecret)
 	data.Set("code", code)
-	data.Set("redirect_uri", h.config.SlackRedirectURL)
+	data.Set("redirect_uri", h.config.SlackRedirectURL())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://slack.com/api/oauth.v2.access", strings.NewReader(data.Encode()))

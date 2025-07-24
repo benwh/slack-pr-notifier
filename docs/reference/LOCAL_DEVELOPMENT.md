@@ -75,7 +75,6 @@ API_ADMIN_KEY=some-random-long-string
 # Add to .env
 SLACK_CLIENT_ID=1234567890.1234567890
 SLACK_CLIENT_SECRET=your-slack-client-secret
-SLACK_REDIRECT_URL=http://localhost:8080/slack/oauth/callback
 ```
 
 ### 3. GitHub App Setup
@@ -110,7 +109,6 @@ SLACK_REDIRECT_URL=http://localhost:8080/slack/oauth/callback
 # Add to .env
 GITHUB_CLIENT_ID=your_github_app_client_id
 GITHUB_CLIENT_SECRET=your_github_app_client_secret
-GITHUB_OAUTH_REDIRECT_URL=http://localhost:8080/auth/github/callback
 ```
 
 ### 4. Cloud Tasks (Simulated)
@@ -251,12 +249,10 @@ API_ADMIN_KEY=local-dev-admin-key
 # Slack OAuth Configuration
 SLACK_CLIENT_ID=1234567890.1234567890
 SLACK_CLIENT_SECRET=your-slack-client-secret
-SLACK_REDIRECT_URL=http://localhost:8080/slack/oauth/callback
 
 # GitHub OAuth Configuration
 GITHUB_CLIENT_ID=your_github_app_client_id
 GITHUB_CLIENT_SECRET=your_github_app_client_secret
-GITHUB_OAUTH_REDIRECT_URL=http://localhost:8080/auth/github/callback
 
 # Cloud Tasks Configuration (local simulation)
 GOOGLE_CLOUD_PROJECT=local-dev-project

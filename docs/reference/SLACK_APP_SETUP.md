@@ -52,9 +52,9 @@ export SLACK_APP_ID=A1234567890
 In your Slack app settings:
 
 1. Go to **"OAuth & Permissions"**
-2. Add your redirect URLs:
-   - Development: `http://localhost:8080/slack/oauth/callback`
-   - Production: `https://your-domain.com/slack/oauth/callback`
+2. Add your redirect URLs (constructed automatically from BASE_URL):
+   - Development: `http://localhost:8080/slack/oauth/callback` (BASE_URL + "/slack/oauth/callback")
+   - Production: `https://your-domain.com/slack/oauth/callback` (BASE_URL + "/slack/oauth/callback")
 
 ### 2. Required Bot Token Scopes
 
@@ -101,7 +101,6 @@ Add these OAuth credentials to your `.env` file:
 # Slack OAuth Configuration (REQUIRED)
 SLACK_CLIENT_ID=1234567890.1234567890
 SLACK_CLIENT_SECRET=your-client-secret-here
-SLACK_REDIRECT_URL=https://your-domain.com/slack/oauth/callback
 SLACK_SIGNING_SECRET=your-signing-secret-here
 
 # Optional: Custom emoji for different PR states
@@ -167,7 +166,7 @@ Update your Slack app settings with production URLs:
 1. Go to **"OAuth & Permissions"**
 2. Update **Redirect URLs**:
    - Remove development URLs (`localhost`)
-   - Add production URL: `https://your-domain.com/slack/oauth/callback`
+   - Add production URL: `https://your-domain.com/slack/oauth/callback` (matches your BASE_URL)
 
 ### Event Subscription URLs
 

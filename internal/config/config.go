@@ -27,12 +27,10 @@ type Config struct {
 	// Slack OAuth settings (required)
 	SlackClientID     string
 	SlackClientSecret string
-	SlackRedirectURL  string
 
 	// GitHub OAuth settings
-	GitHubClientID         string
-	GitHubClientSecret     string
-	GitHubOAuthRedirectURL string
+	GitHubClientID     string
+	GitHubClientSecret string
 
 	// Cloud Tasks settings
 	GoogleCloudProject string
@@ -64,6 +62,16 @@ func (c *Config) JobProcessorURL() string {
 	return c.BaseURL + "/jobs/process"
 }
 
+// SlackRedirectURL returns the full URL for the Slack OAuth callback endpoint.
+func (c *Config) SlackRedirectURL() string {
+	return c.BaseURL + "/slack/oauth/callback"
+}
+
+// GitHubOAuthRedirectURL returns the full URL for the GitHub OAuth callback endpoint.
+func (c *Config) GitHubOAuthRedirectURL() string {
+	return c.BaseURL + "/auth/github/callback"
+}
+
 // IsSlackOAuthEnabled returns true since Slack OAuth is now always enabled.
 func (c *Config) IsSlackOAuthEnabled() bool {
 	return true
@@ -82,12 +90,10 @@ func Load() *Config {
 		// Slack OAuth settings (required)
 		SlackClientID:     getEnvRequired("SLACK_CLIENT_ID"),
 		SlackClientSecret: getEnvRequired("SLACK_CLIENT_SECRET"),
-		SlackRedirectURL:  getEnvRequired("SLACK_REDIRECT_URL"),
 
 		// GitHub OAuth settings (required)
-		GitHubClientID:         getEnvRequired("GITHUB_CLIENT_ID"),
-		GitHubClientSecret:     getEnvRequired("GITHUB_CLIENT_SECRET"),
-		GitHubOAuthRedirectURL: getEnvRequired("GITHUB_OAUTH_REDIRECT_URL"),
+		GitHubClientID:     getEnvRequired("GITHUB_CLIENT_ID"),
+		GitHubClientSecret: getEnvRequired("GITHUB_CLIENT_SECRET"),
 
 		// Cloud Tasks settings
 		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),
@@ -139,19 +145,17 @@ func (c *Config) validate() {
 // validateRequiredFields checks that all required fields are set.
 func (c *Config) validateRequiredFields() {
 	required := map[string]string{
-		"FIRESTORE_PROJECT_ID":      c.FirestoreProjectID,
-		"FIRESTORE_DATABASE_ID":     c.FirestoreDatabaseID,
-		"GITHUB_WEBHOOK_SECRET":     c.GitHubWebhookSecret,
-		"SLACK_SIGNING_SECRET":      c.SlackSigningSecret,
-		"SLACK_CLIENT_ID":           c.SlackClientID,
-		"SLACK_CLIENT_SECRET":       c.SlackClientSecret,
-		"SLACK_REDIRECT_URL":        c.SlackRedirectURL,
-		"GITHUB_CLIENT_ID":          c.GitHubClientID,
-		"GITHUB_CLIENT_SECRET":      c.GitHubClientSecret,
-		"GITHUB_OAUTH_REDIRECT_URL": c.GitHubOAuthRedirectURL,
-		"GOOGLE_CLOUD_PROJECT":      c.GoogleCloudProject,
-		"BASE_URL":                  c.BaseURL,
-		"CLOUD_TASKS_SECRET":        c.CloudTasksSecret,
+		"FIRESTORE_PROJECT_ID":  c.FirestoreProjectID,
+		"FIRESTORE_DATABASE_ID": c.FirestoreDatabaseID,
+		"GITHUB_WEBHOOK_SECRET": c.GitHubWebhookSecret,
+		"SLACK_SIGNING_SECRET":  c.SlackSigningSecret,
+		"SLACK_CLIENT_ID":       c.SlackClientID,
+		"SLACK_CLIENT_SECRET":   c.SlackClientSecret,
+		"GITHUB_CLIENT_ID":      c.GitHubClientID,
+		"GITHUB_CLIENT_SECRET":  c.GitHubClientSecret,
+		"GOOGLE_CLOUD_PROJECT":  c.GoogleCloudProject,
+		"BASE_URL":              c.BaseURL,
+		"CLOUD_TASKS_SECRET":    c.CloudTasksSecret,
 	}
 
 	for name, value := range required {

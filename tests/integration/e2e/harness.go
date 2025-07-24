@@ -68,24 +68,23 @@ func NewTestHarness(t *testing.T) *TestHarness {
 
 	// Create test configuration
 	cfg := &config.Config{
-		Port:                   fmt.Sprintf("%d", port),
-		GinMode:                "test",
-		LogLevel:               "error", // Keep logs quiet during tests
-		FirestoreProjectID:     "test-project",
-		FirestoreDatabaseID:    "(default)",
-		SlackSigningSecret:     "test-signing-secret",
-		SlackClientID:          "test_client_id",
-		SlackClientSecret:      "test_client_secret",
-		SlackRedirectURL:       fmt.Sprintf("http://localhost:%d/slack/oauth/callback", port),
-		GitHubWebhookSecret:    "test-webhook-secret",
-		GitHubClientID:         "test-github-client-id",
-		GitHubClientSecret:     "test-github-client-secret",
-		GitHubOAuthRedirectURL: fmt.Sprintf("http://localhost:%d/auth/github/callback", port),
-		GoogleCloudProject:     "test-project",
-		GCPRegion:              "us-central1",
-		CloudTasksQueue:        "test-queue",
-		CloudTasksSecret:       "test-cloud-tasks-secret",
-		CloudTasksMaxAttempts:  3, // Allow retries in tests
+		Port:                  fmt.Sprintf("%d", port),
+		GinMode:               "test",
+		LogLevel:              "error", // Keep logs quiet during tests
+		FirestoreProjectID:    "test-project",
+		FirestoreDatabaseID:   "(default)",
+		SlackSigningSecret:    "test-signing-secret",
+		SlackClientID:         "test_client_id",
+		SlackClientSecret:     "test_client_secret",
+		BaseURL:               fmt.Sprintf("http://localhost:%d", port),
+		GitHubWebhookSecret:   "test-webhook-secret",
+		GitHubClientID:        "test-github-client-id",
+		GitHubClientSecret:    "test-github-client-secret",
+		GoogleCloudProject:    "test-project",
+		GCPRegion:             "us-central1",
+		CloudTasksQueue:       "test-queue",
+		CloudTasksSecret:      "test-cloud-tasks-secret",
+		CloudTasksMaxAttempts: 3, // Allow retries in tests
 		Emoji: config.EmojiConfig{
 			Approved:         "white_check_mark",
 			ChangesRequested: "arrows_counterclockwise",
