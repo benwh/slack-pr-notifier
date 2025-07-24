@@ -18,6 +18,9 @@ var (
 	ErrSlackMessageTSRequired = errors.New("Slack message timestamp is required")
 	ErrSlackTeamIDRequired    = errors.New("Slack team ID is required")
 	ErrTraceIDRequired        = errors.New("trace ID is required")
+	ErrAccessTokenRequired    = errors.New("access token is required")
+	ErrTeamNameRequired       = errors.New("team name is required")
+	ErrSlackOAuthFailed       = errors.New("Slack OAuth failed")
 )
 
 type User struct {
@@ -42,6 +45,31 @@ type OAuthState struct {
 	ReturnToHome bool      `firestore:"return_to_home"` // Whether to refresh App Home after OAuth
 	CreatedAt    time.Time `firestore:"created_at"`     // When state was created
 	ExpiresAt    time.Time `firestore:"expires_at"`     // When state expires (15 minutes)
+}
+
+// SlackWorkspace represents a Slack workspace installation with OAuth tokens.
+type SlackWorkspace struct {
+	ID          string    `firestore:"id"`           // Slack team ID (primary key)
+	TeamName    string    `firestore:"team_name"`    // Workspace name
+	AccessToken string    `firestore:"access_token"` // Bot token for this workspace
+	Scope       string    `firestore:"scope"`        // Granted scopes
+	InstalledBy string    `firestore:"installed_by"` // Slack user ID who installed the app
+	InstalledAt time.Time `firestore:"installed_at"` // Installation timestamp
+	UpdatedAt   time.Time `firestore:"updated_at"`   // Last update timestamp
+}
+
+// Validate validates required fields for SlackWorkspace.
+func (sw *SlackWorkspace) Validate() error {
+	if sw.ID == "" {
+		return ErrSlackTeamIDRequired
+	}
+	if sw.TeamName == "" {
+		return ErrTeamNameRequired
+	}
+	if sw.AccessToken == "" {
+		return ErrAccessTokenRequired
+	}
+	return nil
 }
 
 // TrackedMessage represents a tracked PR message in Slack (replaces old Message model).

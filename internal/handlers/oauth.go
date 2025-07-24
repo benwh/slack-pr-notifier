@@ -1,21 +1,28 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
+	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
-// OAuthHandler handles GitHub OAuth endpoints.
+// OAuthHandler handles GitHub and Slack OAuth endpoints.
 type OAuthHandler struct {
-	githubAuthService *services.GitHubAuthService
-	firestoreService  *services.FirestoreService
-	slackService      *services.SlackService
+	githubAuthService     *services.GitHubAuthService
+	firestoreService      *services.FirestoreService
+	slackService          *services.SlackService
+	slackWorkspaceService *services.SlackWorkspaceService
+	config                *config.Config
 }
 
 // NewOAuthHandler creates a new OAuth handler.
@@ -23,11 +30,15 @@ func NewOAuthHandler(
 	githubAuthService *services.GitHubAuthService,
 	firestoreService *services.FirestoreService,
 	slackService *services.SlackService,
+	slackWorkspaceService *services.SlackWorkspaceService,
+	config *config.Config,
 ) *OAuthHandler {
 	return &OAuthHandler{
-		githubAuthService: githubAuthService,
-		firestoreService:  firestoreService,
-		slackService:      slackService,
+		githubAuthService:     githubAuthService,
+		firestoreService:      firestoreService,
+		slackService:          slackService,
+		slackWorkspaceService: slackWorkspaceService,
+		config:                config,
 	}
 }
 
@@ -278,4 +289,208 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 </html>`, slackDeepLink, githubUser.Login, slackDeepLink)
 
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
+}
+
+// SlackOAuthResponse represents the response from Slack's oauth.v2.access endpoint.
+type SlackOAuthResponse struct {
+	OK          bool   `json:"ok"`
+	Error       string `json:"error,omitempty"`
+	AccessToken string `json:"access_token"`
+	Scope       string `json:"scope"`
+	Team        struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"team"`
+	AuthedUser struct {
+		ID string `json:"id"`
+	} `json:"authed_user"`
+}
+
+// GET /slack/install.
+func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
+	ctx := c.Request.Context()
+	traceID := c.GetString("trace_id")
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"trace_id": traceID,
+		"handler":  "slack_oauth_install",
+	})
+
+	if !h.config.IsSlackOAuthEnabled() {
+		log.Error(ctx, "Slack OAuth not configured")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "OAuth Not Available",
+			"message": "Slack OAuth installation is not configured",
+		})
+		return
+	}
+
+	// Build OAuth URL
+	oauthURL := fmt.Sprintf(
+		"https://slack.com/oauth/v2/authorize?client_id=%s&scope=%s&redirect_uri=%s",
+		url.QueryEscape(h.config.SlackClientID),
+		url.QueryEscape("channels:read,chat:write,links:read,channels:history"),
+		url.QueryEscape(h.config.SlackRedirectURL),
+	)
+
+	log.Info(ctx, "Redirecting to Slack OAuth installation")
+	c.Redirect(http.StatusFound, oauthURL)
+}
+
+// GET /slack/oauth/callback?code=<code>&state=<state>.
+func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
+	ctx := c.Request.Context()
+	traceID := c.GetString("trace_id")
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"trace_id": traceID,
+		"handler":  "slack_oauth_callback",
+	})
+
+	code := c.Query("code")
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"has_code": code != "",
+	})
+
+	log.Info(ctx, "Slack OAuth callback received")
+
+	// Check for error from Slack
+	if errorParam := c.Query("error"); errorParam != "" {
+		log.Warn(ctx, "Slack OAuth error", "error", errorParam)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Installation Failed",
+			"message": fmt.Sprintf("Slack installation failed: %s", errorParam),
+		})
+		return
+	}
+
+	if code == "" {
+		log.Error(ctx, "Missing authorization code in Slack OAuth callback")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid Callback",
+			"message": "Missing authorization code from Slack",
+		})
+		return
+	}
+
+	// Exchange code for access token
+	token, err := h.exchangeSlackOAuthCode(ctx, code)
+	if err != nil {
+		log.Error(ctx, "Failed to exchange Slack OAuth code", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Installation Failed",
+			"message": "Failed to complete Slack installation",
+		})
+		return
+	}
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"team_id":   token.Team.ID,
+		"team_name": token.Team.Name,
+	})
+
+	// Save workspace installation
+	workspace := &models.SlackWorkspace{
+		ID:          token.Team.ID,
+		TeamName:    token.Team.Name,
+		AccessToken: token.AccessToken,
+		Scope:       token.Scope,
+		InstalledBy: token.AuthedUser.ID,
+		InstalledAt: time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err := h.slackWorkspaceService.SaveWorkspace(ctx, workspace); err != nil {
+		log.Error(ctx, "Failed to save Slack workspace", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Installation Failed",
+			"message": "Failed to save workspace installation",
+		})
+		return
+	}
+
+	log.Info(ctx, "Slack workspace installed successfully")
+
+	// Create success page
+	successHTML := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PR Bot Installed!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+            background-color: #f8f9fa;
+        }
+        .success-icon { font-size: 48px; margin-bottom: 20px; }
+        .success-message { color: #28a745; font-size: 20px; margin-bottom: 15px; }
+        .details { color: #6c757d; margin-bottom: 30px; }
+        .btn {
+            background-color: #611f69;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            display: inline-block;
+            margin: 0 10px;
+        }
+        .btn:hover { background-color: #4a154b; }
+    </style>
+</head>
+<body>
+    <div class="success-icon">🎉</div>
+    <div class="success-message">PR Bot Installed!</div>
+    <div class="details">
+        Successfully installed PR Bot in <strong>%s</strong> workspace.<br>
+        You can now receive GitHub PR notifications in Slack!
+    </div>
+    <a href="slack://open" class="btn">Open Slack</a>
+</body>
+</html>`, token.Team.Name)
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
+}
+
+// exchangeSlackOAuthCode exchanges an OAuth authorization code for an access token.
+func (h *OAuthHandler) exchangeSlackOAuthCode(ctx context.Context, code string) (*SlackOAuthResponse, error) {
+	// Prepare the request to Slack's oauth.v2.access endpoint
+	data := url.Values{}
+	data.Set("client_id", h.config.SlackClientID)
+	data.Set("client_secret", h.config.SlackClientSecret)
+	data.Set("code", code)
+	data.Set("redirect_uri", h.config.SlackRedirectURL)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://slack.com/api/oauth.v2.access", strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OAuth request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	const httpTimeout = 30 * time.Second
+	client := &http.Client{Timeout: httpTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("OAuth request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var oauthResp SlackOAuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
+		return nil, fmt.Errorf("failed to decode OAuth response: %w", err)
+	}
+
+	if !oauthResp.OK {
+		return nil, fmt.Errorf("%w: %s", models.ErrSlackOAuthFailed, oauthResp.Error)
+	}
+
+	return &oauthResp, nil
 }

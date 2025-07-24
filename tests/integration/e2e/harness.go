@@ -20,7 +20,6 @@ import (
 	firestoreTesting "github-slack-notifier/internal/testing"
 	"github.com/gin-gonic/gin"
 	"github.com/jarcoal/httpmock"
-	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,6 +30,10 @@ type TestHarness struct {
 
 	// Configuration
 	config *config.Config
+
+	// Services (exposed for testing)
+	SlackWorkspaceService *services.SlackWorkspaceService
+	Router                *gin.Engine
 
 	// Firestore emulator for cleanup
 	firestoreEmulator *firestoreTesting.FirestoreEmulator
@@ -65,19 +68,24 @@ func NewTestHarness(t *testing.T) *TestHarness {
 
 	// Create test configuration
 	cfg := &config.Config{
-		Port:                  fmt.Sprintf("%d", port),
-		GinMode:               "test",
-		LogLevel:              "error", // Keep logs quiet during tests
-		FirestoreProjectID:    "test-project",
-		FirestoreDatabaseID:   "(default)",
-		SlackBotToken:         "xoxb-test-token",
-		SlackSigningSecret:    "test-signing-secret",
-		GitHubWebhookSecret:   "test-webhook-secret",
-		GoogleCloudProject:    "test-project",
-		GCPRegion:             "us-central1",
-		CloudTasksQueue:       "test-queue",
-		CloudTasksSecret:      "test-cloud-tasks-secret",
-		CloudTasksMaxAttempts: 3, // Allow retries in tests
+		Port:                   fmt.Sprintf("%d", port),
+		GinMode:                "test",
+		LogLevel:               "error", // Keep logs quiet during tests
+		FirestoreProjectID:     "test-project",
+		FirestoreDatabaseID:    "(default)",
+		SlackSigningSecret:     "test-signing-secret",
+		SlackClientID:          "test_client_id",
+		SlackClientSecret:      "test_client_secret",
+		SlackRedirectURL:       fmt.Sprintf("http://localhost:%d/slack/oauth/callback", port),
+		GitHubWebhookSecret:    "test-webhook-secret",
+		GitHubClientID:         "test-github-client-id",
+		GitHubClientSecret:     "test-github-client-secret",
+		GitHubOAuthRedirectURL: fmt.Sprintf("http://localhost:%d/auth/github/callback", port),
+		GoogleCloudProject:     "test-project",
+		GCPRegion:              "us-central1",
+		CloudTasksQueue:        "test-queue",
+		CloudTasksSecret:       "test-cloud-tasks-secret",
+		CloudTasksMaxAttempts:  3, // Allow retries in tests
 		Emoji: config.EmojiConfig{
 			Approved:         "white_check_mark",
 			ChangesRequested: "arrows_counterclockwise",
@@ -105,27 +113,42 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		cfg.CloudTasksSecret,
 	)
 
+	// Create a channel to receive services from the application startup
+	servicesChan := make(chan *appServices, 1)
+
 	// Start the application in a goroutine
-	go startApplication(emulatorCtx, cfg, emulator.Client, httpClient, fakeCloudTasks)
+	go startApplication(emulatorCtx, cfg, emulator.Client, httpClient, fakeCloudTasks, servicesChan)
 
 	// Wait for server to be ready
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	waitForServer(t, baseURL)
 
+	// Wait for services to be available
+	services := <-servicesChan
+
 	return &TestHarness{
-		baseURL:           baseURL,
-		config:            cfg,
-		firestoreEmulator: emulator,
-		fakeCloudTasks:    fakeCloudTasks,
-		httpClient:        httpClient,
-		cancel:            cancel,
+		baseURL:               baseURL,
+		config:                cfg,
+		SlackWorkspaceService: services.slackWorkspaceService,
+		Router:                services.router,
+		firestoreEmulator:     emulator,
+		fakeCloudTasks:        fakeCloudTasks,
+		httpClient:            httpClient,
+		cancel:                cancel,
 	}
+}
+
+// appServices holds services that need to be exposed to tests.
+type appServices struct {
+	slackWorkspaceService *services.SlackWorkspaceService
+	router                *gin.Engine
 }
 
 // startApplication starts the real application with injected dependencies.
 func startApplication(
 	ctx context.Context, cfg *config.Config, firestoreClient *firestore.Client,
-	httpClient *http.Client, fakeCloudTasks *FakeCloudTasksService,
+	_ *http.Client, fakeCloudTasks *FakeCloudTasksService,
+	servicesChan chan<- *appServices,
 ) {
 	// Disable structured logging for tests
 	gin.SetMode(gin.TestMode)
@@ -134,12 +157,9 @@ func startApplication(
 	// Create services
 	firestoreService := services.NewFirestoreService(firestoreClient)
 
-	// Create Slack client with our mocked HTTP client
-	slackClient := slack.New(
-		cfg.SlackBotToken,
-		slack.OptionHTTPClient(httpClient),
-	)
-	slackService := services.NewSlackService(slackClient, cfg.Emoji)
+	// Create Slack service with OAuth support
+	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
+	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg)
 
 	// Create handlers
 	githubHandler := handlers.NewGitHubHandler(
@@ -151,7 +171,7 @@ func startApplication(
 	)
 
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
-	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService)
+	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg)
 
 	slackHandler := handlers.NewSlackHandler(
 		firestoreService, slackService, fakeCloudTasks, githubAuthService, cfg,
@@ -169,11 +189,24 @@ func startApplication(
 	router.POST("/jobs/process", middleware.CloudTasksAuthMiddleware(cfg), jobProcessor.ProcessJob)
 	router.GET("/auth/github/link", oauthHandler.HandleGitHubLink)
 	router.GET("/auth/github/callback", oauthHandler.HandleGitHubCallback)
+
+	// Configure Slack OAuth routes (if enabled)
+	if cfg.IsSlackOAuthEnabled() {
+		router.GET("/slack/install", oauthHandler.HandleSlackInstall)
+		router.GET("/slack/oauth/callback", oauthHandler.HandleSlackOAuthCallback)
+	}
+
 	router.POST("/webhooks/slack/events", slackHandler.HandleEvent)
 	router.POST("/webhooks/slack/interactions", slackHandler.HandleInteraction)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
+
+	// Send services to the test harness
+	servicesChan <- &appServices{
+		slackWorkspaceService: slackWorkspaceService,
+		router:                router,
+	}
 
 	// Start server
 	server := &http.Server{

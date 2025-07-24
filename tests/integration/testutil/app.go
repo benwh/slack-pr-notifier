@@ -9,7 +9,6 @@ import (
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	firestoreTesting "github-slack-notifier/internal/testing"
-	"github.com/slack-go/slack"
 )
 
 // TestApp represents a test application instance with all services and handlers.
@@ -36,13 +35,21 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 
 	// Create test configuration
 	cfg := &config.Config{
-		FirestoreProjectID:  "test-project",
-		SlackBotToken:       "xoxb-test-token",
-		SlackSigningSecret:  "test-signing-secret",
-		GitHubWebhookSecret: "test-webhook-secret",
-		GoogleCloudProject:  "test-project",
-		GCPRegion:           "us-central1",
-		CloudTasksQueue:     "test-queue",
+		FirestoreProjectID:     "test-project",
+		FirestoreDatabaseID:    "(default)",
+		SlackSigningSecret:     "test-signing-secret",
+		SlackClientID:          "test_client_id",
+		SlackClientSecret:      "test_client_secret",
+		SlackRedirectURL:       "http://localhost:8080/slack/oauth/callback",
+		GitHubWebhookSecret:    "test-webhook-secret",
+		GitHubClientID:         "test-github-client-id",
+		GitHubClientSecret:     "test-github-client-secret",
+		GitHubOAuthRedirectURL: "http://localhost:8080/auth/github/callback",
+		GoogleCloudProject:     "test-project",
+		BaseURL:                "http://localhost:8080",
+		GCPRegion:              "us-central1",
+		CloudTasksQueue:        "test-queue",
+		CloudTasksSecret:       "test-cloud-tasks-secret",
 		Emoji: config.EmojiConfig{
 			Approved:         "white_check_mark",
 			ChangesRequested: "arrows_counterclockwise",
@@ -55,9 +62,9 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 	// Create services
 	firestoreService := services.NewFirestoreService(emulator.Client)
 
-	// Real Slack service (with mock token) - will fail API calls as expected
-	slackClient := slack.New(cfg.SlackBotToken)
-	realSlackService := services.NewSlackService(slackClient, cfg.Emoji)
+	// Real Slack service - will fail API calls without valid workspace tokens
+	slackWorkspaceService := services.NewSlackWorkspaceService(emulator.Client)
+	realSlackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg)
 
 	// Mock Slack service for testing assertions
 	mockSlackService := NewMockSlackService()

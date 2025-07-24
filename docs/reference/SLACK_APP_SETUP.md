@@ -1,18 +1,22 @@
 # Slack App Setup Guide
 
-This guide walks you through creating a Slack app using the provided manifest file for simplified setup.
+This guide walks you through creating a Slack app with OAuth support for multi-workspace installations.
+
+> **Important**: This application now uses OAuth-based multi-workspace support. The old `SLACK_BOT_TOKEN` approach is no longer supported.
 
 ## Quick Setup with Manifest
 
 ### Option 1: Command Line (Recommended)
 
 **Prerequisites:**
+
 ```bash
 # Install slack-manifest CLI globally
 npm install -g slack-manifest
 ```
 
 **For new apps:**
+
 ```bash
 # Generate manifest and create new app
 ./scripts/generate-slack-manifest.sh
@@ -20,6 +24,7 @@ npm install -g slack-manifest
 ```
 
 **For updating existing apps:**
+
 ```bash
 # Set environment variables
 export SLACK_CONFIG_ACCESS_TOKEN=xoxe-1-your-config-token
@@ -40,21 +45,64 @@ export SLACK_APP_ID=A1234567890
 7. Click **"Next"**
 8. Review the configuration and click **"Create"**
 
-### 2. Get Your Bot Token
+## OAuth Configuration
 
-1. In your app's settings, go to **"OAuth & Permissions"**
-2. Click **"Install to Workspace"**
-3. Authorize the app
-4. Copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
-5. Add this to your `.env` file as `SLACK_BOT_TOKEN`
+### 1. Enable OAuth & Permissions
 
-### 3. Configure Environment Variables
+In your Slack app settings:
 
-Add these to your `.env` file:
+1. Go to **"OAuth & Permissions"**
+2. Add your redirect URLs:
+   - Development: `http://localhost:8080/slack/oauth/callback`
+   - Production: `https://your-domain.com/slack/oauth/callback`
+
+### 2. Required Bot Token Scopes
+
+Ensure these scopes are configured:
+
+- `channels:read` - View basic channel information for channel validation
+- `chat:write` - Send PR notifications to channels
+- `links:read` - Detect manual PR links in messages
+- `channels:history` - Required for the message.channels event subscription
+
+### 3. Event Subscriptions
+
+1. Go to **"Event Subscriptions"**
+2. Enable events
+3. Set Request URL: `https://your-domain.com/webhooks/slack/events`
+4. Subscribe to **Bot Events**:
+   - `message.channels` - For manual PR link detection
+   - `app_home_opened` - For App Home interface
+
+### 4. App Home & Interactivity
+
+1. **App Home**:
+   - Go to **"App Home"**
+   - Enable the **"Home Tab"**
+
+2. **Interactivity**:
+   - Go to **"Interactivity & Shortcuts"**
+   - Enable **"Interactivity"**
+   - Set Request URL: `https://your-domain.com/webhooks/slack/interactions`
+
+### 5. Get OAuth Credentials
+
+From your app's **"Basic Information"** page:
+
+1. Copy the **Client ID**
+2. Copy the **Client Secret** (you may need to generate one)
+3. Copy the **Signing Secret**
+
+## Environment Configuration
+
+Add these OAuth credentials to your `.env` file:
 
 ```bash
-# Slack Configuration
-SLACK_BOT_TOKEN=xoxb-your-bot-token-here
+# Slack OAuth Configuration (REQUIRED)
+SLACK_CLIENT_ID=1234567890.1234567890
+SLACK_CLIENT_SECRET=your-client-secret-here
+SLACK_REDIRECT_URL=https://your-domain.com/slack/oauth/callback
+SLACK_SIGNING_SECRET=your-signing-secret-here
 
 # Optional: Custom emoji for different PR states
 EMOJI_APPROVED=white_check_mark
@@ -64,66 +112,148 @@ EMOJI_MERGED=tada
 EMOJI_CLOSED=x
 ```
 
-## Manual Setup (Alternative)
+> **Note**: `SLACK_BOT_TOKEN` is no longer used. The app obtains workspace-specific tokens through OAuth installation.
 
-If you prefer to set up manually instead of using the manifest:
+## Installation Flow
 
-### Required Bot Token Scopes
+### Multi-Workspace Support
 
-- `chat:write` - Post messages in channels
-- `chat:write.public` - Send messages to channels the bot isn't a member of
-- `channels:read` - View basic channel information
-- `groups:read` - View basic private channel information
-- `reactions:write` - Add emoji reactions to messages
+This app supports installation to multiple Slack workspaces:
 
-### App Settings
+1. **Installation URL**: `https://your-domain.com/slack/install`
+2. **Users visit the URL** → Redirected to Slack OAuth
+3. **Slack prompts for permissions** → User authorizes
+4. **App stores workspace token** → Installation complete
 
-- **App Name**: "GitHub PR Notifier"
-- **Bot Display Name**: "GitHub PR Bot"
-- **Always Show My Bot as Online**: Enabled
+### Workspace Management
+
+- Each workspace gets its own OAuth token stored in Firestore
+- Tokens are cached for performance
+- Workspaces can be uninstalled and reinstalled independently
 
 ## Testing Your Setup
 
-1. Invite the bot to a test channel: `/invite @GitHub PR Bot`
-2. Configure through the Slack App Home:
-   - Open the app home tab
-   - Connect your GitHub account via OAuth
-   - Set your default notification channel
+### 1. Test OAuth Installation
 
-3. Trigger a test webhook from GitHub to verify notifications work
-   - Repository configurations are created automatically when PRs are opened
+1. Visit your installation URL: `https://your-domain.com/slack/install`
+2. Complete the OAuth flow
+3. Check your application logs for successful workspace installation
+
+### 2. Test App Home
+
+1. Open your Slack workspace
+2. Find your app in the sidebar
+3. Click on the **"Home"** tab
+4. Verify the interface loads correctly
+
+### 3. Test PR Link Detection
+
+1. Invite the bot to a test channel: `/invite @your-bot-name`
+2. Post a GitHub PR link in the channel
+3. Verify the bot processes the manual link
+
+### 4. Test GitHub Integration
+
+1. Configure a repository webhook
+2. Open a PR in that repository
+3. Verify notifications appear in the configured Slack channel
 
 ## Production Deployment
 
-For production, you'll need to:
+### OAuth Redirect URLs
 
-1. **Update OAuth Redirect URLs** in your Slack app settings to match your production domain
-2. **Enable Distribution** if you want to share the app with other workspaces
-3. **Set up proper webhook URLs** in your GitHub repository settings
+Update your Slack app settings with production URLs:
+
+1. Go to **"OAuth & Permissions"**
+2. Update **Redirect URLs**:
+   - Remove development URLs (`localhost`)
+   - Add production URL: `https://your-domain.com/slack/oauth/callback`
+
+### Event Subscription URLs
+
+Update event endpoints:
+
+1. **Event Subscriptions**: `https://your-domain.com/webhooks/slack/events`
+2. **Interactivity**: `https://your-domain.com/webhooks/slack/interactions`
+
+### Distribution (Optional)
+
+To distribute your app to other organizations:
+
+1. Go to **"Manage Distribution"**
+2. Complete the checklist
+3. Submit for review (if public distribution desired)
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Bot token not working**: Make sure you're using the "Bot User OAuth Token" (starts with `xoxb-`), not the "OAuth Access Token"
-2. **Permission denied**: Ensure the bot has been invited to the channel you're trying to post to
-3. **Channel not found**: Use the channel name without the `#` prefix (e.g., `general` not `#general`)
+1. **OAuth installation fails**:
+   - Check `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` are correct
+   - Verify redirect URL matches exactly (including protocol)
+   - Check application logs for specific error messages
 
-### Testing Permissions
+2. **Events not received**:
+   - Verify Event Subscription URL is accessible
+   - Check `SLACK_SIGNING_SECRET` matches your app settings
+   - Ensure bot is invited to channels where events should be received
 
-You can test if your bot has the right permissions by running:
+3. **App Home not loading**:
+   - Verify App Home is enabled in app settings
+   - Check for errors in application logs
+   - Ensure workspace is properly installed via OAuth
+
+4. **Messages not posting**:
+   - Verify workspace has completed OAuth installation
+   - Check bot has necessary permissions in target channels
+   - Ensure channels are public (private channels are not supported)
+
+### Testing OAuth Configuration
+
+Test your OAuth setup:
 
 ```bash
-curl -X POST https://slack.com/api/auth.test \
-  -H "Authorization: Bearer xoxb-your-bot-token-here"
+# Test installation endpoint
+curl https://your-domain.com/slack/install
+
+# Should redirect to Slack OAuth with proper client_id and scopes
 ```
+
+### Debug Workspace Installations
+
+Check which workspaces are installed:
+
+```bash
+# View application logs during installation
+# Look for "Workspace saved successfully" messages
+```
+
+## Migration from Bot Token
+
+If migrating from the old `SLACK_BOT_TOKEN` system:
+
+1. **Remove old environment variables**:
+   - Remove `SLACK_BOT_TOKEN` from your `.env`
+   - The app will no longer accept this configuration
+
+2. **Add OAuth credentials**:
+   - Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, etc.
+   - Update your Slack app with OAuth settings
+
+3. **Reinstall to workspaces**:
+   - Each workspace needs to complete the OAuth flow
+   - Use the installation URL: `https://your-domain.com/slack/install`
+
+4. **Update documentation**:
+   - Share the new installation URL with users
+   - Update any internal setup documentation
 
 ## Next Steps
 
-Once your Slack app is set up:
+Once your Slack app is set up with OAuth:
 
-1. Configure GitHub webhooks to point to your application
-2. Register repositories using the API endpoint
-3. Test with actual GitHub events
-4. Set up monitoring and alerting for production use
-
+1. **Test the installation flow** with a development workspace
+2. **Configure GitHub webhooks** to point to your application
+3. **Test the complete flow** from GitHub PR to Slack notification
+4. **Set up monitoring** for OAuth installations and errors
+5. **Document the installation process** for your users

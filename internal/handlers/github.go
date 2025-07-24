@@ -320,15 +320,25 @@ func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, paylo
 	}
 
 	// Sync all review reactions
-	err = h.slackService.SyncAllReviewReactions(ctx, messageRefs, currentState)
-	if err != nil {
-		log.Error(ctx, "Failed to sync review reactions to tracked messages",
-			"error", err,
-			"review_state", currentState,
-			"review_action", githubPayload.Action,
-			"message_count", len(messageRefs),
-		)
-		return err
+	// Group message refs by team ID for proper team-scoped API calls
+	messagesByTeam := make(map[string][]services.MessageRef)
+	for i, msg := range trackedMessages {
+		messagesByTeam[msg.SlackTeamID] = append(messagesByTeam[msg.SlackTeamID], messageRefs[i])
+	}
+
+	// Sync reactions for each team separately
+	for teamID, teamMessageRefs := range messagesByTeam {
+		err = h.slackService.SyncAllReviewReactions(ctx, teamID, teamMessageRefs, currentState)
+		if err != nil {
+			log.Error(ctx, "Failed to sync review reactions for team",
+				"error", err,
+				"team_id", teamID,
+				"review_state", currentState,
+				"review_action", githubPayload.Action,
+				"message_count", len(teamMessageRefs),
+			)
+			// Continue with other teams even if one fails
+		}
 	}
 	return nil
 }
@@ -545,15 +555,25 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebho
 			})
 		}
 
-		err = h.slackService.AddReactionToMultipleMessages(ctx, messageRefs, emoji)
-		if err != nil {
-			log.Error(ctx, "Failed to add PR closed reactions to tracked messages",
-				"error", err,
-				"emoji", emoji,
-				"message_count", len(messageRefs),
-				"merged", payload.PullRequest.Merged,
-			)
-			return err
+		// Group message refs by team ID for proper team-scoped API calls
+		messagesByTeam := make(map[string][]services.MessageRef)
+		for i, msg := range trackedMessages {
+			messagesByTeam[msg.SlackTeamID] = append(messagesByTeam[msg.SlackTeamID], messageRefs[i])
+		}
+
+		// Add reactions for each team separately
+		for teamID, teamMessageRefs := range messagesByTeam {
+			err = h.slackService.AddReactionToMultipleMessages(ctx, teamID, teamMessageRefs, emoji)
+			if err != nil {
+				log.Error(ctx, "Failed to add PR closed reactions for team",
+					"error", err,
+					"team_id", teamID,
+					"emoji", emoji,
+					"message_count", len(teamMessageRefs),
+					"merged", payload.PullRequest.Merged,
+				)
+				// Continue with other teams even if one fails
+			}
 		}
 	}
 

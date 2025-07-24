@@ -17,7 +17,6 @@ import (
 	"github-slack-notifier/internal/middleware"
 	"github-slack-notifier/internal/services"
 	"github.com/gin-gonic/gin"
-	"github.com/slack-go/slack"
 )
 
 // App represents the main application structure with all services and handlers.
@@ -83,9 +82,8 @@ func main() {
 	}()
 
 	firestoreService := services.NewFirestoreService(firestoreClient)
-
-	slackClient := slack.New(cfg.SlackBotToken)
-	slackService := services.NewSlackService(slackClient, cfg.Emoji)
+	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
+	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg)
 
 	// Initialize Cloud Tasks service
 	cloudTasksConfig := services.CloudTasksConfig{
@@ -114,7 +112,7 @@ func main() {
 		cfg.Emoji,
 	)
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
-	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService)
+	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg)
 
 	slackHandler := handlers.NewSlackHandler(
 		firestoreService, slackService, cloudTasksService, githubAuthService, cfg,
@@ -148,6 +146,12 @@ func main() {
 	// Configure OAuth routes
 	router.GET("/auth/github/link", app.oauthHandler.HandleGitHubLink)
 	router.GET("/auth/github/callback", app.oauthHandler.HandleGitHubCallback)
+
+	// Configure Slack OAuth routes (if enabled)
+	if cfg.IsSlackOAuthEnabled() {
+		router.GET("/slack/install", app.oauthHandler.HandleSlackInstall)
+		router.GET("/slack/oauth/callback", app.oauthHandler.HandleSlackOAuthCallback)
+	}
 
 	router.POST("/webhooks/slack/events", app.slackHandler.HandleEvent)
 	router.POST("/webhooks/slack/interactions", app.slackHandler.HandleInteraction)

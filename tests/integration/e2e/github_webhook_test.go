@@ -36,6 +36,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
+
 		// Setup test data in Firestore
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "testorg/testrepo", "test-channel", "T123456789")
@@ -71,6 +74,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U987654321")
 
 		// Setup test data
 		setupTestUser(t, harness, "reviewer", "U987654321", "test-channel")
@@ -124,6 +130,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
+
 		// Setup test data
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "testorg/testrepo", "test-channel", "T123456789")
@@ -160,27 +169,6 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 }
 
 // Helper functions
-
-func setupTestUser(t *testing.T, harness *TestHarness, githubUsername, slackUserID, defaultChannel string) {
-	t.Helper()
-	ctx := context.Background()
-	err := harness.SetupUser(ctx, githubUsername, slackUserID, defaultChannel)
-	require.NoError(t, err)
-}
-
-func setupTestRepo(t *testing.T, harness *TestHarness, repoFullName, channelID, teamID string) {
-	t.Helper()
-	ctx := context.Background()
-	err := harness.SetupRepo(ctx, repoFullName, channelID, teamID)
-	require.NoError(t, err)
-}
-
-func setupTrackedMessage(t *testing.T, harness *TestHarness, repoFullName string, prNumber int, channelID, teamID, messageTS string) {
-	t.Helper()
-	ctx := context.Background()
-	err := harness.SetupTrackedMessage(ctx, repoFullName, prNumber, channelID, teamID, messageTS)
-	require.NoError(t, err)
-}
 
 func buildPROpenedPayload(repoFullName string, prNumber int, title, author string) []byte {
 	payload := map[string]interface{}{

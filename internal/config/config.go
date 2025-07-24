@@ -21,9 +21,13 @@ type Config struct {
 	// Core settings
 	FirestoreProjectID  string
 	FirestoreDatabaseID string
-	SlackBotToken       string
 	GitHubWebhookSecret string
 	SlackSigningSecret  string
+
+	// Slack OAuth settings (required)
+	SlackClientID     string
+	SlackClientSecret string
+	SlackRedirectURL  string
 
 	// GitHub OAuth settings
 	GitHubClientID         string
@@ -60,6 +64,11 @@ func (c *Config) JobProcessorURL() string {
 	return c.BaseURL + "/jobs/process"
 }
 
+// IsSlackOAuthEnabled returns true since Slack OAuth is now always enabled.
+func (c *Config) IsSlackOAuthEnabled() bool {
+	return true
+}
+
 // Load reads configuration from environment variables.
 // Panics if any required configuration is missing or invalid.
 func Load() *Config {
@@ -67,9 +76,13 @@ func Load() *Config {
 		// Core settings (required)
 		FirestoreProjectID:  getEnvRequired("FIRESTORE_PROJECT_ID"),
 		FirestoreDatabaseID: getEnvRequired("FIRESTORE_DATABASE_ID"),
-		SlackBotToken:       getEnvRequired("SLACK_BOT_TOKEN"),
 		GitHubWebhookSecret: getEnvRequired("GITHUB_WEBHOOK_SECRET"),
 		SlackSigningSecret:  getEnvRequired("SLACK_SIGNING_SECRET"),
+
+		// Slack OAuth settings (required)
+		SlackClientID:     getEnvRequired("SLACK_CLIENT_ID"),
+		SlackClientSecret: getEnvRequired("SLACK_CLIENT_SECRET"),
+		SlackRedirectURL:  getEnvRequired("SLACK_REDIRECT_URL"),
 
 		// GitHub OAuth settings (required)
 		GitHubClientID:         getEnvRequired("GITHUB_CLIENT_ID"),
@@ -128,9 +141,11 @@ func (c *Config) validateRequiredFields() {
 	required := map[string]string{
 		"FIRESTORE_PROJECT_ID":      c.FirestoreProjectID,
 		"FIRESTORE_DATABASE_ID":     c.FirestoreDatabaseID,
-		"SLACK_BOT_TOKEN":           c.SlackBotToken,
 		"GITHUB_WEBHOOK_SECRET":     c.GitHubWebhookSecret,
 		"SLACK_SIGNING_SECRET":      c.SlackSigningSecret,
+		"SLACK_CLIENT_ID":           c.SlackClientID,
+		"SLACK_CLIENT_SECRET":       c.SlackClientSecret,
+		"SLACK_REDIRECT_URL":        c.SlackRedirectURL,
 		"GITHUB_CLIENT_ID":          c.GitHubClientID,
 		"GITHUB_CLIENT_SECRET":      c.GitHubClientSecret,
 		"GITHUB_OAUTH_REDIRECT_URL": c.GitHubOAuthRedirectURL,
@@ -144,6 +159,8 @@ func (c *Config) validateRequiredFields() {
 			panic(fmt.Sprintf("required environment variable %s is not set", name))
 		}
 	}
+
+	// Slack OAuth is now required - validation happens in the required fields check above
 }
 
 // validateGinMode validates the GIN_MODE setting.

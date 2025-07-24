@@ -31,17 +31,27 @@ If you already have a GitHub App for webhooks:
 
 ## Slack App Configuration
 
-The Slack app requires specific OAuth scopes. See [SLACK_APP_SETUP.md](./SLACK_APP_SETUP.md) for detailed setup instructions.
+The application now uses **OAuth-based multi-workspace support**. The old `SLACK_BOT_TOKEN` approach is no longer supported.
+
+See [SLACK_APP_SETUP.md](./SLACK_APP_SETUP.md) for detailed setup instructions.
 
 **Quick Setup:**
 1. Generate the manifest: `./scripts/generate-slack-manifest.sh`
 2. Create app from CLI: `./scripts/apply-slack-manifest.sh --create`
 3. Or create manually at https://api.slack.com/apps using "From an app manifest"
-4. Install the app to generate the bot token
+4. Configure OAuth settings and get credentials
 
 **Required Environment Variables:**
-- `SLACK_BOT_TOKEN` - Bot User OAuth Token (starts with `xoxb-`)
-- `SLACK_CONFIG_ACCESS_TOKEN` - App-Level Token for CLI management (starts with `xoxe-1-`, optional)
+- `SLACK_CLIENT_ID` - App Client ID for OAuth flow
+- `SLACK_CLIENT_SECRET` - App Client Secret for OAuth flow  
+- `SLACK_REDIRECT_URL` - OAuth callback URL (e.g., `https://your-domain.com/slack/oauth/callback`)
+- `SLACK_SIGNING_SECRET` - Signing secret for webhook verification
+- `SLACK_CONFIG_ACCESS_TOKEN` - App-Level Token for CLI management (optional, starts with `xoxe-1-`)
+
+**Multi-Workspace Installation:**
+- Each workspace installs the app via OAuth at: `https://your-domain.com/slack/install`
+- Workspace-specific tokens are stored securely in Firestore
+- No manual token configuration needed per workspace
 
 ## Database Setup
 

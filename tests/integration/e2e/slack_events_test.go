@@ -36,6 +36,9 @@ func TestSlackEventsIntegration(t *testing.T) {
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
+
 		// Setup test data
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "testorg/testrepo", "C1234567890", "T123456789")
@@ -73,6 +76,9 @@ func TestSlackEventsIntegration(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
 
 		// Setup test data
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
@@ -158,6 +164,9 @@ func TestSlackEventsIntegration(t *testing.T) {
 	t.Run("App Home opened event", func(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
 
 		// Setup test user with default channel
 		setupTestUser(t, harness, "test-user", "U123456789", "C1234567890")
