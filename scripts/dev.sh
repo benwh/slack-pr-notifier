@@ -2,11 +2,16 @@
 
 set -euo pipefail
 
+# Initialize PID variables
+WATCHEXEC_PID=""
+NGROK_PID=""
+
 # Cleanup function
 cleanup() {
     echo ""
     echo "🧹 Cleaning up..."
-    kill $WATCHEXEC_PID $NGROK_PID 2>/dev/null || true
+    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
+    [ -n "$NGROK_PID" ] && kill $NGROK_PID 2>/dev/null || true
     exit 0
 }
 
@@ -85,9 +90,9 @@ if ! watchexec \
 fi
 WATCHEXEC_PID=$!
 
-# Wait for the application to start
+# Wait for the application to start (longer initial wait to account for watchexec restarts)
 echo "⏳ Waiting for application to start..."
-sleep 5
+sleep 12
 
 # Check if watchexec process is still running
 if ! kill -0 $WATCHEXEC_PID 2>/dev/null; then
@@ -95,22 +100,34 @@ if ! kill -0 $WATCHEXEC_PID 2>/dev/null; then
     exit 1
 fi
 
-# Check if application started successfully
+# Check if application started successfully (longer timeout to allow for multiple watchexec retries)
 RETRIES=0
-MAX_RETRIES=10
+MAX_RETRIES=30
+echo "🔍 Checking application health..."
 while [ $RETRIES -lt $MAX_RETRIES ]; do
+    # First check if watchexec is still running
+    if ! kill -0 $WATCHEXEC_PID 2>/dev/null; then
+        echo "❌ watchexec process died"
+        exit 1
+    fi
+    
     if curl -s "http://localhost:$PORT/health" > /dev/null; then
         echo "✅ Application started on port $PORT"
         break
     fi
-    echo "⏳ Waiting for application to be ready... (attempt $((RETRIES + 1))/$MAX_RETRIES)"
+    
+    # Only show periodic progress to avoid spam
+    if [ $((RETRIES % 5)) -eq 0 ] || [ $RETRIES -eq 0 ]; then
+        echo "⏳ Waiting for application to be ready... (attempt $((RETRIES + 1))/$MAX_RETRIES)"
+    fi
     sleep 2
     RETRIES=$((RETRIES + 1))
 done
 
 if [ $RETRIES -eq $MAX_RETRIES ]; then
     echo "❌ Application failed to start (health check failed after $MAX_RETRIES attempts)"
-    kill $WATCHEXEC_PID 2>/dev/null || true
+    echo "💡 Check tmp/app.log for compilation errors or startup issues"
+    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -118,7 +135,7 @@ fi
 echo "🌐 Starting ngrok tunnel with domain $NGROK_DOMAIN..."
 if ! ngrok http "$PORT" --domain="$NGROK_DOMAIN" --log=stdout 2>&1 | tee -a tmp/app.log > /dev/null & then
     echo "❌ Failed to start ngrok"
-    kill $WATCHEXEC_PID 2>/dev/null || true
+    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
 fi
 NGROK_PID=$!
@@ -129,7 +146,7 @@ sleep 3
 # Check if ngrok process is still running
 if ! kill -0 $NGROK_PID 2>/dev/null; then
     echo "❌ ngrok process died"
-    kill $WATCHEXEC_PID 2>/dev/null || true
+    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -139,7 +156,8 @@ NGROK_URL="https://$NGROK_DOMAIN"
 # Verify the tunnel is working
 if ! curl -s "$NGROK_URL" > /dev/null; then
     echo "❌ ngrok tunnel not accessible at $NGROK_URL"
-    kill $WATCHEXEC_PID $NGROK_PID 2>/dev/null || true
+    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
+    [ -n "$NGROK_PID" ] && kill $NGROK_PID 2>/dev/null || true
     exit 1
 fi
 
