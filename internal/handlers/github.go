@@ -399,7 +399,7 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 		if err != nil {
 			log.Error(ctx, "Failed to process notification for workspace",
 				"error", err,
-				"slack_team_id", repo.SlackTeamID,
+				"slack_team_id", repo.WorkspaceID,
 			)
 			// Continue processing other workspaces even if one fails
 		}
@@ -423,48 +423,48 @@ func (h *GitHubHandler) processWorkspaceNotification(
 		targetChannel = annotatedChannel
 		log.Debug(ctx, "Using annotated channel from PR description",
 			"channel", targetChannel,
-			"slack_team_id", repo.SlackTeamID)
-	} else if user != nil && user.SlackTeamID == repo.SlackTeamID && user.DefaultChannel != "" && user.NotificationsEnabled {
+			"slack_team_id", repo.WorkspaceID)
+	} else if user != nil && user.SlackTeamID == repo.WorkspaceID && user.DefaultChannel != "" && user.NotificationsEnabled {
 		targetChannel = user.DefaultChannel
 		log.Debug(ctx, "Using user default channel",
 			"channel", targetChannel,
-			"slack_team_id", repo.SlackTeamID)
+			"slack_team_id", repo.WorkspaceID)
 	}
 
 	if targetChannel == "" {
 		log.Debug(ctx, "No target channel determined for workspace, skipping",
-			"slack_team_id", repo.SlackTeamID)
+			"slack_team_id", repo.WorkspaceID)
 		return nil
 	}
 
 	// Check if we already have a bot message for this PR in this channel for this workspace
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, repo.SlackTeamID, "bot")
+		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, repo.WorkspaceID, "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to check for existing bot messages",
 			"error", err,
-			"slack_team_id", repo.SlackTeamID)
+			"slack_team_id", repo.WorkspaceID)
 		return err
 	}
 
 	if len(botMessages) > 0 {
 		log.Info(ctx, "Bot message already exists for this PR in workspace channel, skipping duplicate notification",
 			"channel", targetChannel,
-			"slack_team_id", repo.SlackTeamID,
+			"slack_team_id", repo.WorkspaceID,
 			"existing_message_count", len(botMessages))
 		return nil
 	}
 
 	log.Info(ctx, "Posting PR message to Slack workspace",
 		"channel", targetChannel,
-		"slack_team_id", repo.SlackTeamID)
+		"slack_team_id", repo.WorkspaceID)
 
 	// Calculate PR size (additions + deletions)
 	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
 
 	timestamp, err := h.slackService.PostPRMessage(
 		ctx,
-		repo.SlackTeamID,
+		repo.WorkspaceID,
 		targetChannel,
 		payload.Repository.Name,
 		payload.PullRequest.Title,
@@ -477,7 +477,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 		log.Error(ctx, "Failed to post PR message to Slack workspace",
 			"error", err,
 			"channel", targetChannel,
-			"slack_team_id", repo.SlackTeamID,
+			"slack_team_id", repo.WorkspaceID,
 			"repo_name", payload.Repository.Name,
 			"pr_title", payload.PullRequest.Title,
 		)
@@ -485,7 +485,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 	}
 	log.Info(ctx, "Posted PR notification to Slack workspace",
 		"channel", targetChannel,
-		"slack_team_id", repo.SlackTeamID,
+		"slack_team_id", repo.WorkspaceID,
 	)
 
 	// Create TrackedMessage for the bot notification
@@ -494,19 +494,19 @@ func (h *GitHubHandler) processWorkspaceNotification(
 		RepoFullName:   payload.Repository.FullName,
 		SlackChannel:   targetChannel,
 		SlackMessageTS: timestamp,
-		SlackTeamID:    repo.SlackTeamID,
+		SlackTeamID:    repo.WorkspaceID,
 		MessageSource:  "bot",
 	}
 
 	log.Debug(ctx, "Saving tracked message to database",
 		"channel", trackedMessage.SlackChannel,
-		"slack_team_id", repo.SlackTeamID)
+		"slack_team_id", repo.WorkspaceID)
 	err = h.firestoreService.CreateTrackedMessage(ctx, trackedMessage)
 	if err != nil {
 		log.Error(ctx, "Failed to save tracked message to database",
 			"error", err,
 			"channel", trackedMessage.SlackChannel,
-			"slack_team_id", repo.SlackTeamID,
+			"slack_team_id", repo.WorkspaceID,
 			"message_ts", trackedMessage.SlackMessageTS,
 		)
 		return err
@@ -515,7 +515,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 
 	// After posting, synchronize reactions with any existing manual messages for this PR in this workspace
 	allMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, repo.SlackTeamID, "")
+		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, repo.WorkspaceID, "")
 	if err != nil {
 		log.Error(ctx, "Failed to get all tracked messages for reaction sync", "error", err)
 	} else if len(allMessages) > 1 {
@@ -600,11 +600,11 @@ func (h *GitHubHandler) getAllTrackedMessagesForPR(
 	// Get tracked messages from each workspace
 	for _, repo := range repos {
 		messages, err := h.firestoreService.GetTrackedMessages(ctx,
-			repoFullName, prNumber, "", repo.SlackTeamID, "")
+			repoFullName, prNumber, "", repo.WorkspaceID, "")
 		if err != nil {
 			log.Error(ctx, "Failed to get tracked messages for workspace",
 				"error", err,
-				"slack_team_id", repo.SlackTeamID,
+				"slack_team_id", repo.WorkspaceID,
 			)
 			continue // Continue with other workspaces
 		}
@@ -625,9 +625,10 @@ func (h *GitHubHandler) attemptAutoRegistration(
 			"slack_team_id", user.SlackTeamID)
 
 		repo := &models.Repo{
-			ID:          payload.Repository.FullName,
-			SlackTeamID: user.SlackTeamID,
-			Enabled:     true,
+			ID:           payload.Repository.FullName,
+			RepoFullName: payload.Repository.FullName,
+			WorkspaceID:  user.SlackTeamID,
+			Enabled:      true,
 		}
 
 		err := h.firestoreService.CreateRepo(ctx, repo)
@@ -638,7 +639,7 @@ func (h *GitHubHandler) attemptAutoRegistration(
 
 		log.Info(ctx, "Successfully auto-registered repository",
 			"repo", repo.ID,
-			"slack_team_id", repo.SlackTeamID,
+			"slack_team_id", repo.WorkspaceID,
 			"registration_type", "automatic",
 			"trigger_event", "pr_opened")
 

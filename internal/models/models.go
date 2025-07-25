@@ -98,19 +98,11 @@ type Message struct {
 }
 
 type Repo struct {
-	ID          string    `firestore:"id"`
-	SlackTeamID string    `firestore:"slack_team_id"` // Slack workspace/team ID
-	Enabled     bool      `firestore:"enabled"`
-	CreatedAt   time.Time `firestore:"created_at"`
-}
-
-// RepoWorkspaceMapping represents a single repo-workspace relationship.
-// Each document represents one workspace that has registered a specific repository.
-type RepoWorkspaceMapping struct {
-	ID           string    `firestore:"id"`             // Format: {repo_full_name}#{workspace_id}
-	RepoFullName string    `firestore:"repo_full_name"` // Repository full name (e.g., "owner/repo")
-	WorkspaceID  string    `firestore:"workspace_id"`   // Slack team ID that has this repo registered
-	CreatedAt    time.Time `firestore:"created_at"`     // When this mapping was created
+	ID           string    `firestore:"id"`             // {workspace_id}#{repo_full_name} (for backward compatibility)
+	RepoFullName string    `firestore:"repo_full_name"` // e.g., "owner/repo" (denormalized for queries)
+	WorkspaceID  string    `firestore:"workspace_id"`   // Slack team ID (denormalized for queries)
+	Enabled      bool      `firestore:"enabled"`
+	CreatedAt    time.Time `firestore:"created_at"`
 }
 
 type WebhookJob struct {

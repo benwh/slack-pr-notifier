@@ -23,6 +23,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "repos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "repo_full_name",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "enabled",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ]
 }

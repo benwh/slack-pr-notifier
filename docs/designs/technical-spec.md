@@ -58,12 +58,18 @@ type Message struct {
 
 ```go
 type Repo struct {
-    ID          string    // Repository full name (document ID)
-    SlackTeamID string    // Slack workspace/team ID
-    Enabled     bool      // Repository active status
-    CreatedAt   time.Time
+    ID           string    // {workspace_id}#{repo_full_name} (document ID)
+    RepoFullName string    // Repository full name (e.g., "owner/repo")
+    WorkspaceID  string    // Slack workspace/team ID
+    Enabled      bool      // Repository active status
+    CreatedAt    time.Time
 }
 ```
+
+**Document Structure:**
+- Document ID: `{workspace_id}#{encoded_repo_name}` for direct workspace-scoped lookups
+- Denormalized fields (`RepoFullName`, `WorkspaceID`) enable efficient cross-workspace queries
+- Single collection design eliminates need for separate workspace mapping collection
 
 ### Cloud Tasks Job Model
 
@@ -319,6 +325,13 @@ indexes:
 - collectionGroup: users
   fields:
   - fieldPath: SlackUserID
+    order: ASCENDING
+
+- collectionGroup: repos
+  fields:
+  - fieldPath: repo_full_name
+    order: ASCENDING
+  - fieldPath: enabled
     order: ASCENDING
 ```
 
