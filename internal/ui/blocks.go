@@ -121,65 +121,88 @@ func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slac
 func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.Block {
 	blocks := []slack.Block{}
 
-	// Notifications enabled/disabled toggle
-	notificationStatus := "✅ Enabled"
-	toggleText := "Disable notifications"
-	toggleStyle := slack.StyleDanger
-	if user != nil && !user.NotificationsEnabled {
+	// Determine notification status based on both GitHub connection and notification preference
+	var notificationStatus string
+	var toggleText string
+	var toggleStyle slack.Style
+
+	// Check if GitHub is connected
+	githubConnected := user != nil && user.GitHubUsername != "" && user.Verified
+
+	if !githubConnected {
+		// GitHub not connected - show pending state
+		notificationStatus = "⏳ Pending - Connect GitHub first"
+		toggleText = "Enable notifications"
+		toggleStyle = slack.StylePrimary
+	} else if user != nil && !user.NotificationsEnabled {
+		// GitHub connected but notifications disabled
 		notificationStatus = "❌ Disabled"
 		toggleText = "Enable notifications"
 		toggleStyle = slack.StylePrimary
+	} else {
+		// GitHub connected and notifications enabled
+		notificationStatus = "✅ Enabled"
+		toggleText = "Disable notifications"
+		toggleStyle = slack.StyleDanger
 	}
 
-	blocks = append(blocks, slack.NewSectionBlock(
-		slack.NewTextBlockObject(slack.MarkdownType,
-			fmt.Sprintf("*Step 2: Enable PR mirroring*\n%s - When enabled, your PRs will be automatically posted", notificationStatus),
-			false, false),
-		nil,
-		slack.NewAccessory(
+	// Build the section block with or without the button based on GitHub connection
+	sectionText := slack.NewTextBlockObject(slack.MarkdownType,
+		fmt.Sprintf("*Step 2: Enable PR mirroring*\n%s - When enabled, your PRs will be automatically posted", notificationStatus),
+		false, false)
+
+	var accessory *slack.Accessory
+	if githubConnected {
+		// Only show the button if GitHub is connected
+		accessory = slack.NewAccessory(
 			slack.NewButtonBlockElement(
 				"toggle_notifications",
 				"toggle",
 				slack.NewTextBlockObject(slack.PlainTextType, toggleText, false, false),
 			).WithStyle(toggleStyle),
-		),
-	))
-
-	// Channel selection (only show if notifications are enabled)
-	if user == nil || user.NotificationsEnabled {
-		if user != nil && user.DefaultChannel != "" {
-			// Channel set
-			blocks = append(blocks, slack.NewSectionBlock(
-				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*Step 3: Set your default channel*\nCurrent: <#%s> - This is where your PRs will be posted, "+
-						"unless specified otherwise in the PR description", user.DefaultChannel),
-					false, false),
-				nil,
-				slack.NewAccessory(
-					slack.NewButtonBlockElement(
-						"select_channel",
-						"change_channel",
-						slack.NewTextBlockObject(slack.PlainTextType, "Change channel", false, false),
-					),
-				),
-			))
-		} else {
-			// No channel set
-			blocks = append(blocks, slack.NewSectionBlock(
-				slack.NewTextBlockObject(slack.MarkdownType,
-					"*Step 3: Set your default channel*\n:warning: No channel selected - Choose where your PRs should be posted",
-					false, false),
-				nil,
-				slack.NewAccessory(
-					slack.NewButtonBlockElement(
-						"select_channel",
-						"select_channel",
-						slack.NewTextBlockObject(slack.PlainTextType, "Select channel", false, false),
-					).WithStyle(slack.StylePrimary),
-				),
-			))
-		}
+		)
 	}
+
+	blocks = append(blocks, slack.NewSectionBlock(sectionText, nil, accessory))
+
+	// Channel selection - always show but with different states
+	var channelSectionText string
+	var channelAccessory *slack.Accessory
+
+	if !githubConnected {
+		// GitHub not connected - show pending state
+		channelSectionText = "*Step 3: Set your default channel*\n⏳ Pending - Connect GitHub first"
+	} else if user != nil && !user.NotificationsEnabled {
+		// GitHub connected but notifications disabled
+		channelSectionText = "*Step 3: Set your default channel*\n⏳ Pending - Enable notifications first"
+	} else if user != nil && user.DefaultChannel != "" {
+		// Everything enabled and channel set
+		channelSectionText = fmt.Sprintf("*Step 3: Set your default channel*\n✅ Current: <#%s> - This is where your PRs will be posted, "+
+			"unless specified otherwise in the PR description", user.DefaultChannel)
+		channelAccessory = slack.NewAccessory(
+			slack.NewButtonBlockElement(
+				"select_channel",
+				"change_channel",
+				slack.NewTextBlockObject(slack.PlainTextType, "Change channel", false, false),
+			),
+		)
+	} else {
+		// Everything enabled but no channel set
+		channelSectionText = "*Step 3: Set your default channel*\n:warning: No channel selected - Choose where your PRs should be posted"
+		channelAccessory = slack.NewAccessory(
+			slack.NewButtonBlockElement(
+				"select_channel",
+				"select_channel",
+				slack.NewTextBlockObject(slack.PlainTextType, "Select channel", false, false),
+			).WithStyle(slack.StylePrimary),
+		)
+	}
+
+	blocks = append(blocks, slack.NewSectionBlock(
+		slack.NewTextBlockObject(slack.MarkdownType, channelSectionText, false, false),
+		nil,
+		channelAccessory,
+	))
 
 	return blocks
 }
