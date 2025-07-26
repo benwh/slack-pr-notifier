@@ -83,6 +83,7 @@ if ! watchexec \
     --ignore .git/ \
     --ignore tmp/ \
     --ignore logs/ \
+    --ignore scripts/ \
     --debounce 1s \
     "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" 2>&1 | tee -a tmp/app.log & then
     echo "❌ Failed to start watchexec"
