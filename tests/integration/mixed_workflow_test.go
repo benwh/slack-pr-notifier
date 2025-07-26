@@ -308,7 +308,6 @@ func setupUserAndRepo(
 	// Create user
 	user := &models.User{
 		ID:                   userID,
-		SlackUserID:          userID,
 		SlackTeamID:          teamID,
 		GitHubUsername:       githubUsername,
 		GitHubUserID:         githubUserID,

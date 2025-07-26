@@ -28,6 +28,7 @@ var (
 const (
 	PRActionOpened             = "opened"
 	PRActionClosed             = "closed"
+	PRActionReadyForReview     = "ready_for_review"
 	PRReviewActionSubmitted    = "submitted"
 	PRReviewActionDismissed    = "dismissed"
 	EventTypePullRequest       = "pull_request"
@@ -257,6 +258,8 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 	switch githubPayload.Action {
 	case PRActionOpened:
 		return h.handlePROpened(ctx, &githubPayload)
+	case PRActionReadyForReview:
+		return h.handlePRReadyForReview(ctx, &githubPayload)
 	case PRActionClosed:
 		return h.handlePRClosed(ctx, &githubPayload)
 	default:
@@ -582,6 +585,68 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebho
 		"emoji", emoji,
 		"message_count", len(trackedMessages),
 	)
+	return nil
+}
+
+func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Debug(ctx, "Processing PR ready for review",
+		"title", payload.PullRequest.Title,
+	)
+
+	authorUsername := payload.PullRequest.User.Login
+	log.Debug(ctx, "Looking up user by GitHub username", "github_username", authorUsername)
+
+	user, err := h.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
+	if err != nil {
+		log.Error(ctx, "Failed to lookup user by GitHub username",
+			"error", err,
+			"github_username", authorUsername,
+		)
+		return err
+	}
+
+	log.Debug(ctx, "User lookup result", "user_found", user != nil)
+
+	// Extract annotated channel from PR description if any
+	annotatedChannel := h.slackService.ExtractChannelFromDescription(payload.PullRequest.Body)
+	log.Debug(ctx, "Channel determination", "annotated_channel", annotatedChannel)
+
+	// Get all workspace configurations for this repository
+	log.Debug(ctx, "Looking up repository configurations across all workspaces")
+	repos, err := h.firestoreService.GetReposForAllWorkspaces(ctx, payload.Repository.FullName)
+	if err != nil {
+		log.Error(ctx, "Failed to lookup repository configurations",
+			"error", err,
+		)
+		return err
+	}
+
+	if len(repos) == 0 {
+		autoRegisteredRepo, err := h.attemptAutoRegistration(ctx, payload, user)
+		if err != nil {
+			return err
+		}
+		if autoRegisteredRepo == nil {
+			return nil // Skip notification - no auto-registration possible
+		}
+		repos = []*models.Repo{autoRegisteredRepo}
+	}
+
+	log.Info(ctx, "Found repository configurations in workspace(s)",
+		"workspace_count", len(repos))
+
+	// Process notifications for each workspace
+	for _, repo := range repos {
+		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel)
+		if err != nil {
+			log.Error(ctx, "Failed to process notification for workspace",
+				"error", err,
+				"slack_team_id", repo.WorkspaceID,
+			)
+			// Continue processing other workspaces even if one fails
+		}
+	}
+
 	return nil
 }
 

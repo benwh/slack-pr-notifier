@@ -31,20 +31,28 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	// Context for database operations
 	ctx := context.Background()
 
-	t.Run("PR opened webhook full flow", func(t *testing.T) {
+	// Helper function to test PR webhook flow
+	testPRWebhookFlow := func(
+		t *testing.T,
+		userID, userName, channel, repoName string,
+		prNumber int,
+		title string,
+		buildPayload func(string, int, string, string) []byte,
+	) {
+		t.Helper()
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
-		setupTestWorkspace(t, harness, "U123456789")
+		setupTestWorkspace(t, harness, userID)
 
 		// Setup test data in Firestore
-		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
-		setupTestRepo(t, harness, "test-channel")
+		setupTestUser(t, harness, userName, userID, channel)
+		setupTestRepo(t, harness, channel)
 
 		// Create GitHub webhook payload
-		payload := buildPROpenedPayload("testorg/testrepo", 123, "Add new feature", "test-user")
+		payload := buildPayload(repoName, prNumber, title, userName)
 
 		// Send webhook to application
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
@@ -62,12 +70,55 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		require.NoError(t, json.Unmarshal(job.Payload, &webhookJob))
 		assert.Equal(t, "pull_request", webhookJob.EventType)
 
-		// The fake Cloud Tasks service should have already executed the job
-		// which would have called the Slack API (mocked by httpmock)
-		// We can verify this happened by checking the mock call count
+		// Verify Slack API was called to post the notification
 		info := httpmock.GetCallCountInfo()
 		slackCalls := info["POST https://slack.com/api/chat.postMessage"]
 		assert.Positive(t, slackCalls, "Expected Slack postMessage to be called")
+	}
+
+	t.Run("PR opened webhook full flow", func(t *testing.T) {
+		testPRWebhookFlow(t, "U123456789", "test-user", "test-channel",
+			"testorg/testrepo", 123, "Add new feature", buildPROpenedPayload)
+	})
+
+	t.Run("Draft PR promoted to ready for review", func(t *testing.T) {
+		testPRWebhookFlow(t, "U123456789", "draft-user", "pr-channel",
+			"testorg/draftrepo", 555, "Draft PR now ready", buildPRReadyForReviewPayload)
+	})
+
+	t.Run("Draft PR opened should not post to Slack", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Setup test data in Firestore
+		setupTestUser(t, harness, "draft-author", "U123456789", "draft-channel")
+		setupTestRepo(t, harness, "draft-channel")
+
+		// Create GitHub webhook payload for draft PR
+		payload := buildDraftPROpenedPayload("testorg/draftrepo", 999, "WIP: Draft PR", "draft-author")
+
+		// Send webhook to application
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was queued and executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		job := jobs[0]
+		assert.Equal(t, models.JobTypeGitHubWebhook, job.Type)
+
+		// Verify NO Slack API call was made
+		info := httpmock.GetCallCountInfo()
+		slackCalls := info["POST https://slack.com/api/chat.postMessage"]
+		assert.Equal(t, 0, slackCalls, "Expected no Slack postMessage calls for draft PR")
 	})
 
 	t.Run("PR review webhook with reaction sync", func(t *testing.T) {
@@ -171,14 +222,23 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 // Helper functions
 
 func buildPROpenedPayload(repoFullName string, prNumber int, title, author string) []byte {
+	return buildPRPayload(repoFullName, prNumber, title, author, "opened", false)
+}
+
+func buildDraftPROpenedPayload(repoFullName string, prNumber int, title, author string) []byte {
+	return buildPRPayload(repoFullName, prNumber, title, author, "opened", true)
+}
+
+func buildPRPayload(repoFullName string, prNumber int, title, author, action string, draft bool) []byte {
 	payload := map[string]interface{}{
-		"action": "opened",
+		"action": action,
 		"pull_request": map[string]interface{}{
 			"number":    prNumber,
 			"title":     title,
 			"body":      "Test PR description",
 			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
 			"state":     "open",
+			"draft":     draft,
 			"additions": 50,
 			"deletions": 30,
 			"user": map[string]interface{}{
@@ -221,6 +281,10 @@ func buildReviewSubmittedPayload(repoFullName string, prNumber int, reviewer, st
 		panic(err) // Test helper, panic is acceptable
 	}
 	return data
+}
+
+func buildPRReadyForReviewPayload(repoFullName string, prNumber int, title, author string) []byte {
+	return buildPRPayload(repoFullName, prNumber, title, author, "ready_for_review", false)
 }
 
 func sendGitHubWebhook(t *testing.T, harness *TestHarness, eventType string, payload []byte) *http.Response {

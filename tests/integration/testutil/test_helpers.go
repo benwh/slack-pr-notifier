@@ -14,7 +14,6 @@ func SetupTestUserAndRepo(t *testing.T, app *TestApp, ctx context.Context, const
 	// Create test user
 	user := &models.User{
 		ID:                   constants.DefaultSlackUserID,
-		SlackUserID:          constants.DefaultSlackUserID,
 		SlackTeamID:          constants.DefaultSlackTeamID,
 		GitHubUsername:       constants.DefaultGitHubUsername,
 		GitHubUserID:         constants.DefaultGitHubUserID,

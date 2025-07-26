@@ -133,7 +133,6 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 		log.Error(ctx, "Failed to create or update user",
 			"error", err,
 			"user_id", user.ID,
-			"slack_user_id", user.SlackUserID,
 			"github_username", user.GitHubUsername,
 			"operation", "create_or_update_user",
 		)
@@ -395,7 +394,6 @@ func (fs *FirestoreService) SaveUser(ctx context.Context, user *models.User) err
 		log.Error(ctx, "Failed to save user",
 			"error", err,
 			"user_id", user.ID,
-			"slack_user_id", user.SlackUserID,
 			"github_username", user.GitHubUsername,
 			"verified", user.Verified,
 			"operation", "save_user",

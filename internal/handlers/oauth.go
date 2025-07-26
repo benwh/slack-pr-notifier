@@ -99,6 +99,125 @@ func (h *OAuthHandler) HandleGitHubLink(c *gin.Context) {
 	c.Redirect(http.StatusFound, oauthURL)
 }
 
+// validateGitHubCallbackParams validates GitHub OAuth callback parameters.
+func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.Context) (string, string, bool) {
+	code := c.Query("code")
+	stateID := c.Query("state")
+
+	// Check for error from GitHub
+	if errorParam := c.Query("error"); errorParam != "" {
+		errorDesc := c.Query("error_description")
+		log.Warn(ctx, "GitHub OAuth error", "error", errorParam, "description", errorDesc)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Authorization Failed",
+			"message": fmt.Sprintf("GitHub authorization failed: %s", errorDesc),
+		})
+		return "", "", false
+	}
+
+	// Validate required parameters
+	if code == "" || stateID == "" {
+		log.Error(ctx, "Missing required parameters in OAuth callback")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid Callback",
+			"message": "Missing required parameters from GitHub",
+		})
+		return "", "", false
+	}
+
+	return code, stateID, true
+}
+
+// createOrUpdateUserFromGitHub creates or updates a user after successful GitHub authentication.
+func (h *OAuthHandler) createOrUpdateUserFromGitHub(
+	ctx context.Context,
+	state *models.OAuthState,
+	githubUser *services.GitHubUser,
+) (*models.User, error) {
+	user := &models.User{
+		ID:                   state.SlackUserID, // Use Slack user ID as document ID
+		GitHubUsername:       githubUser.Login,
+		GitHubUserID:         githubUser.ID,
+		Verified:             true,
+		SlackTeamID:          state.SlackTeamID,
+		NotificationsEnabled: true, // Default to enabled for new users
+		UpdatedAt:            time.Now(),
+	}
+
+	// Try to fetch Slack display name for debugging
+	slackUser, err := h.slackService.GetUserInfo(ctx, state.SlackTeamID, state.SlackUserID)
+	if err != nil {
+		log.Warn(ctx, "Failed to fetch Slack user info for display name", "error", err)
+	} else if slackUser != nil {
+		if slackUser.Profile.DisplayName != "" {
+			user.SlackDisplayName = slackUser.Profile.DisplayName
+		} else if slackUser.RealName != "" {
+			user.SlackDisplayName = slackUser.RealName
+		} else {
+			user.SlackDisplayName = slackUser.Name
+		}
+	}
+
+	// Check if user already exists
+	existingUser, err := h.firestoreService.GetUser(ctx, state.SlackUserID)
+	if err == nil && existingUser != nil {
+		// Update existing user
+		user.DefaultChannel = existingUser.DefaultChannel
+		user.CreatedAt = existingUser.CreatedAt
+		// Preserve existing notification preference
+		user.NotificationsEnabled = existingUser.NotificationsEnabled
+		// Preserve display name if we didn't get a new one
+		if user.SlackDisplayName == "" && existingUser.SlackDisplayName != "" {
+			user.SlackDisplayName = existingUser.SlackDisplayName
+		}
+	} else {
+		// New user
+		user.CreatedAt = time.Now()
+	}
+
+	if err := h.firestoreService.SaveUser(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
+	}
+
+	return user, nil
+}
+
+// handlePostOAuthActions handles actions after successful OAuth (Slack notifications, App Home refresh).
+func (h *OAuthHandler) handlePostOAuthActions(
+	ctx context.Context,
+	state *models.OAuthState,
+	user *models.User,
+	githubUsername string,
+) {
+	// If this was initiated from App Home, refresh the home view
+	if state.ReturnToHome {
+		homeView := h.slackService.BuildHomeView(user)
+		err := h.slackService.PublishHomeView(ctx, state.SlackTeamID, state.SlackUserID, homeView)
+		if err != nil {
+			log.Warn(ctx, "Failed to refresh App Home after OAuth success",
+				"error", err,
+				"user_id", state.SlackUserID)
+		} else {
+			log.Info(ctx, "App Home refreshed after successful GitHub OAuth")
+		}
+	}
+
+	// Send ephemeral success message to the channel where OAuth was initiated (if not from App Home)
+	if state.SlackChannel != "" && !state.ReturnToHome {
+		successMessage := fmt.Sprintf(
+			"✅ *GitHub Account Linked!*\n\nYour GitHub account `@%s` has been successfully connected. "+
+				"You'll now receive personalized PR notifications!", githubUsername)
+
+		err := h.slackService.SendEphemeralMessage(ctx, state.SlackTeamID, state.SlackChannel, state.SlackUserID, successMessage)
+		if err != nil {
+			log.Warn(ctx, "Failed to send OAuth success message to channel",
+				"error", err,
+				"channel", state.SlackChannel,
+				"user_id", state.SlackUserID)
+		}
+	}
+}
+
 // HandleGitHubCallback handles the GitHub OAuth callback.
 // GET /auth/github/callback?code=<code>&state=<state_id>.
 func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
@@ -110,8 +229,11 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 		"handler":  "oauth_github_callback",
 	})
 
-	code := c.Query("code")
-	stateID := c.Query("state")
+	// Validate callback parameters
+	code, stateID, ok := h.validateGitHubCallbackParams(ctx, c)
+	if !ok {
+		return
+	}
 
 	ctx = log.WithFields(ctx, log.LogFields{
 		"state_id": stateID,
@@ -119,27 +241,6 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	})
 
 	log.Info(ctx, "GitHub OAuth callback received")
-
-	// Check for error from GitHub
-	if errorParam := c.Query("error"); errorParam != "" {
-		errorDesc := c.Query("error_description")
-		log.Warn(ctx, "GitHub OAuth error", "error", errorParam, "description", errorDesc)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Authorization Failed",
-			"message": fmt.Sprintf("GitHub authorization failed: %s", errorDesc),
-		})
-		return
-	}
-
-	// Validate required parameters
-	if code == "" || stateID == "" {
-		log.Error(ctx, "Missing required parameters in OAuth callback")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid Callback",
-			"message": "Missing required parameters from GitHub",
-		})
-		return
-	}
 
 	// Validate and consume OAuth state
 	state, err := h.githubAuthService.ValidateAndConsumeState(ctx, stateID)
@@ -173,32 +274,9 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 		"github_username": githubUser.Login,
 	})
 
-	// Create or update user with verified GitHub account
-	user := &models.User{
-		ID:                   state.SlackUserID, // Use Slack user ID as document ID
-		GitHubUsername:       githubUser.Login,
-		GitHubUserID:         githubUser.ID,
-		Verified:             true,
-		SlackUserID:          state.SlackUserID,
-		SlackTeamID:          state.SlackTeamID,
-		NotificationsEnabled: true, // Default to enabled for new users
-		UpdatedAt:            time.Now(),
-	}
-
-	// Check if user already exists
-	existingUser, err := h.firestoreService.GetUser(ctx, state.SlackUserID)
-	if err == nil && existingUser != nil {
-		// Update existing user
-		user.DefaultChannel = existingUser.DefaultChannel
-		user.CreatedAt = existingUser.CreatedAt
-		// Preserve existing notification preference
-		user.NotificationsEnabled = existingUser.NotificationsEnabled
-	} else {
-		// New user
-		user.CreatedAt = time.Now()
-	}
-
-	if err := h.firestoreService.SaveUser(ctx, user); err != nil {
+	// Create or update user
+	user, err := h.createOrUpdateUserFromGitHub(ctx, state, githubUser)
+	if err != nil {
 		log.Error(ctx, "Failed to save user after OAuth", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Save Failed",
@@ -209,38 +287,16 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 
 	log.Info(ctx, "GitHub account successfully linked to Slack user")
 
-	// If this was initiated from App Home, refresh the home view
-	if state.ReturnToHome {
-		homeView := h.slackService.BuildHomeView(user)
-		err := h.slackService.PublishHomeView(ctx, state.SlackTeamID, state.SlackUserID, homeView)
-		if err != nil {
-			log.Warn(ctx, "Failed to refresh App Home after OAuth success",
-				"error", err,
-				"user_id", state.SlackUserID)
-		} else {
-			log.Info(ctx, "App Home refreshed after successful GitHub OAuth")
-		}
-	}
+	// Handle post-OAuth actions (Slack notifications, App Home refresh)
+	h.handlePostOAuthActions(ctx, state, user, githubUser.Login)
 
-	// Send ephemeral success message to the channel where OAuth was initiated (if not from App Home)
-	if state.SlackChannel != "" && !state.ReturnToHome {
-		successMessage := fmt.Sprintf(
-			"✅ *GitHub Account Linked!*\n\nYour GitHub account `@%s` has been successfully connected. "+
-				"You'll now receive personalized PR notifications!", githubUser.Login)
+	// Redirect to success page
+	h.redirectToSuccessPage(c, state.SlackTeamID, githubUser.Login)
+}
 
-		err := h.slackService.SendEphemeralMessage(ctx, state.SlackTeamID, state.SlackChannel, state.SlackUserID, successMessage)
-		if err != nil {
-			log.Warn(ctx, "Failed to send OAuth success message to channel",
-				"error", err,
-				"channel", state.SlackChannel,
-				"user_id", state.SlackUserID)
-		}
-	}
-
-	// Redirect back to Slack with success message
-	slackDeepLink := fmt.Sprintf("slack://channel?team=%s&id=general", state.SlackTeamID)
-
-	// Create a simple HTML page that shows success and auto-redirects to Slack
+// redirectToSuccessPage creates and returns the OAuth success HTML page.
+func (h *OAuthHandler) redirectToSuccessPage(c *gin.Context, teamID, githubUsername string) {
+	slackDeepLink := fmt.Sprintf("slack://channel?team=%s&id=general", teamID)
 	successHTML := fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
@@ -289,7 +345,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
     <a href="%s" class="btn">Return to Slack</a>
     <div class="auto-redirect">Automatically redirecting to Slack in 2 seconds...</div>
 </body>
-</html>`, slackDeepLink, githubUser.Login, slackDeepLink)
+</html>`, slackDeepLink, githubUsername, slackDeepLink)
 
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }

@@ -494,6 +494,27 @@ func (s *SlackService) ExtractChannelFromDescription(description string) string 
 	return ""
 }
 
+// GetUserInfo retrieves Slack user information including display name.
+func (s *SlackService) GetUserInfo(ctx context.Context, teamID, userID string) (*slack.User, error) {
+	client, err := s.getSlackClient(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := client.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		log.Error(ctx, "Failed to get Slack user info",
+			"error", err,
+			"team_id", teamID,
+			"user_id", userID,
+			"operation", "get_user_info",
+		)
+		return nil, fmt.Errorf("failed to get user info for %s: %w", userID, err)
+	}
+
+	return user, nil
+}
+
 // PublishHomeView publishes the home tab view for a user.
 func (s *SlackService) PublishHomeView(ctx context.Context, teamID, userID string, view slack.HomeTabViewRequest) error {
 	client, err := s.getSlackClient(ctx, teamID)

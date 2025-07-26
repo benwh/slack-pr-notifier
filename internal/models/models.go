@@ -28,8 +28,8 @@ type User struct {
 	GitHubUsername       string    `firestore:"github_username"`
 	GitHubUserID         int64     `firestore:"github_user_id"` // GitHub numeric ID
 	Verified             bool      `firestore:"verified"`       // OAuth verification status
-	SlackUserID          string    `firestore:"slack_user_id"`
 	SlackTeamID          string    `firestore:"slack_team_id"`
+	SlackDisplayName     string    `firestore:"slack_display_name"` // Slack display name for debugging
 	DefaultChannel       string    `firestore:"default_channel"`
 	NotificationsEnabled bool      `firestore:"notifications_enabled"` // Whether to post PRs for this user
 	CreatedAt            time.Time `firestore:"created_at"`

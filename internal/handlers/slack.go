@@ -415,6 +415,73 @@ func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, t
 	c.JSON(http.StatusOK, gin.H{})
 }
 
+// extractChannelSelection extracts the selected channel from the interaction.
+func (sh *SlackHandler) extractChannelSelection(interaction *slack.InteractionCallback) string {
+	if values, ok := interaction.View.State.Values["channel_input"]; ok {
+		if channelSelect, ok := values["channel_select"]; ok {
+			return channelSelect.SelectedChannel
+		}
+	}
+	return ""
+}
+
+// validateChannelSelection validates the selected channel and returns appropriate error message.
+func (sh *SlackHandler) validateChannelSelection(ctx context.Context, teamID, channelID string) (string, error) {
+	err := sh.slackService.ValidateChannel(ctx, teamID, channelID)
+	if err == nil {
+		return "", nil
+	}
+
+	errorMsg := "Channel not found or bot doesn't have access."
+
+	// Check for specific error types
+	if errors.Is(err, services.ErrPrivateChannelNotSupported) {
+		errorMsg = "Private channels are not supported for PR notifications. Please select a public channel."
+	} else if errors.Is(err, services.ErrCannotJoinChannel) {
+		// Get channel name for better error message
+		channelName, nameErr := sh.slackService.GetChannelName(ctx, teamID, channelID)
+		if nameErr == nil {
+			errorMsg = fmt.Sprintf("Cannot join #%s. The channel may be archived or have restrictions.", channelName)
+		} else {
+			errorMsg = "Cannot join this channel. It may be archived or have restrictions."
+		}
+	}
+
+	return errorMsg, err
+}
+
+// createOrGetUserWithDisplayName creates a new user or gets existing one, fetching display name if needed.
+func (sh *SlackHandler) createOrGetUserWithDisplayName(ctx context.Context, userID, teamID string) (*models.User, error) {
+	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user == nil {
+		user = &models.User{
+			ID:                   userID,
+			SlackTeamID:          teamID,
+			NotificationsEnabled: true, // Default to enabled for new users
+		}
+
+		// Try to fetch Slack display name for new user
+		slackUser, err := sh.slackService.GetUserInfo(ctx, teamID, userID)
+		if err != nil {
+			log.Warn(ctx, "Failed to fetch Slack user info for display name", "error", err)
+		} else if slackUser != nil {
+			if slackUser.Profile.DisplayName != "" {
+				user.SlackDisplayName = slackUser.Profile.DisplayName
+			} else if slackUser.RealName != "" {
+				user.SlackDisplayName = slackUser.RealName
+			} else {
+				user.SlackDisplayName = slackUser.Name
+			}
+		}
+	}
+
+	return user, nil
+}
+
 // handleChannelSelection processes channel selection from the modal.
 func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	userID := interaction.User.ID
@@ -424,14 +491,8 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 		"user_id": userID,
 	})
 
-	// Extract selected channel from the view submission
-	channelID := ""
-	if values, ok := interaction.View.State.Values["channel_input"]; ok {
-		if channelSelect, ok := values["channel_select"]; ok {
-			channelID = channelSelect.SelectedChannel
-		}
-	}
-
+	// Extract selected channel
+	channelID := sh.extractChannelSelection(interaction)
 	if channelID == "" {
 		c.JSON(http.StatusOK, map[string]interface{}{
 			"response_action": "errors",
@@ -442,24 +503,8 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 		return
 	}
 
-	// Validate the channel and check bot access
-	err := sh.slackService.ValidateChannel(ctx, interaction.Team.ID, channelID)
-	if err != nil {
-		errorMsg := "Channel not found or bot doesn't have access."
-
-		// Check for specific error types
-		if errors.Is(err, services.ErrPrivateChannelNotSupported) {
-			errorMsg = "Private channels are not supported for PR notifications. Please select a public channel."
-		} else if errors.Is(err, services.ErrCannotJoinChannel) {
-			// Get channel name for better error message
-			channelName, nameErr := sh.slackService.GetChannelName(ctx, interaction.Team.ID, channelID)
-			if nameErr == nil {
-				errorMsg = fmt.Sprintf("Cannot join #%s. The channel may be archived or have restrictions.", channelName)
-			} else {
-				errorMsg = "Cannot join this channel. It may be archived or have restrictions."
-			}
-		}
-
+	// Validate the channel
+	if errorMsg, err := sh.validateChannelSelection(ctx, teamID, channelID); err != nil {
 		c.JSON(http.StatusOK, map[string]interface{}{
 			"response_action": "errors",
 			"errors": map[string]string{
@@ -469,23 +514,15 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 		return
 	}
 
-	// Update user's default channel
-	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	// Get or create user
+	user, err := sh.createOrGetUserWithDisplayName(ctx, userID, teamID)
 	if err != nil {
 		log.Error(ctx, "Failed to get user for channel update", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
 
-	if user == nil {
-		user = &models.User{
-			ID:                   userID,
-			SlackUserID:          userID,
-			SlackTeamID:          teamID,
-			NotificationsEnabled: true, // Default to enabled for new users
-		}
-	}
-
+	// Update user's default channel
 	user.DefaultChannel = channelID
 	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
 	if err != nil {
