@@ -11,7 +11,7 @@ display_information:
     PR mirroring and status reactions between GitHub and Slack
   long_description: >
     PR Bot provides seamless integration between GitHub and Slack with two key features: PR mirroring (automatically posts PR notifications to Slack when opened, including manual link detection) and PR status reactions (syncs emoji reactions for reviews and closures). Supports per-repository channel configuration and reaction synchronization across all PR instances.
-  background_color: "#24292e"  # GitHub's dark color
+  background_color: "#a8eb34"
 
 features:
   app_home:
@@ -23,6 +23,8 @@ features:
     always_online: true
 
 oauth_config:
+  redirect_urls:
+    - "{{BASE_URL}}/slack/oauth/callback"
   scopes:
     bot:
       - channels:read           # View basic information about public channels
