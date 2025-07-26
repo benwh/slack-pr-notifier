@@ -411,59 +411,78 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 	return nil
 }
 
-// processWorkspaceNotification handles PR notification for a specific workspace.
-func (h *GitHubHandler) processWorkspaceNotification(
+// determineTargetChannel determines the target Slack channel for notifications.
+// Channel priority: annotated channel -> user default (if user is in same workspace and notifications enabled).
+func (h *GitHubHandler) determineTargetChannel(
 	ctx context.Context,
-	payload *GitHubWebhookPayload,
 	repo *models.Repo,
 	user *models.User,
 	annotatedChannel string,
-) error {
-	var targetChannel string
-
-	// Channel priority: annotated channel -> user default (if user is in same workspace and notifications enabled)
+) string {
 	if annotatedChannel != "" {
-		targetChannel = annotatedChannel
 		log.Debug(ctx, "Using annotated channel from PR description",
-			"channel", targetChannel,
+			"channel", annotatedChannel,
 			"slack_team_id", repo.WorkspaceID)
-	} else if user != nil && user.SlackTeamID == repo.WorkspaceID && user.DefaultChannel != "" && user.NotificationsEnabled {
-		targetChannel = user.DefaultChannel
+		return annotatedChannel
+	}
+
+	if user != nil && user.SlackTeamID == repo.WorkspaceID && user.DefaultChannel != "" && user.NotificationsEnabled {
 		log.Debug(ctx, "Using user default channel",
-			"channel", targetChannel,
+			"channel", user.DefaultChannel,
 			"slack_team_id", repo.WorkspaceID)
+		return user.DefaultChannel
 	}
 
-	if targetChannel == "" {
-		log.Debug(ctx, "No target channel determined for workspace, skipping",
-			"slack_team_id", repo.WorkspaceID)
-		return nil
-	}
+	return ""
+}
 
-	// Check if we already have a bot message for this PR in this channel for this workspace
+// checkForDuplicateBotMessage checks if a bot message already exists for this PR.
+func (h *GitHubHandler) checkForDuplicateBotMessage(
+	ctx context.Context,
+	payload *GitHubWebhookPayload,
+	targetChannel string,
+	workspaceID string,
+) (bool, error) {
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, repo.WorkspaceID, "bot")
+		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, workspaceID, "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to check for existing bot messages",
 			"error", err,
-			"slack_team_id", repo.WorkspaceID)
-		return err
+			"slack_team_id", workspaceID)
+		return false, err
 	}
 
 	if len(botMessages) > 0 {
 		log.Info(ctx, "Bot message already exists for this PR in workspace channel, skipping duplicate notification",
 			"channel", targetChannel,
-			"slack_team_id", repo.WorkspaceID,
+			"slack_team_id", workspaceID,
 			"existing_message_count", len(botMessages))
-		return nil
+		return true, nil
 	}
 
+	return false, nil
+}
+
+// postAndTrackPRMessage posts a PR message to Slack and tracks it in the database.
+func (h *GitHubHandler) postAndTrackPRMessage(
+	ctx context.Context,
+	payload *GitHubWebhookPayload,
+	repo *models.Repo,
+	user *models.User,
+	targetChannel string,
+) error {
 	log.Info(ctx, "Posting PR message to Slack workspace",
 		"channel", targetChannel,
 		"slack_team_id", repo.WorkspaceID)
 
 	// Calculate PR size (additions + deletions)
 	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+
+	// Get author's Slack user ID if they're in the same workspace
+	var authorSlackUserID string
+	if user != nil && user.SlackTeamID == repo.WorkspaceID && user.Verified {
+		authorSlackUserID = user.ID
+	}
 
 	timestamp, err := h.slackService.PostPRMessage(
 		ctx,
@@ -475,6 +494,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 		payload.PullRequest.Body,
 		payload.PullRequest.HTMLURL,
 		prSize,
+		authorSlackUserID,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack workspace",
@@ -515,6 +535,38 @@ func (h *GitHubHandler) processWorkspaceNotification(
 		return err
 	}
 	log.Debug(ctx, "Successfully saved tracked message to database")
+
+	return nil
+}
+
+// processWorkspaceNotification handles PR notification for a specific workspace.
+func (h *GitHubHandler) processWorkspaceNotification(
+	ctx context.Context,
+	payload *GitHubWebhookPayload,
+	repo *models.Repo,
+	user *models.User,
+	annotatedChannel string,
+) error {
+	targetChannel := h.determineTargetChannel(ctx, repo, user, annotatedChannel)
+	if targetChannel == "" {
+		log.Debug(ctx, "No target channel determined for workspace, skipping",
+			"slack_team_id", repo.WorkspaceID)
+		return nil
+	}
+
+	// Check for duplicate bot messages
+	isDuplicate, err := h.checkForDuplicateBotMessage(ctx, payload, targetChannel, repo.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	if isDuplicate {
+		return nil
+	}
+
+	// Post message and track it
+	if err := h.postAndTrackPRMessage(ctx, payload, repo, user, targetChannel); err != nil {
+		return err
+	}
 
 	// After posting, synchronize reactions with any existing manual messages for this PR in this workspace
 	allMessages, err := h.firestoreService.GetTrackedMessages(ctx,

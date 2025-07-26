@@ -68,6 +68,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
+	authorSlackUserID string,
 ) (string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -75,7 +76,14 @@ func (s *SlackService) PostPRMessage(
 	}
 
 	emoji := utils.GetPRSizeEmoji(prSize)
-	text := fmt.Sprintf("%s <%s|%s by %s>", emoji, prURL, prTitle, prAuthor)
+
+	// Format author with Slack user mention if available
+	authorDisplay := prAuthor
+	if authorSlackUserID != "" {
+		authorDisplay = fmt.Sprintf("<@%s>", authorSlackUserID)
+	}
+
+	text := fmt.Sprintf("%s <%s|%s> by %s", emoji, prURL, prTitle, authorDisplay)
 
 	_, timestamp, err := client.PostMessage(channel,
 		slack.MsgOptionText(text, false),
