@@ -20,6 +20,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	httpClientTimeout = 30 * time.Second
+)
+
 // App represents the main application structure with all services and handlers.
 type App struct {
 	config            *config.Config
@@ -86,7 +90,7 @@ func main() {
 	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
 
 	// Create HTTP client for Slack service
-	slackHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	slackHTTPClient := &http.Client{Timeout: httpClientTimeout}
 	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, slackHTTPClient)
 
 	// Initialize Cloud Tasks service
@@ -118,7 +122,7 @@ func main() {
 	githubAuthService := services.NewGitHubAuthService(cfg, firestoreService)
 
 	// Create HTTP client for OAuth handler
-	oauthHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	oauthHTTPClient := &http.Client{Timeout: httpClientTimeout}
 	oauthHandler := handlers.NewOAuthHandler(githubAuthService, firestoreService, slackService, slackWorkspaceService, cfg, oauthHTTPClient)
 
 	slackHandler := handlers.NewSlackHandler(

@@ -37,11 +37,11 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
-		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
+		setupTestWorkspace(t, harness, "U123456789")
 
 		// Setup test data in Firestore
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
-		setupTestRepo(t, harness, "testorg/testrepo", "test-channel", "T123456789")
+		setupTestRepo(t, harness, "test-channel")
 
 		// Create GitHub webhook payload
 		payload := buildPROpenedPayload("testorg/testrepo", 123, "Add new feature", "test-user")
@@ -76,11 +76,11 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
-		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U987654321")
+		setupTestWorkspace(t, harness, "U987654321")
 
 		// Setup test data
 		setupTestUser(t, harness, "reviewer", "U987654321", "test-channel")
-		setupTestRepo(t, harness, "testorg/testrepo", "test-channel", "T123456789")
+		setupTestRepo(t, harness, "test-channel")
 
 		// Create a tracked message (simulating a previous PR notification)
 		setupTrackedMessage(t, harness, "testorg/testrepo", 456, "test-channel", "T123456789", "1234567890.123456")
@@ -131,11 +131,11 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		harness.FakeCloudTasks().ClearExecutedJobs()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
-		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
+		setupTestWorkspace(t, harness, "U123456789")
 
 		// Setup test data
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
-		setupTestRepo(t, harness, "testorg/testrepo", "test-channel", "T123456789")
+		setupTestRepo(t, harness, "test-channel")
 
 		// Configure fake Cloud Tasks to execute asynchronously
 		harness.FakeCloudTasks().SetAsync(true, 10*time.Millisecond)

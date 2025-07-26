@@ -7,16 +7,10 @@ echo "🔍 Running linters..."
 # Go linting
 echo "📝 Running Go linters..."
 if command -v golangci-lint &> /dev/null; then
-    golangci-lint run ./...
+    golangci-lint run --exclude-dirs tmp/ ./...
 else
-    echo "⚠️  golangci-lint not found, using basic go tools"
-    go fmt ./...
-    go vet ./...
-    if command -v staticcheck &> /dev/null; then
-        staticcheck ./...
-    else
-        echo "⚠️  staticcheck not found, install with: go install honnef.co/go/tools/cmd/staticcheck@latest"
-    fi
+    echo "⚠️  golangci-lint not found, please install"
+    exit 2
 fi
 
 # Docker linting

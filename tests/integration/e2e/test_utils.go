@@ -11,9 +11,12 @@ import (
 )
 
 // setupTestWorkspace creates a test workspace for OAuth functionality.
-func setupTestWorkspace(t *testing.T, harness *TestHarness, teamID, teamName, accessToken, installedBy string) {
+func setupTestWorkspace(t *testing.T, harness *TestHarness, installedBy string) {
 	t.Helper()
 	ctx := context.Background()
+	const teamID = "T123456789"
+	const teamName = "Test Workspace"
+	const accessToken = "xoxb-test-token" // #nosec G101 -- Test token, not real credentials
 	workspace := &models.SlackWorkspace{
 		ID:          teamID,
 		TeamName:    teamName,
@@ -36,9 +39,11 @@ func setupTestUser(t *testing.T, harness *TestHarness, githubUsername, slackUser
 }
 
 // setupTestRepo creates a test repository in Firestore.
-func setupTestRepo(t *testing.T, harness *TestHarness, repoFullName, channelID, teamID string) {
+func setupTestRepo(t *testing.T, harness *TestHarness, channelID string) {
 	t.Helper()
 	ctx := context.Background()
+	const repoFullName = "testorg/testrepo"
+	const teamID = "T123456789"
 	err := harness.SetupRepo(ctx, repoFullName, channelID, teamID)
 	require.NoError(t, err)
 }

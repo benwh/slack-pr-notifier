@@ -30,7 +30,7 @@ func TestSlackInteractionsIntegration(t *testing.T) {
 		require.NoError(t, harness.ClearFirestore(ctx))
 
 		// Setup OAuth workspace first (required for multi-workspace support)
-		setupTestWorkspace(t, harness, "T123456789", "Test Workspace", "xoxb-test-token", "U123456789")
+		setupTestWorkspace(t, harness, "U123456789")
 
 		// Setup test user
 		setupTestUser(t, harness, "test-user", "U123456789", "")
