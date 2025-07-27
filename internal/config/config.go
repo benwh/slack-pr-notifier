@@ -64,7 +64,7 @@ func (c *Config) JobProcessorURL() string {
 
 // SlackRedirectURL returns the full URL for the Slack OAuth callback endpoint.
 func (c *Config) SlackRedirectURL() string {
-	return c.BaseURL + "/slack/oauth/callback"
+	return c.BaseURL + "/auth/slack/callback"
 }
 
 // GitHubOAuthRedirectURL returns the full URL for the GitHub OAuth callback endpoint.

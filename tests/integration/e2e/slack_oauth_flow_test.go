@@ -31,8 +31,8 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 	testScope := "channels:read,chat:write,links:read,channels:history"
 
 	t.Run("OAuth installation redirects to Slack", func(t *testing.T) {
-		// Make request to /slack/install
-		req := httptest.NewRequest(http.MethodGet, "/slack/install", nil)
+		// Make request to /auth/slack/install
+		req := httptest.NewRequest(http.MethodGet, "/auth/slack/install", nil)
 		w := httptest.NewRecorder()
 
 		harness.Router.ServeHTTP(w, req)
@@ -48,7 +48,7 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 	})
 
 	t.Run("OAuth callback without code returns error", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/slack/oauth/callback", nil)
+		req := httptest.NewRequest(http.MethodGet, "/auth/slack/callback", nil)
 		w := httptest.NewRecorder()
 
 		harness.Router.ServeHTTP(w, req)
@@ -62,7 +62,7 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 	})
 
 	t.Run("OAuth callback with Slack error returns error", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/slack/oauth/callback?error=access_denied", nil)
+		req := httptest.NewRequest(http.MethodGet, "/auth/slack/callback?error=access_denied", nil)
 		w := httptest.NewRecorder()
 
 		harness.Router.ServeHTTP(w, req)
@@ -83,7 +83,7 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 				"ok":    false,
 				"error": "invalid_code",
 			}))
-		req := httptest.NewRequest(http.MethodGet, "/slack/oauth/callback?code=invalid_code", nil)
+		req := httptest.NewRequest(http.MethodGet, "/auth/slack/callback?code=invalid_code", nil)
 		w := httptest.NewRecorder()
 
 		harness.Router.ServeHTTP(w, req)

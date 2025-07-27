@@ -365,7 +365,7 @@ type SlackOAuthResponse struct {
 	} `json:"authed_user"`
 }
 
-// GET /slack/install.
+// GET /auth/slack/install.
 func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
 	ctx := c.Request.Context()
 	traceID := c.GetString("trace_id")
@@ -396,7 +396,7 @@ func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
 	c.Redirect(http.StatusFound, oauthURL)
 }
 
-// GET /slack/oauth/callback?code=<code>&state=<state>.
+// GET /auth/slack/callback?code=<code>&state=<state>.
 func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
 	ctx := c.Request.Context()
 	traceID := c.GetString("trace_id")

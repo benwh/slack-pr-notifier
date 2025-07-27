@@ -198,8 +198,8 @@ func startApplication(
 
 	// Configure Slack OAuth routes (if enabled)
 	if cfg.IsSlackOAuthEnabled() {
-		router.GET("/slack/install", oauthHandler.HandleSlackInstall)
-		router.GET("/slack/oauth/callback", oauthHandler.HandleSlackOAuthCallback)
+		router.GET("/auth/slack/install", oauthHandler.HandleSlackInstall)
+		router.GET("/auth/slack/callback", oauthHandler.HandleSlackOAuthCallback)
 	}
 
 	router.POST("/webhooks/slack/events", slackHandler.HandleEvent)

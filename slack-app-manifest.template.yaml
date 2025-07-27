@@ -24,7 +24,7 @@ features:
 
 oauth_config:
   redirect_urls:
-    - "{{BASE_URL}}/slack/oauth/callback"
+    - "{{BASE_URL}}/auth/slack/callback"
   scopes:
     bot:
       - channels:read           # View basic information about public channels

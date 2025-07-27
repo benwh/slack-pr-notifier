@@ -53,8 +53,8 @@ In your Slack app settings:
 
 1. Go to **"OAuth & Permissions"**
 2. Add your redirect URLs (constructed automatically from BASE_URL):
-   - Development: `http://localhost:8080/slack/oauth/callback` (BASE_URL + "/slack/oauth/callback")
-   - Production: `https://your-domain.com/slack/oauth/callback` (BASE_URL + "/slack/oauth/callback")
+   - Development: `http://localhost:8080/auth/slack/callback` (BASE_URL + "/auth/slack/callback")
+   - Production: `https://your-domain.com/auth/slack/callback` (BASE_URL + "/auth/slack/callback")
 
 ### 2. Required Bot Token Scopes
 
@@ -119,7 +119,7 @@ EMOJI_CLOSED=x
 
 This app supports installation to multiple Slack workspaces:
 
-1. **Installation URL**: `https://your-domain.com/slack/install`
+1. **Installation URL**: `https://your-domain.com/auth/slack/install`
 2. **Users visit the URL** → Redirected to Slack OAuth
 3. **Slack prompts for permissions** → User authorizes
 4. **App stores workspace token** → Installation complete
@@ -134,7 +134,7 @@ This app supports installation to multiple Slack workspaces:
 
 ### 1. Test OAuth Installation
 
-1. Visit your installation URL: `https://your-domain.com/slack/install`
+1. Visit your installation URL: `https://your-domain.com/auth/slack/install`
 2. Complete the OAuth flow
 3. Check your application logs for successful workspace installation
 
@@ -166,7 +166,7 @@ Update your Slack app settings with production URLs:
 1. Go to **"OAuth & Permissions"**
 2. Update **Redirect URLs**:
    - Remove development URLs (`localhost`)
-   - Add production URL: `https://your-domain.com/slack/oauth/callback` (matches your BASE_URL)
+   - Add production URL: `https://your-domain.com/auth/slack/callback` (matches your BASE_URL)
 
 ### Event Subscription URLs
 
@@ -213,7 +213,7 @@ Test your OAuth setup:
 
 ```bash
 # Test installation endpoint
-curl https://your-domain.com/slack/install
+curl https://your-domain.com/auth/slack/install
 
 # Should redirect to Slack OAuth with proper client_id and scopes
 ```
@@ -241,7 +241,7 @@ If migrating from the old `SLACK_BOT_TOKEN` system:
 
 3. **Reinstall to workspaces**:
    - Each workspace needs to complete the OAuth flow
-   - Use the installation URL: `https://your-domain.com/slack/install`
+   - Use the installation URL: `https://your-domain.com/auth/slack/install`
 
 4. **Update documentation**:
    - Share the new installation URL with users

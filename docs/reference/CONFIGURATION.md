@@ -47,10 +47,10 @@ See [SLACK_APP_SETUP.md](./SLACK_APP_SETUP.md) for detailed setup instructions.
 - `SLACK_SIGNING_SECRET` - Signing secret for webhook verification
 - `SLACK_CONFIG_ACCESS_TOKEN` - App-Level Token for CLI management (optional, starts with `xoxe-1-`)
 
-**Note**: Slack OAuth redirect URL is automatically constructed as `BASE_URL + "/slack/oauth/callback"`
+**Note**: Slack OAuth redirect URL is automatically constructed as `BASE_URL + "/auth/slack/callback"`
 
 **Multi-Workspace Installation:**
-- Each workspace installs the app via OAuth at: `https://your-domain.com/slack/install`
+- Each workspace installs the app via OAuth at: `https://your-domain.com/auth/slack/install`
 - Workspace-specific tokens are stored securely in Firestore
 - No manual token configuration needed per workspace
 

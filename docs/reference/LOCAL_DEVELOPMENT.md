@@ -62,7 +62,7 @@ API_ADMIN_KEY=some-random-long-string
 **Configure OAuth settings:**
 
 1. Go to **"OAuth & Permissions"**
-2. Add redirect URL: `http://localhost:8080/slack/oauth/callback`
+2. Add redirect URL: `http://localhost:8080/auth/slack/callback`
 3. Add bot scopes:
    - `channels:read`
    - `chat:write`  
@@ -146,7 +146,7 @@ ngrok http 8080
 
 #### 1. Test Slack OAuth Installation
 
-1. **Visit installation URL**: `http://localhost:8080/slack/install`
+1. **Visit installation URL**: `http://localhost:8080/auth/slack/install`
 2. **Complete OAuth flow** in your development workspace
 3. **Check logs** for "Workspace saved successfully"
 
@@ -200,7 +200,7 @@ curl -X POST http://localhost:8080/webhooks/github \
   -d '{"action":"opened","pull_request":{"number":123,"title":"Test PR"}}'
 
 # Test Slack OAuth installation
-curl http://localhost:8080/slack/install
+curl http://localhost:8080/auth/slack/install
 # Should redirect to Slack OAuth
 ```
 
@@ -338,7 +338,7 @@ curl -H "Authorization: token your-github-token" \
 
 ```bash
 # Test installation endpoint
-curl -I http://localhost:8080/slack/install
+curl -I http://localhost:8080/auth/slack/install
 
 # Should return 302 redirect to slack.com/oauth/v2/authorize
 ```
