@@ -165,6 +165,38 @@ More details about the PR.`,
 				UserToCC: "user",
 			},
 		},
+		{
+			name:        "Review-skip directive (prevents posting and enables retroactive deletion)",
+			description: "!review-skip",
+			expected: &PRDirectives{
+				Skip:      true,
+				RetroSkip: true,
+			},
+		},
+		{
+			name:        "Review-skip directive case insensitive",
+			description: "!REVIEW-SKIP",
+			expected: &PRDirectives{
+				Skip:      true,
+				RetroSkip: true,
+			},
+		},
+		{
+			name:        "Review-skip directive with other text",
+			description: "Please remove this PR from Slack.\n\n!review-skip\n\nThanks!",
+			expected: &PRDirectives{
+				Skip:      true,
+				RetroSkip: true,
+			},
+		},
+		{
+			name:        "Review-skip takes precedence over other directives",
+			description: "!review: #dev-team @user\n!review-skip",
+			expected: &PRDirectives{
+				Skip:      true,
+				RetroSkip: true,
+			},
+		},
 	}
 
 	// Create a minimal SlackService just for testing the parsing function

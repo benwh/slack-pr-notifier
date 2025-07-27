@@ -353,6 +353,37 @@ func (fs *FirestoreService) CreateTrackedMessage(ctx context.Context, message *m
 	return nil
 }
 
+// DeleteTrackedMessages deletes multiple tracked messages by their IDs.
+func (fs *FirestoreService) DeleteTrackedMessages(ctx context.Context, messageIDs []string) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+
+	err := fs.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		for _, messageID := range messageIDs {
+			docRef := fs.client.Collection("trackedmessages").Doc(messageID)
+			err := tx.Delete(docRef)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error(ctx, "Failed to delete tracked messages",
+			"error", err,
+			"message_count", len(messageIDs),
+			"operation", "delete_tracked_messages",
+		)
+		return fmt.Errorf("failed to delete %d tracked messages: %w", len(messageIDs), err)
+	}
+
+	log.Info(ctx, "Successfully deleted tracked messages",
+		"message_count", len(messageIDs),
+	)
+	return nil
+}
+
 // GetUser retrieves a user by their document ID (Slack user ID).
 func (fs *FirestoreService) GetUser(ctx context.Context, userID string) (*models.User, error) {
 	doc, err := fs.client.Collection("users").Doc(userID).Get(ctx)

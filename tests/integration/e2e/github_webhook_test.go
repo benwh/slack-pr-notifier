@@ -531,6 +531,59 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		assert.Contains(t, slackRequests[0].Text, "(cc: @final.user)")
 		assert.Contains(t, slackRequests[0].Text, "PR with multiple directives")
 	})
+
+	t.Run("PR directives - retroactive message deletion with !review-skip", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Re-setup mock responses
+		harness.SetupMockResponses()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+
+		// First, create a PR (which will post a message)
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 505, "PR to be deleted", "test-user", "Initial PR description")
+
+		// Send webhook for PR opened
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed and message was posted
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected PR message to be posted initially")
+
+		// Clear for the edit event
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+		httpmock.Reset()
+		harness.SetupMockResponses()
+
+		// Now edit the PR with !review-skip directive
+		editedPayload := buildPREditedPayloadWithDirective("testorg/testrepo", 505, "PR to be deleted", "test-user", "!review-skip")
+
+		// Send webhook for PR edited
+		resp = sendGitHubWebhook(t, harness, "pull_request", editedPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed for the edit
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify NO new Slack messages were posted (we're only deleting)
+		slackRequests = harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, slackRequests, "Expected no new messages to be posted during edit")
+	})
 }
 
 // Helper functions
@@ -633,6 +686,35 @@ func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, ac
 func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
 	payload := map[string]interface{}{
 		"action": "opened",
+		"pull_request": map[string]interface{}{
+			"number":    prNumber,
+			"title":     title,
+			"body":      body,
+			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+			"state":     "open",
+			"draft":     false,
+			"additions": 50,
+			"deletions": 30,
+			"user": map[string]interface{}{
+				"login": author,
+			},
+		},
+		"repository": map[string]interface{}{
+			"full_name": repoFullName,
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
+}
+
+// buildPREditedPayloadWithDirective creates a PR edited payload with a specific directive in the body.
+func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
+	payload := map[string]interface{}{
+		"action": "edited",
 		"pull_request": map[string]interface{}{
 			"number":    prNumber,
 			"title":     title,

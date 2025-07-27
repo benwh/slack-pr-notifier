@@ -199,9 +199,14 @@ You can control how your PR is posted to Slack by adding directives to your PR d
 
 <!-- Multiple options (any order) -->
 !reviews: @reviewer #engineering skip
+
+<!-- Universal skip - prevents posting and deletes existing messages -->
+!review-skip
 ```
 
-**Note:** If multiple `!review` directives are present, the last one wins for each component.
+**Notes:** 
+- If multiple `!review` directives are present, the last one wins for each component.
+- Use `!review-skip` to completely remove a PR from Slack (prevents posting and deletes existing messages).
 
 ### Notification Flow
 

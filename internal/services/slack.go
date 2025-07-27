@@ -32,6 +32,7 @@ var ErrCannotJoinChannel = errors.New("cannot_join_channel")
 
 var (
 	directiveRegex          = regexp.MustCompile(`(?i)!reviews?:\s*(.+)`)
+	skipDirectiveRegex      = regexp.MustCompile(`(?i)!review-skip`)
 	channelValidationRegex  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 	usernameValidationRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
@@ -453,6 +454,71 @@ func (s *SlackService) SyncAllReviewReactions(
 	return nil
 }
 
+// DeleteMessage deletes a Slack message.
+func (s *SlackService) DeleteMessage(ctx context.Context, teamID, channel, timestamp string) error {
+	client, err := s.getSlackClient(ctx, teamID)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = client.DeleteMessage(channel, timestamp)
+	if err != nil {
+		log.Error(ctx, "Failed to delete Slack message",
+			"error", err,
+			"channel", channel,
+			"team_id", teamID,
+			"message_timestamp", timestamp,
+			"operation", "delete_message",
+		)
+		return fmt.Errorf("failed to delete message %s in channel %s for team %s: %w", timestamp, channel, teamID, err)
+	}
+
+	log.Info(ctx, "Successfully deleted Slack message",
+		"channel", channel,
+		"team_id", teamID,
+		"message_timestamp", timestamp,
+	)
+	return nil
+}
+
+// DeleteMultipleMessages deletes multiple Slack messages.
+func (s *SlackService) DeleteMultipleMessages(ctx context.Context, teamID string, messages []MessageRef) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	var lastError error
+	successCount := 0
+
+	for _, msg := range messages {
+		err := s.DeleteMessage(ctx, teamID, msg.Channel, msg.Timestamp)
+		if err != nil {
+			log.Error(ctx, "Failed to delete tracked message",
+				"error", err,
+				"channel", msg.Channel,
+				"message_ts", msg.Timestamp,
+			)
+			lastError = err
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount > 0 {
+		log.Info(ctx, "Messages deleted successfully",
+			"success_count", successCount,
+			"total_count", len(messages),
+		)
+	}
+
+	// Return error only if all messages failed to delete
+	if successCount == 0 && lastError != nil {
+		return lastError
+	}
+
+	return nil
+}
+
 // MessageRef represents a reference to a Slack message for reaction operations.
 type MessageRef struct {
 	Channel   string
@@ -508,14 +574,22 @@ func (s *SlackService) resolveChannelID(ctx context.Context, _ string, client *s
 
 // PRDirectives represents the parsed directives from a PR description.
 type PRDirectives struct {
-	Skip     bool
-	Channel  string
-	UserToCC string
+	Skip      bool
+	RetroSkip bool // For !review-skip - retroactively delete messages
+	Channel   string
+	UserToCC  string
 }
 
 // !review[s]: [skip|no] [#channel_name] [@user_to_cc].
 func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
 	directives := &PRDirectives{}
+
+	// Check for !review-skip directive first
+	if skipDirectiveRegex.MatchString(description) {
+		directives.Skip = true      // Prevent initial posting
+		directives.RetroSkip = true // Also enable retroactive deletion
+		return directives
+	}
 
 	// Find all matches - last directive wins
 	allMatches := directiveRegex.FindAllStringSubmatch(description, -1)

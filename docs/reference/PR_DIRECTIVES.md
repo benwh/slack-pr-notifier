@@ -10,6 +10,16 @@ PR directives use the following format:
 !review[s]: [skip|no] [#channel_name] [@user_to_cc]
 ```
 
+### Universal Skip Directive
+
+For skipping Slack notifications entirely and deleting any existing messages:
+
+```
+!review-skip
+```
+
+This directive works both proactively (prevents initial posting) and retroactively (deletes existing messages).
+
 ### Components
 
 - **Magic string**: `!review` or `!reviews` (both forms work identically)
@@ -60,16 +70,23 @@ or
 ```
 This will skip posting entirely, ignoring the channel and user directives.
 
+### Universal Skip
+```
+!review-skip
+```
+This will prevent the PR from being posted to Slack AND delete all existing Slack messages for this PR across all channels and workspaces. Use this when you want to completely remove a PR from Slack notifications.
+
 ## Directive Processing
 
 If multiple `!review` or `!reviews` directives are present in the same PR description, the **last one wins** for each component (channel, user CC, skip).
 
 ## Implementation Notes
 
-- Directives are case-insensitive for the magic string (`!REVIEW`, `!Review`, etc. all work)
+- Directives are case-insensitive for the magic string (`!REVIEW`, `!Review`, `!REVIEW-SKIP`, etc. all work)
 - Channel names must start with `#` and contain only alphanumeric characters, hyphens, and underscores
 - User mentions must start with `@` and follow Slack username conventions
 - Invalid directives are ignored with warnings logged
+- `!review-skip` takes precedence over all other directives and only triggers message deletion (no parsing of other components)
 
 ## Parsing Behavior
 

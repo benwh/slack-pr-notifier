@@ -27,6 +27,7 @@ var (
 
 const (
 	PRActionOpened             = "opened"
+	PRActionEdited             = "edited"
 	PRActionClosed             = "closed"
 	PRActionReadyForReview     = "ready_for_review"
 	PRReviewActionSubmitted    = "submitted"
@@ -258,6 +259,8 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 	switch githubPayload.Action {
 	case PRActionOpened:
 		return h.handlePROpened(ctx, &githubPayload)
+	case PRActionEdited:
+		return h.handlePREdited(ctx, &githubPayload)
 	case PRActionReadyForReview:
 		return h.handlePRReadyForReview(ctx, &githubPayload)
 	case PRActionClosed:
@@ -589,6 +592,75 @@ func (h *GitHubHandler) processWorkspaceNotification(
 		// There are manual messages to sync with - we don't have current PR status yet, so we'll just log
 		log.Info(ctx, "Multiple tracked messages found for PR, reactions will be synced when status updates arrive",
 			"total_messages", len(allMessages))
+	}
+
+	return nil
+}
+
+func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebhookPayload) error {
+	// Parse directives from PR description
+	directives := h.slackService.ParsePRDirectives(payload.PullRequest.Body)
+
+	// If !review-skip is found, delete all tracked messages for this PR
+	if directives.RetroSkip {
+		log.Info(ctx, "Processing !review-skip directive - deleting tracked messages")
+
+		// Get all tracked messages for this PR across all workspaces and channels
+		trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+		if err != nil {
+			log.Error(ctx, "Failed to get tracked messages for retroactive deletion",
+				"error", err,
+			)
+			return err
+		}
+
+		if len(trackedMessages) == 0 {
+			log.Info(ctx, "No tracked messages found to delete")
+			return nil
+		}
+
+		log.Info(ctx, "Found tracked messages to delete",
+			"message_count", len(trackedMessages),
+		)
+
+		// Group messages by workspace for deletion
+		messagesByWorkspace := make(map[string][]services.MessageRef)
+		messageIDs := make([]string, 0, len(trackedMessages))
+
+		for _, msg := range trackedMessages {
+			messagesByWorkspace[msg.SlackTeamID] = append(messagesByWorkspace[msg.SlackTeamID], services.MessageRef{
+				Channel:   msg.SlackChannel,
+				Timestamp: msg.SlackMessageTS,
+			})
+			messageIDs = append(messageIDs, msg.ID)
+		}
+
+		// Delete messages from Slack in each workspace
+		for workspaceID, messages := range messagesByWorkspace {
+			err := h.slackService.DeleteMultipleMessages(ctx, workspaceID, messages)
+			if err != nil {
+				log.Error(ctx, "Failed to delete some messages in workspace",
+					"error", err,
+					"workspace_id", workspaceID,
+					"message_count", len(messages),
+				)
+				// Continue with other workspaces even if one fails
+			}
+		}
+
+		// Remove tracked messages from Firestore
+		err = h.firestoreService.DeleteTrackedMessages(ctx, messageIDs)
+		if err != nil {
+			log.Error(ctx, "Failed to delete tracked messages from Firestore",
+				"error", err,
+				"message_count", len(messageIDs),
+			)
+			return err
+		}
+
+		log.Info(ctx, "Successfully processed !review-skip directive",
+			"deleted_messages", len(trackedMessages),
+		)
 	}
 
 	return nil
