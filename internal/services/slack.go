@@ -30,6 +30,14 @@ var ErrPrivateChannelNotSupported = errors.New("private_channel_not_supported")
 // ErrCannotJoinChannel indicates the bot cannot join the specified channel.
 var ErrCannotJoinChannel = errors.New("cannot_join_channel")
 
+var (
+	directiveRegex          = regexp.MustCompile(`(?i)!reviews?:\s*(.+)`)
+	channelValidationRegex  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	usernameValidationRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+)
+
+const minMatchesRequired = 2
+
 type SlackService struct {
 	workspaceService *SlackWorkspaceService // Service to get workspace-specific tokens
 	emojiConfig      config.EmojiConfig
@@ -68,7 +76,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID string,
+	authorSlackUserID, userToCC string,
 ) (string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -84,6 +92,11 @@ func (s *SlackService) PostPRMessage(
 	}
 
 	text := fmt.Sprintf("%s <%s|%s> by %s", emoji, prURL, prTitle, authorDisplay)
+
+	// Add user CC if specified
+	if userToCC != "" {
+		text += fmt.Sprintf(" (cc: @%s)", userToCC)
+	}
 
 	_, timestamp, err := client.PostMessage(channel,
 		slack.MsgOptionText(text, false),
@@ -493,13 +506,94 @@ func (s *SlackService) resolveChannelID(ctx context.Context, _ string, client *s
 	return "", fmt.Errorf("%w: %s", ErrChannelNotFound, channel)
 }
 
-func (s *SlackService) ExtractChannelFromDescription(description string) string {
-	re := regexp.MustCompile(`@slack-channel:\s*(#\w+)`)
-	matches := re.FindStringSubmatch(description)
-	if len(matches) > 1 {
-		return strings.TrimPrefix(matches[1], "#")
+// PRDirectives represents the parsed directives from a PR description.
+type PRDirectives struct {
+	Skip     bool
+	Channel  string
+	UserToCC string
+}
+
+// !review[s]: [skip|no] [#channel_name] [@user_to_cc].
+func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
+	directives := &PRDirectives{}
+
+	// Find all matches - last directive wins
+	allMatches := directiveRegex.FindAllStringSubmatch(description, -1)
+	if len(allMatches) == 0 {
+		return directives
 	}
-	return ""
+
+	// Process all directive matches, last one wins for each component
+	for _, matches := range allMatches {
+		if len(matches) < minMatchesRequired {
+			continue
+		}
+		s.processDirectiveMatch(matches[1], directives)
+	}
+
+	return directives
+}
+
+// processDirectiveMatch processes a single directive match and updates the directives.
+func (s *SlackService) processDirectiveMatch(content string, directives *PRDirectives) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
+
+	// Split content by whitespace and parse each component
+	parts := strings.Fields(content)
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		s.processDirectivePart(part, directives)
+	}
+}
+
+// processDirectivePart processes a single part of a directive.
+func (s *SlackService) processDirectivePart(part string, directives *PRDirectives) {
+	// Check for skip directive
+	if strings.EqualFold(part, "skip") || strings.EqualFold(part, "no") {
+		directives.Skip = true
+		return
+	}
+
+	// Check for channel directive (starts with #)
+	if strings.HasPrefix(part, "#") {
+		s.processChannelDirective(part, directives)
+		return
+	}
+
+	// Check for user CC directive (starts with @)
+	if strings.HasPrefix(part, "@") {
+		s.processUserDirective(part, directives)
+	}
+}
+
+// processChannelDirective processes a channel directive part.
+func (s *SlackService) processChannelDirective(part string, directives *PRDirectives) {
+	// Validate channel name format: alphanumeric, hyphens, underscores
+	channelName := strings.TrimPrefix(part, "#")
+	if channelValidationRegex.MatchString(channelName) {
+		directives.Channel = channelName
+	}
+}
+
+// processUserDirective processes a user CC directive part.
+func (s *SlackService) processUserDirective(part string, directives *PRDirectives) {
+	// Validate username format: alphanumeric, dots, hyphens, underscores
+	username := strings.TrimPrefix(part, "@")
+	if usernameValidationRegex.MatchString(username) {
+		directives.UserToCC = username
+	}
+}
+
+// ExtractChannelAndDirectives parses PR directives and returns the channel and directive information.
+func (s *SlackService) ExtractChannelAndDirectives(description string) (string, *PRDirectives) {
+	directives := s.ParsePRDirectives(description)
+	return directives.Channel, directives
 }
 
 // GetUserInfo retrieves Slack user information including display name.

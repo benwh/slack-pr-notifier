@@ -174,13 +174,34 @@ Users configure their preferences through the Slack App Home:
 3. **Set Channel**: Click "Set Default Channel" to choose where you receive PR notifications
 4. **View Status**: Your current configuration is always visible in the App Home
 
-### Channel Override
+### PR Description Directives
 
-Users can override the notification channel by adding this to their PR description:
+You can control how your PR is posted to Slack by adding directives to your PR description:
 
 ```
-@slack-channel: #specific-channel
+!review: [skip|no] [#channel_name] [@user_to_cc]
 ```
+
+**Examples:**
+
+```markdown
+<!-- Skip Slack notification entirely -->
+!review: skip
+
+<!-- Override channel -->
+!review: #dev-team
+
+<!-- CC a specific user -->
+!review: @jane.smith
+
+<!-- Combine channel override and user CC -->
+!review: #backend-team @tech-lead
+
+<!-- Multiple options (any order) -->
+!reviews: @reviewer #engineering skip
+```
+
+**Note:** If multiple `!review` directives are present, the last one wins for each component.
 
 ### Notification Flow
 

@@ -354,6 +354,183 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 			})
 		}
 	})
+
+	// PR Directive Tests
+	t.Run("PR directives - skip notification", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+
+		// Create payload with skip directive
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 500, "PR with skip", "test-user", "!review: skip")
+
+		// Send webhook
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify NO Slack message was sent
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, slackRequests, "Expected no Slack message due to skip directive")
+
+		// Also verify using httpmock
+		info := httpmock.GetCallCountInfo()
+		slackCalls := info["POST https://slack.com/api/chat.postMessage"]
+		assert.Equal(t, 0, slackCalls, "Expected no Slack postMessage calls due to skip directive")
+	})
+
+	t.Run("PR directives - channel override", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Re-setup mock responses
+		harness.SetupMockResponses()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "default-channel")
+		setupTestRepo(t, harness, "default-channel")
+
+		// Create payload with channel override directive
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 501, "PR with channel override", "test-user", "!review: #override-channel")
+
+		// Send webhook
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify message was sent to override channel
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1)
+		assert.Equal(t, "override-channel", slackRequests[0].Channel)
+		assert.Contains(t, slackRequests[0].Text, "PR with channel override")
+	})
+
+	t.Run("PR directives - user CC", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Re-setup mock responses
+		harness.SetupMockResponses()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+
+		// Create payload with user CC directive
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 502, "PR with user CC", "test-user", "!review: @jane.smith")
+
+		// Send webhook
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify message was sent with CC
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1)
+		assert.Contains(t, slackRequests[0].Text, "(cc: @jane.smith)")
+		assert.Contains(t, slackRequests[0].Text, "PR with user CC")
+	})
+
+	t.Run("PR directives - combined channel and user CC", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Re-setup mock responses
+		harness.SetupMockResponses()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "default-channel")
+		setupTestRepo(t, harness, "default-channel")
+
+		// Create payload with combined directive
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 503, "PR with combined directives", "test-user",
+			"!review: #combined-channel @tech.lead")
+
+		// Send webhook
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify message was sent to override channel with CC
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1)
+		assert.Equal(t, "combined-channel", slackRequests[0].Channel)
+		assert.Contains(t, slackRequests[0].Text, "(cc: @tech.lead)")
+		assert.Contains(t, slackRequests[0].Text, "PR with combined directives")
+	})
+
+	t.Run("PR directives - last directive wins", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Re-setup mock responses
+		harness.SetupMockResponses()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "default-channel")
+		setupTestRepo(t, harness, "default-channel")
+
+		// Create payload with multiple directives - last one should win
+		body := "!review: #first-channel @first.user\n!review: #final-channel @final.user"
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 504, "PR with multiple directives", "test-user", body)
+
+		// Send webhook
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify message was sent to final channel with final user (last directive wins)
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1)
+		assert.Equal(t, "final-channel", slackRequests[0].Channel)
+		assert.Contains(t, slackRequests[0].Text, "(cc: @final.user)")
+		assert.Contains(t, slackRequests[0].Text, "PR with multiple directives")
+	})
 }
 
 // Helper functions
@@ -436,6 +613,35 @@ func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, ac
 			"draft":     draft,
 			"additions": additions,
 			"deletions": deletions,
+			"user": map[string]interface{}{
+				"login": author,
+			},
+		},
+		"repository": map[string]interface{}{
+			"full_name": repoFullName,
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
+}
+
+// buildPRPayloadWithDirective creates a PR payload with a specific directive in the body.
+func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
+	payload := map[string]interface{}{
+		"action": "opened",
+		"pull_request": map[string]interface{}{
+			"number":    prNumber,
+			"title":     title,
+			"body":      body,
+			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+			"state":     "open",
+			"draft":     false,
+			"additions": 50,
+			"deletions": 30,
 			"user": map[string]interface{}{
 				"login": author,
 			},

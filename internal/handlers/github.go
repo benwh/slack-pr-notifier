@@ -368,9 +368,18 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 	}
 	log.Debug(ctx, "User lookup result", "user_found", user != nil)
 
-	// Extract annotated channel from PR description if any
-	annotatedChannel := h.slackService.ExtractChannelFromDescription(payload.PullRequest.Body)
-	log.Debug(ctx, "Channel determination", "annotated_channel", annotatedChannel)
+	// Parse PR directives from description
+	annotatedChannel, directives := h.slackService.ExtractChannelAndDirectives(payload.PullRequest.Body)
+	log.Debug(ctx, "Channel and directive determination",
+		"annotated_channel", annotatedChannel,
+		"skip", directives.Skip,
+		"user_to_cc", directives.UserToCC)
+
+	// Check if PR should be skipped
+	if directives.Skip {
+		log.Info(ctx, "Skipping PR notification due to skip directive")
+		return nil
+	}
 
 	// Get all workspace configurations for this repository
 	log.Debug(ctx, "Looking up repository configurations across all workspaces")
@@ -398,7 +407,7 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 
 	// Process notifications for each workspace
 	for _, repo := range repos {
-		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel)
+		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel, directives)
 		if err != nil {
 			log.Error(ctx, "Failed to process notification for workspace",
 				"error", err,
@@ -470,6 +479,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	repo *models.Repo,
 	user *models.User,
 	targetChannel string,
+	directives *services.PRDirectives,
 ) error {
 	log.Info(ctx, "Posting PR message to Slack workspace",
 		"channel", targetChannel,
@@ -495,6 +505,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		payload.PullRequest.HTMLURL,
 		prSize,
 		authorSlackUserID,
+		directives.UserToCC,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack workspace",
@@ -546,6 +557,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 	repo *models.Repo,
 	user *models.User,
 	annotatedChannel string,
+	directives *services.PRDirectives,
 ) error {
 	targetChannel := h.determineTargetChannel(ctx, repo, user, annotatedChannel)
 	if targetChannel == "" {
@@ -564,7 +576,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 	}
 
 	// Post message and track it
-	if err := h.postAndTrackPRMessage(ctx, payload, repo, user, targetChannel); err != nil {
+	if err := h.postAndTrackPRMessage(ctx, payload, repo, user, targetChannel, directives); err != nil {
 		return err
 	}
 
@@ -659,9 +671,18 @@ func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *Git
 
 	log.Debug(ctx, "User lookup result", "user_found", user != nil)
 
-	// Extract annotated channel from PR description if any
-	annotatedChannel := h.slackService.ExtractChannelFromDescription(payload.PullRequest.Body)
-	log.Debug(ctx, "Channel determination", "annotated_channel", annotatedChannel)
+	// Parse PR directives from description
+	annotatedChannel, directives := h.slackService.ExtractChannelAndDirectives(payload.PullRequest.Body)
+	log.Debug(ctx, "Channel and directive determination",
+		"annotated_channel", annotatedChannel,
+		"skip", directives.Skip,
+		"user_to_cc", directives.UserToCC)
+
+	// Check if PR should be skipped
+	if directives.Skip {
+		log.Info(ctx, "Skipping PR notification due to skip directive")
+		return nil
+	}
 
 	// Get all workspace configurations for this repository
 	log.Debug(ctx, "Looking up repository configurations across all workspaces")
@@ -689,7 +710,7 @@ func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *Git
 
 	// Process notifications for each workspace
 	for _, repo := range repos {
-		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel)
+		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel, directives)
 		if err != nil {
 			log.Error(ctx, "Failed to process notification for workspace",
 				"error", err,
