@@ -46,6 +46,9 @@ type TestHarness struct {
 
 	// Context for shutdown
 	cancel context.CancelFunc
+
+	// Request capture for assertions
+	slackRequestCapture *SlackRequestCapture
 }
 
 // NewTestHarness creates a new test harness that runs the real application.
@@ -125,6 +128,9 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	// Wait for services to be available
 	services := <-servicesChan
 
+	// Create request capture
+	slackCapture := NewSlackRequestCapture()
+
 	return &TestHarness{
 		baseURL:               baseURL,
 		config:                cfg,
@@ -134,6 +140,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		fakeCloudTasks:        fakeCloudTasks,
 		httpClient:            httpClient,
 		cancel:                cancel,
+		slackRequestCapture:   slackCapture,
 	}
 }
 
@@ -333,29 +340,61 @@ func (h *TestHarness) FakeCloudTasks() *FakeCloudTasksService {
 	return h.fakeCloudTasks
 }
 
+// SlackRequestCapture returns the Slack request capture for test assertions.
+func (h *TestHarness) SlackRequestCapture() *SlackRequestCapture {
+	return h.slackRequestCapture
+}
+
 // SetupMockResponses sets up common mock responses for GitHub and Slack APIs.
 func (h *TestHarness) SetupMockResponses() {
-	// Mock Slack API responses
+	// Mock Slack API responses with request capture
 	httpmock.RegisterResponder("POST", "https://slack.com/api/chat.postMessage",
-		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"ok":      true,
-			"channel": "C1234567890",
-			"ts":      "1234567890.123456",
-			"message": map[string]interface{}{
-				"text": "Test message",
-				"ts":   "1234567890.123456",
-			},
-		}))
+		func(req *http.Request) (*http.Response, error) {
+			// Capture the request
+			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
+				return nil, err
+			}
+
+			// Return standard response
+			resp, err := httpmock.NewJsonResponse(200, map[string]interface{}{
+				"ok":      true,
+				"channel": "C1234567890",
+				"ts":      "1234567890.123456",
+				"message": map[string]interface{}{
+					"text": "Test message",
+					"ts":   "1234567890.123456",
+				},
+			})
+			return resp, err
+		})
 
 	httpmock.RegisterResponder("POST", "https://slack.com/api/reactions.add",
-		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"ok": true,
-		}))
+		func(req *http.Request) (*http.Response, error) {
+			// Capture the request
+			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
+				return nil, err
+			}
+
+			// Return standard response
+			resp, err := httpmock.NewJsonResponse(200, map[string]interface{}{
+				"ok": true,
+			})
+			return resp, err
+		})
 
 	httpmock.RegisterResponder("POST", "https://slack.com/api/reactions.remove",
-		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"ok": true,
-		}))
+		func(req *http.Request) (*http.Response, error) {
+			// Capture the request
+			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
+				return nil, err
+			}
+
+			// Return standard response
+			resp, err := httpmock.NewJsonResponse(200, map[string]interface{}{
+				"ok": true,
+			})
+			return resp, err
+		})
 
 	httpmock.RegisterResponder("GET", "https://slack.com/api/reactions.get",
 		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{

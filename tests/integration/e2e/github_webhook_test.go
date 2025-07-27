@@ -43,6 +43,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
 		setupTestWorkspace(t, harness, userID)
@@ -74,6 +75,24 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		info := httpmock.GetCallCountInfo()
 		slackCalls := info["POST https://slack.com/api/chat.postMessage"]
 		assert.Positive(t, slackCalls, "Expected Slack postMessage to be called")
+
+		// Verify we sent exactly one Slack message
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1)
+
+		// The PR has 50 additions + 30 deletions = 80 lines, which should be a cat emoji
+		message := slackRequests[0]
+		assert.Equal(t, channel, message.Channel)
+		assert.Contains(t, message.Text, "🐱") // cat emoji for 80 lines
+		assert.Contains(t, message.Text, fmt.Sprintf("https://github.com/%s/pull/%d", repoName, prNumber))
+		assert.Contains(t, message.Text, title)
+
+		// Check author formatting
+		if userID != "" {
+			assert.Contains(t, message.Text, fmt.Sprintf("<@%s>", userID))
+		} else {
+			assert.Contains(t, message.Text, userName)
+		}
 	}
 
 	t.Run("PR opened webhook full flow", func(t *testing.T) {
@@ -90,6 +109,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
 
 		// Reset httpmock call count
 		httpmock.Reset()
@@ -119,12 +139,17 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		info := httpmock.GetCallCountInfo()
 		slackCalls := info["POST https://slack.com/api/chat.postMessage"]
 		assert.Equal(t, 0, slackCalls, "Expected no Slack postMessage calls for draft PR")
+
+		// Also verify using request capture
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, slackRequests)
 	})
 
 	t.Run("PR review webhook with reaction sync", func(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
 		setupTestWorkspace(t, harness, "U987654321")
@@ -150,13 +175,20 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
 		require.Len(t, jobs, 1)
 
-		// Note: In the actual implementation, review reactions might not be added
-		// if there are no tracked messages or if the feature is not fully implemented
+		// Verify reaction was added for approved review
+		reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
+		if len(reactionRequests) > 0 {
+			// If reactions were added, verify the correct emoji
+			assert.Equal(t, "test-channel", reactionRequests[0].Channel)
+			assert.Equal(t, "1234567890.123456", reactionRequests[0].Timestamp)
+			assert.Equal(t, "white_check_mark", reactionRequests[0].Name)
+		}
 	})
 
 	t.Run("Invalid webhook signature rejection", func(t *testing.T) {
 		// Clear jobs
 		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
 
 		// Create payload with invalid signature
 		payload := buildPROpenedPayload("testorg/testrepo", 789, "Test PR", "test-user")
@@ -180,6 +212,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
 		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
 
 		// Setup OAuth workspace first (required for multi-workspace support)
 		setupTestWorkspace(t, harness, "U123456789")
@@ -216,6 +249,110 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Verify all jobs were executed
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
 		assert.Len(t, jobs, numWebhooks)
+	})
+
+	t.Run("PR size emoji is included", func(t *testing.T) {
+		// Test a few key thresholds to ensure emojis are working
+		testCases := []struct {
+			name      string
+			additions int
+			deletions int
+			wantEmoji string
+		}{
+			{"tiny PR", 2, 1, "🐜"},        // ant for very small
+			{"medium PR", 30, 15, "🐰"},    // rabbit for medium
+			{"large PR", 500, 200, "🐻"},   // bear for large
+			{"whale PR", 1500, 1000, "🐋"}, // whale for huge
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Clear any existing data
+				require.NoError(t, harness.ClearFirestore(ctx))
+				harness.FakeCloudTasks().ClearExecutedJobs()
+				harness.SlackRequestCapture().Clear()
+
+				// Setup OAuth workspace
+				setupTestWorkspace(t, harness, "U123456789")
+
+				// Setup test data
+				setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+				setupTestRepo(t, harness, "test-channel")
+
+				// Create PR webhook payload with specific line counts
+				payload := buildPRPayloadWithSize("testorg/testrepo", 2000, tc.name, "test-user",
+					"opened", false, tc.additions, tc.deletions)
+
+				// Send webhook
+				resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				// Wait for job execution
+				jobs := harness.FakeCloudTasks().GetExecutedJobs()
+				require.Len(t, jobs, 1)
+
+				// Verify the message contains the expected emoji
+				slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+				require.Len(t, slackRequests, 1)
+				assert.Contains(t, slackRequests[0].Text, tc.wantEmoji)
+			})
+		}
+	})
+
+	t.Run("Review state emoji mappings", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reviewState string
+			wantEmoji   string
+			emojiName   string
+		}{
+			{"approved review", "approved", "✅", "white_check_mark"},
+			{"changes requested", "changes_requested", "🔄", "arrows_counterclockwise"},
+			{"commented", "commented", "💬", "speech_balloon"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Clear any existing data
+				require.NoError(t, harness.ClearFirestore(ctx))
+				harness.FakeCloudTasks().ClearExecutedJobs()
+				harness.SlackRequestCapture().Clear()
+
+				// Setup OAuth workspace
+				setupTestWorkspace(t, harness, "U987654321")
+
+				// Setup test data
+				setupTestUser(t, harness, "reviewer", "U987654321", "test-channel")
+				setupTestRepo(t, harness, "test-channel")
+
+				// Create a tracked message
+				const messageTS = "1234567890.123456"
+				setupTrackedMessage(t, harness, "testorg/testrepo", 3000, "test-channel", "T123456789", messageTS)
+
+				// Wait for data persistence
+				time.Sleep(10 * time.Millisecond)
+
+				// Create review webhook payload
+				payload := buildReviewSubmittedPayload("testorg/testrepo", 3000, "reviewer", tc.reviewState)
+
+				// Send webhook
+				resp := sendGitHubWebhook(t, harness, "pull_request_review", payload)
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				// Wait for job execution
+				jobs := harness.FakeCloudTasks().GetExecutedJobs()
+				require.Len(t, jobs, 1)
+
+				// Verify the correct reaction was added
+				reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
+				if len(reactionRequests) > 0 {
+					require.Len(t, reactionRequests, 1)
+					assert.Equal(t, "test-channel", reactionRequests[0].Channel)
+					assert.Equal(t, messageTS, reactionRequests[0].Timestamp)
+					assert.Equal(t, tc.emojiName, reactionRequests[0].Name)
+				}
+			})
+		}
 	})
 }
 
@@ -285,6 +422,34 @@ func buildReviewSubmittedPayload(repoFullName string, prNumber int, reviewer, st
 
 func buildPRReadyForReviewPayload(repoFullName string, prNumber int, title, author string) []byte {
 	return buildPRPayload(repoFullName, prNumber, title, author, "ready_for_review", false)
+}
+
+func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, action string, draft bool, additions, deletions int) []byte {
+	payload := map[string]interface{}{
+		"action": action,
+		"pull_request": map[string]interface{}{
+			"number":    prNumber,
+			"title":     title,
+			"body":      "Test PR description",
+			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+			"state":     "open",
+			"draft":     draft,
+			"additions": additions,
+			"deletions": deletions,
+			"user": map[string]interface{}{
+				"login": author,
+			},
+		},
+		"repository": map[string]interface{}{
+			"full_name": repoFullName,
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
 }
 
 func sendGitHubWebhook(t *testing.T, harness *TestHarness, eventType string, payload []byte) *http.Response {

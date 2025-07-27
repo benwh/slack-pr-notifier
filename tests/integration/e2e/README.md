@@ -197,6 +197,36 @@ slackCalls := info["POST https://slack.com/api/chat.postMessage"]
 assert.Positive(t, slackCalls, "Expected Slack API to be called")
 ```
 
+### Assert on Request Content
+
+The test harness captures all Slack API requests for detailed assertions:
+
+```go
+// Get all Slack messages sent during the test
+slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+
+// Make direct assertions on what was sent
+message := slackRequests[0]
+assert.Equal(t, "expected-channel", message.Channel)
+assert.Contains(t, message.Text, "expected content")
+assert.Contains(t, message.Text, "🔍")  // Check for emojis
+assert.Contains(t, message.Text, "https://github.com/org/repo/pull/123")
+
+// Check reactions
+reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
+if len(reactionRequests) > 0 {
+    assert.Equal(t, "emoji_name", reactionRequests[0].Name)
+    assert.Equal(t, "channel", reactionRequests[0].Channel)
+}
+```
+
+#### Best Practices
+
+- **Test behavior, not implementation**: Assert on what the user sees, not how it works internally
+- **Use direct assertions**: Simple `assert.Contains()` and `assert.Equal()` are often clearest
+- **Test with known inputs**: When you control the input data, you can make specific assertions about the output
+- **Update tests when behavior changes**: If a feature changes, update the test assertions to match
+
 ### Debug Job Execution
 
 ```go
