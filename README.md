@@ -46,7 +46,8 @@ A Go application that provides PR mirroring and status reactions between GitHub 
 ### Deploy to Production
 
 ```bash
-./scripts/deploy.sh
+# Deploy with your environment file
+./scripts/deploy.sh production.env
 ```
 
 ## Architecture
@@ -220,7 +221,7 @@ You can control how your PR is posted to Slack by adding directives to your PR d
 
 - `./scripts/dev.sh` - Start local development with ngrok
 - `./scripts/lint.sh` - Run all linters
-- `./scripts/deploy.sh` - Deploy to Cloud Run
+- `./scripts/deploy.sh <env-file>` - Deploy to Cloud Run
 - `./scripts/setup-infrastructure.sh` - Setup GCP infrastructure
 
 ### Linting

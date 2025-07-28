@@ -2,28 +2,141 @@
 
 set -euo pipefail
 
-# Load environment variables from .env file
-if [ -f ".env" ]; then
-    echo "📋 Loading environment variables from .env..."
-    set -a
-    # shellcheck disable=SC1091
-    source .env
-    set +a
-else
-    echo "❌ .env file not found. Please create it:"
-    echo "   cp .env.example .env"
-    echo "   # Edit .env with your configuration"
+# Check if env file argument is provided
+if [ $# -eq 0 ]; then
+    echo "❌ Usage: $0 <env-file>"
+    echo "   Example: $0 production.env"
+    echo "   Example: $0 staging.env"
     exit 1
 fi
 
+ENV_FILE="$1"
+
+# Check if env file exists
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ Environment file '$ENV_FILE' not found"
+    echo "   Please create it based on .env.example"
+    exit 1
+fi
+
+# Load environment variables from specified env file
+echo "📋 Loading environment variables from $ENV_FILE..."
+set -a
+# shellcheck disable=SC1091
+source "$ENV_FILE"
+set +a
+
+# Define which variables should be stored as secrets in Secret Manager
+SECRET_VARS=(
+    "GITHUB_WEBHOOK_SECRET"
+    "SLACK_SIGNING_SECRET"
+    "API_ADMIN_KEY"
+    "SLACK_CLIENT_SECRET"
+    "GITHUB_CLIENT_SECRET"
+    "CLOUD_TASKS_SECRET"
+)
+
+# Function to check if a variable is a secret
+is_secret_var() {
+    local var_name="$1"
+    for secret_var in "${SECRET_VARS[@]}"; do
+        if [ "$secret_var" = "$var_name" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Function to create or update a secret in Secret Manager
+create_or_update_secret() {
+    local secret_name="$1"
+    local secret_value="$2"
+    local project_id="$3"
+
+    echo "   Managing secret: $secret_name"
+
+    # Check if secret exists
+    if gcloud secrets describe "$secret_name" --project="$project_id" >/dev/null 2>&1; then
+        # Secret exists, add new version
+        echo "$secret_value" | gcloud secrets versions add "$secret_name" --data-file=- --project="$project_id"
+    else
+        # Secret doesn't exist, create it
+        echo "$secret_value" | gcloud secrets create "$secret_name" --data-file=- --project="$project_id"
+    fi
+}
+
+# Function to build environment variables string for Cloud Run
+build_env_vars() {
+    local env_vars=""
+
+    # Get all exported environment variables
+    while IFS='=' read -r var_name var_value; do
+        # Skip empty lines and variables starting with _
+        if [ -z "$var_name" ] || [[ "$var_name" =~ ^_ ]]; then
+            continue
+        fi
+
+        # Skip shell variables that aren't meant to be env vars
+        case "$var_name" in
+            "BASH_"* | "SHELL" | "PWD" | "HOME" | "USER" | "PATH" | "TERM" | "SHLVL" | "PS1" | "PS2" | "IFS" | "OPTIND")
+                continue
+                ;;
+        esac
+
+        # Skip if this is a secret variable (will be handled separately)
+        if is_secret_var "$var_name"; then
+            continue
+        fi
+
+        # Skip internal script variables
+        case "$var_name" in
+            "ENV_FILE" | "PROJECT_ID" | "DATABASE_ID" | "REGION" | "SERVICE_NAME" | "REPO_NAME" | "IMAGE_NAME" | "SERVICE_URL")
+                continue
+                ;;
+        esac
+
+        # Add to env vars string
+        if [ -n "$env_vars" ]; then
+            env_vars="${env_vars},"
+        fi
+        env_vars="${env_vars}${var_name}=${var_value}"
+    done < <(env | grep -E '^[A-Z][A-Z0-9_]*=' | sort)
+
+    # Always include these core variables
+    if [ -n "$env_vars" ]; then
+        env_vars="${env_vars},"
+    fi
+    env_vars="${env_vars}FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID},GCP_REGION=${REGION}"
+
+    echo "$env_vars"
+}
+
+# Function to build secrets string for Cloud Run
+build_secrets() {
+    local secrets=""
+
+    for secret_var in "${SECRET_VARS[@]}"; do
+        # Check if the secret variable has a value
+        secret_value="${!secret_var:-}"
+        if [ -n "$secret_value" ]; then
+            if [ -n "$secrets" ]; then
+                secrets="${secrets},"
+            fi
+            secrets="${secrets}${secret_var}=${secret_var}:latest"
+        fi
+    done
+
+    echo "$secrets"
+}
+
 # Check required environment variables
 if [ -z "$FIRESTORE_PROJECT_ID" ]; then
-    echo "❌ FIRESTORE_PROJECT_ID must be set in .env file"
+    echo "❌ FIRESTORE_PROJECT_ID must be set in $ENV_FILE"
     exit 1
 fi
 
 if [ -z "$FIRESTORE_DATABASE_ID" ]; then
-    echo "❌ FIRESTORE_DATABASE_ID must be set in .env file"
+    echo "❌ FIRESTORE_DATABASE_ID must be set in $ENV_FILE"
     exit 1
 fi
 
@@ -70,18 +183,53 @@ docker build -t "${IMAGE_NAME}" .
 echo "🔄 Pushing image to Artifact Registry..."
 docker push "${IMAGE_NAME}"
 
+# Manage secrets in Secret Manager
+echo "🔐 Managing secrets in Secret Manager..."
+for secret_var in "${SECRET_VARS[@]}"; do
+    # Use indirect variable expansion to get the value
+    secret_value="${!secret_var:-}"
+    if [ -n "$secret_value" ]; then
+        create_or_update_secret "$secret_var" "$secret_value" "$PROJECT_ID"
+    else
+        echo "   Warning: $secret_var is empty or not set, skipping..."
+    fi
+done
+
 echo "☁️  Deploying to Cloud Run..."
-gcloud run deploy "${SERVICE_NAME}" \
-  --image="${IMAGE_NAME}" \
+
+# Build environment variables and secrets for deployment
+ENV_VARS=$(build_env_vars)
+SECRETS=$(build_secrets)
+
+# Build deployment command
+DEPLOY_CMD="gcloud run deploy ${SERVICE_NAME} \
+  --image=${IMAGE_NAME} \
   --platform=managed \
-  --region="${REGION}" \
+  --region=${REGION} \
   --allow-unauthenticated \
   --port=8080 \
   --memory=1Gi \
   --cpu=1 \
   --max-instances=10 \
-  --set-env-vars="FIRESTORE_PROJECT_ID=${PROJECT_ID},FIRESTORE_DATABASE_ID=${DATABASE_ID},GCP_REGION=${REGION},GIN_MODE=release" \
-  --project="${PROJECT_ID}"
+  --project=${PROJECT_ID}"
+
+# Add environment variables if any
+if [ -n "$ENV_VARS" ]; then
+    DEPLOY_CMD="${DEPLOY_CMD} --set-env-vars=\"${ENV_VARS}\""
+fi
+
+# Add secrets if any
+if [ -n "$SECRETS" ]; then
+    DEPLOY_CMD="${DEPLOY_CMD} --set-secrets=\"${SECRETS}\""
+fi
+
+# Execute deployment
+echo "   Environment variables: ${ENV_VARS}"
+if [ -n "$SECRETS" ]; then
+    echo "   Secrets: ${SECRETS}"
+fi
+
+eval "$DEPLOY_CMD"
 
 echo "🔧 Getting service URL..."
 SERVICE_URL=$(gcloud run services describe "${SERVICE_NAME}" --platform=managed --region="${REGION}" --format="value(status.url)" --project="${PROJECT_ID}")

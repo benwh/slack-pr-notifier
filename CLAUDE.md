@@ -179,8 +179,8 @@ githubTokenURL = "https://github.com/login/oauth/access_token"
 ### Deployment
 
 ```bash
-# Deploy to Cloud Run
-./scripts/deploy.sh
+# Deploy to Cloud Run with your environment file
+./scripts/deploy.sh production.env
 
 # Setup GCP infrastructure
 ./scripts/setup-infrastructure.sh

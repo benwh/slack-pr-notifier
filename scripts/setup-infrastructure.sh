@@ -71,6 +71,7 @@ gcloud services enable cloudbuild.googleapis.com --project="$PROJECT_ID"
 gcloud services enable run.googleapis.com --project="$PROJECT_ID"
 gcloud services enable artifactregistry.googleapis.com --project="$PROJECT_ID"
 gcloud services enable cloudtasks.googleapis.com --project="$PROJECT_ID"
+gcloud services enable secretmanager.googleapis.com --project="$PROJECT_ID"
 
 # Create Firestore database
 echo "🗄️  Creating Firestore database..."
@@ -171,4 +172,4 @@ echo ""
 echo "📝 Next steps:"
 echo "1. Configure your environment variables in .env"
 echo "2. Run './scripts/dev.sh' for local development"
-echo "3. Run './scripts/deploy.sh' to deploy to Cloud Run"
+echo "3. Run './scripts/deploy.sh <your-env-file>' to deploy to Cloud Run"
