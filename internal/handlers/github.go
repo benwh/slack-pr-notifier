@@ -509,6 +509,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		prSize,
 		authorSlackUserID,
 		directives.UserToCC,
+		directives.CustomEmoji,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack workspace",
@@ -601,9 +602,9 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebho
 	// Parse directives from PR description
 	directives := h.slackService.ParsePRDirectives(payload.PullRequest.Body)
 
-	// If !review-skip is found, delete all tracked messages for this PR
-	if directives.RetroSkip {
-		log.Info(ctx, "Processing !review-skip directive - deleting tracked messages")
+	// If skip directive is found, delete all tracked messages for this PR
+	if directives.Skip {
+		log.Info(ctx, "Processing skip directive - deleting tracked messages")
 
 		// Get all tracked messages for this PR across all workspaces and channels
 		trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)

@@ -166,35 +166,106 @@ More details about the PR.`,
 			},
 		},
 		{
-			name:        "Review-skip directive (prevents posting and enables retroactive deletion)",
+			name:        "Review-skip directive (shorthand for review: skip)",
 			description: "!review-skip",
 			expected: &PRDirectives{
-				Skip:      true,
-				RetroSkip: true,
+				Skip: true,
 			},
 		},
 		{
 			name:        "Review-skip directive case insensitive",
 			description: "!REVIEW-SKIP",
 			expected: &PRDirectives{
-				Skip:      true,
-				RetroSkip: true,
+				Skip: true,
 			},
 		},
 		{
 			name:        "Review-skip directive with other text",
 			description: "Please remove this PR from Slack.\n\n!review-skip\n\nThanks!",
 			expected: &PRDirectives{
-				Skip:      true,
-				RetroSkip: true,
+				Skip: true,
 			},
 		},
 		{
-			name:        "Review-skip takes precedence over other directives",
-			description: "!review: #dev-team @user\n!review-skip",
+			name:        "Review-skip with later directive (skip persists unless overridden)",
+			description: "!review-skip\n!review: #dev-team @user",
 			expected: &PRDirectives{
-				Skip:      true,
-				RetroSkip: true,
+				Skip:     true, // Skip persists since second directive doesn't mention skip
+				Channel:  "dev-team",
+				UserToCC: "user",
+			},
+		},
+		{
+			name:        "Review-skip with later channel directive (accumulative)",
+			description: "!review: skip\n!review: #dev-team",
+			expected: &PRDirectives{
+				Skip:    true, // Skip persists from first directive
+				Channel: "dev-team",
+			},
+		},
+		{
+			name:        "Custom emoji directive",
+			description: "!review: :rocket:",
+			expected: &PRDirectives{
+				CustomEmoji: "rocket",
+			},
+		},
+		{
+			name:        "Custom emoji with other directives",
+			description: "!review: :sparkles: #dev-team @reviewer",
+			expected: &PRDirectives{
+				CustomEmoji: "sparkles",
+				Channel:     "dev-team",
+				UserToCC:    "reviewer",
+			},
+		},
+		{
+			name:        "Custom emoji in different order",
+			description: "!review: #dev-team :fire: @user",
+			expected: &PRDirectives{
+				CustomEmoji: "fire",
+				Channel:     "dev-team",
+				UserToCC:    "user",
+			},
+		},
+		{
+			name:        "Empty emoji (invalid)",
+			description: "!review: :: #dev-team",
+			expected: &PRDirectives{
+				Channel: "dev-team",
+			},
+		},
+		{
+			name:        "Emoji without colons (invalid)",
+			description: "!review: rocket #dev-team",
+			expected: &PRDirectives{
+				Channel: "dev-team",
+			},
+		},
+		{
+			name:        "Multiple emojis - last one wins",
+			description: "!review: :boom: #dev-team\n!review: :tada: @user",
+			expected: &PRDirectives{
+				CustomEmoji: "tada",
+				Channel:     "dev-team",
+				UserToCC:    "user",
+			},
+		},
+		{
+			name:        "Emoji with skip directive",
+			description: "!review: :fire: skip #dev-team",
+			expected: &PRDirectives{
+				CustomEmoji: "fire",
+				Skip:        true,
+				Channel:     "dev-team",
+			},
+		},
+		{
+			name:        "Complex emoji name with underscores",
+			description: "!review: :white_check_mark: #approvals",
+			expected: &PRDirectives{
+				CustomEmoji: "white_check_mark",
+				Channel:     "approvals",
 			},
 		},
 	}

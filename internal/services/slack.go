@@ -77,14 +77,21 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC string,
+	authorSlackUserID, userToCC, customEmoji string,
 ) (string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
 		return "", err
 	}
 
-	emoji := utils.GetPRSizeEmoji(prSize)
+	// Use custom emoji if provided, otherwise fall back to size-based emoji
+	emoji := customEmoji
+	if emoji == "" {
+		emoji = utils.GetPRSizeEmoji(prSize)
+	} else if !strings.HasPrefix(emoji, ":") {
+		// Format custom emoji for Slack (add colons if not present)
+		emoji = ":" + emoji + ":"
+	}
 
 	// Format author with Slack user mention if available
 	authorDisplay := prAuthor
@@ -574,25 +581,21 @@ func (s *SlackService) resolveChannelID(ctx context.Context, _ string, client *s
 
 // PRDirectives represents the parsed directives from a PR description.
 type PRDirectives struct {
-	Skip      bool
-	RetroSkip bool // For !review-skip - retroactively delete messages
-	Channel   string
-	UserToCC  string
+	Skip        bool
+	Channel     string
+	UserToCC    string
+	CustomEmoji string
 }
 
 // !review[s]: [skip|no] [#channel_name] [@user_to_cc].
 func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
 	directives := &PRDirectives{}
 
-	// Check for !review-skip directive first
-	if skipDirectiveRegex.MatchString(description) {
-		directives.Skip = true      // Prevent initial posting
-		directives.RetroSkip = true // Also enable retroactive deletion
-		return directives
-	}
+	// Replace !review-skip with !review: skip to normalize all skip directives
+	normalizedDescription := skipDirectiveRegex.ReplaceAllString(description, "!review: skip")
 
 	// Find all matches - last directive wins
-	allMatches := directiveRegex.FindAllStringSubmatch(description, -1)
+	allMatches := directiveRegex.FindAllStringSubmatch(normalizedDescription, -1)
 	if len(allMatches) == 0 {
 		return directives
 	}
@@ -631,6 +634,15 @@ func (s *SlackService) processDirectivePart(part string, directives *PRDirective
 	// Check for skip directive
 	if strings.EqualFold(part, "skip") || strings.EqualFold(part, "no") {
 		directives.Skip = true
+		return
+	}
+
+	// Check for emoji directive (format :emoji_name:)
+	if strings.HasPrefix(part, ":") && strings.HasSuffix(part, ":") && len(part) > 2 {
+		emojiName := strings.Trim(part, ":")
+		if emojiName != "" {
+			directives.CustomEmoji = emojiName
+		}
 		return
 	}
 
