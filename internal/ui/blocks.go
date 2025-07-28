@@ -165,6 +165,11 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 
 	blocks = append(blocks, slack.NewSectionBlock(sectionText, nil, accessory))
 
+	// User tagging toggle - only show if GitHub is connected
+	if githubConnected {
+		blocks = append(blocks, b.buildUserTaggingSection(user)...)
+	}
+
 	// Channel selection - always show but with different states
 	var channelSectionText string
 	var channelAccessory *slack.Accessory
@@ -205,6 +210,51 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 	))
 
 	return blocks
+}
+
+// buildUserTaggingSection builds the user tagging toggle section.
+func (b *HomeViewBuilder) buildUserTaggingSection(user *models.User) []slack.Block {
+	var taggingStatus string
+	var taggingToggleText string
+	var taggingToggleStyle slack.Style
+	var taggingAccessory *slack.Accessory
+
+	if user != nil && !user.NotificationsEnabled {
+		// Notifications disabled - show pending state
+		taggingStatus = "⏳ Pending - Enable notifications first"
+	} else {
+		// Determine tagging status - default to enabled for backward compatibility
+		taggingEnabled := user == nil || user.TaggingEnabled
+
+		if taggingEnabled {
+			taggingStatus = "✅ Enabled"
+			taggingToggleText = "Disable mentions"
+			taggingToggleStyle = slack.StyleDanger
+		} else {
+			taggingStatus = "❌ Disabled"
+			taggingToggleText = "Enable mentions"
+			taggingToggleStyle = slack.StylePrimary
+		}
+
+		// Only show button if notifications are enabled
+		if user != nil && user.NotificationsEnabled {
+			taggingAccessory = slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"toggle_user_tagging",
+					"toggle_tagging",
+					slack.NewTextBlockObject(slack.PlainTextType, taggingToggleText, false, false),
+				).WithStyle(taggingToggleStyle),
+			)
+		}
+	}
+
+	taggingSectionText := slack.NewTextBlockObject(slack.MarkdownType,
+		fmt.Sprintf("*Step 2b: Control user mentions*\n%s - When enabled, you will be mentioned (@username) in your PR messages", taggingStatus),
+		false, false)
+
+	return []slack.Block{
+		slack.NewSectionBlock(taggingSectionText, nil, taggingAccessory),
+	}
 }
 
 // buildChannelTrackingSection builds the channel tracking settings section.

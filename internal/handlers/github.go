@@ -497,10 +497,14 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	// Calculate PR size (additions + deletions)
 	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
 
-	// Get author's Slack user ID if they're in the same workspace
+	// Get author's Slack user ID if they're in the same workspace and have tagging enabled
 	var authorSlackUserID string
 	if user != nil && user.SlackTeamID == repo.WorkspaceID && user.Verified {
-		authorSlackUserID = user.SlackUserID
+		// Check if user has tagging enabled (default to true for backward compatibility)
+		taggingEnabled := user.TaggingEnabled
+		if taggingEnabled {
+			authorSlackUserID = user.SlackUserID
+		}
 	}
 
 	timestamp, err := h.slackService.PostPRMessage(

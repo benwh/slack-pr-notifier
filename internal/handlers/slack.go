@@ -271,6 +271,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleManageChannelTrackingAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "toggle_notifications":
 		sh.handleToggleNotificationsAction(ctx, userID, c)
+	case "toggle_user_tagging":
+		sh.handleToggleUserTaggingAction(ctx, userID, c)
 	default:
 		c.JSON(http.StatusOK, gin.H{})
 	}
@@ -462,6 +464,7 @@ func (sh *SlackHandler) createOrGetUserWithDisplayName(ctx context.Context, user
 			ID:                   userID,
 			SlackTeamID:          teamID,
 			NotificationsEnabled: true, // Default to enabled for new users
+			TaggingEnabled:       true, // Default to enabled for new users
 		}
 
 		// Try to fetch Slack display name for new user
@@ -568,36 +571,67 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 
 // handleToggleNotificationsAction handles the notifications enable/disable toggle.
 func (sh *SlackHandler) handleToggleNotificationsAction(ctx context.Context, userID string, c *gin.Context) {
+	sh.handleUserSettingToggle(ctx, userID, c, "notifications", func(user *models.User) {
+		user.NotificationsEnabled = !user.NotificationsEnabled
+	}, func(user *models.User) map[string]interface{} {
+		return map[string]interface{}{
+			"notifications_enabled": user.NotificationsEnabled,
+			"github_username":       user.GitHubUsername,
+		}
+	})
+}
+
+// handleToggleUserTaggingAction handles the user tagging enable/disable toggle.
+func (sh *SlackHandler) handleToggleUserTaggingAction(ctx context.Context, userID string, c *gin.Context) {
+	sh.handleUserSettingToggle(ctx, userID, c, "user tagging", func(user *models.User) {
+		user.TaggingEnabled = !user.TaggingEnabled
+	}, func(user *models.User) map[string]interface{} {
+		return map[string]interface{}{
+			"tagging_enabled": user.TaggingEnabled,
+			"github_username": user.GitHubUsername,
+		}
+	})
+}
+
+// handleUserSettingToggle provides common logic for toggling user settings.
+func (sh *SlackHandler) handleUserSettingToggle(
+	ctx context.Context,
+	userID string,
+	c *gin.Context,
+	settingName string,
+	toggleFunc func(*models.User),
+	logFieldsFunc func(*models.User) map[string]interface{},
+) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
 	})
 
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
 	if err != nil {
-		log.Error(ctx, "Failed to get user for notification toggle", "error", err)
+		log.Error(ctx, fmt.Sprintf("Failed to get user for %s toggle", settingName), "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
 
 	if user == nil {
-		log.Warn(ctx, "User not found for notification toggle")
+		log.Warn(ctx, fmt.Sprintf("User not found for %s toggle", settingName))
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
 
-	// Toggle the notifications state
-	user.NotificationsEnabled = !user.NotificationsEnabled
+	// Apply the toggle function
+	toggleFunc(user)
 
 	err = sh.firestoreService.CreateOrUpdateUser(ctx, user)
 	if err != nil {
-		log.Error(ctx, "Failed to update user notification settings", "error", err)
+		log.Error(ctx, fmt.Sprintf("Failed to update user %s settings", settingName), "error", err)
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
 
-	log.Info(ctx, "User notification settings updated",
-		"notifications_enabled", user.NotificationsEnabled,
-		"github_username", user.GitHubUsername)
+	// Build log fields using the provided function
+	logFields := logFieldsFunc(user)
+	log.Info(ctx, fmt.Sprintf("User %s settings updated", settingName), logFields)
 
 	// Refresh the home view to show the updated state
 	sh.refreshHomeView(ctx, userID)

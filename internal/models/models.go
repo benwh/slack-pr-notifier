@@ -33,6 +33,7 @@ type User struct {
 	SlackDisplayName     string    `firestore:"slack_display_name"` // Slack display name for debugging
 	DefaultChannel       string    `firestore:"default_channel"`
 	NotificationsEnabled bool      `firestore:"notifications_enabled"` // Whether to post PRs for this user
+	TaggingEnabled       bool      `firestore:"tagging_enabled"`       // Whether to tag user in PR messages
 	CreatedAt            time.Time `firestore:"created_at"`
 	UpdatedAt            time.Time `firestore:"updated_at"`
 }
