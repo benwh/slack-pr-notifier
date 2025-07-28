@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -111,12 +111,12 @@ while [ $RETRIES -lt $MAX_RETRIES ]; do
         echo "❌ watchexec process died"
         exit 1
     fi
-    
+
     if curl -s "http://localhost:$PORT/health" > /dev/null; then
         echo "✅ Application started on port $PORT"
         break
     fi
-    
+
     # Only show periodic progress to avoid spam
     if [ $((RETRIES % 5)) -eq 0 ] || [ $RETRIES -eq 0 ]; then
         echo "⏳ Waiting for application to be ready... (attempt $((RETRIES + 1))/$MAX_RETRIES)"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Generate Slack App Manifest from template
 # Reads the base URL from WEBHOOK_WORKER_URL in .env file

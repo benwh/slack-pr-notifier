@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -19,12 +19,27 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
+# Capture existing environment variables before loading env file
+declare -A EXISTING_ENV
+while IFS='=' read -r key value; do
+    EXISTING_ENV["$key"]=1
+done < <(env | cut -d= -f1)
+
 # Load environment variables from specified env file
 echo "📋 Loading environment variables from $ENV_FILE..."
 set -a
 # shellcheck disable=SC1091
 source "$ENV_FILE"
 set +a
+
+# Capture variables that were loaded from the env file
+declare -A ENV_FILE_VARS
+while IFS='=' read -r key value; do
+    # Only track if it wasn't in the existing environment or if it was overridden
+    if [[ ! -v EXISTING_ENV["$key"] ]] || [[ "$value" != "${!key}" ]]; then
+        ENV_FILE_VARS["$key"]="$value"
+    fi
+done < <(grep -E '^[A-Z][A-Z0-9_]*=' "$ENV_FILE" | grep -v '^#')
 
 # Define which variables should be stored as secrets in Secret Manager
 SECRET_VARS=(
@@ -69,38 +84,29 @@ create_or_update_secret() {
 build_env_vars() {
     local env_vars=""
 
-    # Get all exported environment variables
-    while IFS='=' read -r var_name var_value; do
-        # Skip empty lines and variables starting with _
-        if [ -z "$var_name" ] || [[ "$var_name" =~ ^_ ]]; then
-            continue
-        fi
-
-        # Skip shell variables that aren't meant to be env vars
-        case "$var_name" in
-            "BASH_"* | "SHELL" | "PWD" | "HOME" | "USER" | "PATH" | "TERM" | "SHLVL" | "PS1" | "PS2" | "IFS" | "OPTIND")
-                continue
-                ;;
-        esac
-
+    # Only process variables that were loaded from the env file
+    for var_name in "${!ENV_FILE_VARS[@]}"; do
         # Skip if this is a secret variable (will be handled separately)
         if is_secret_var "$var_name"; then
             continue
         fi
 
-        # Skip internal script variables
+        # Skip internal script variables and Cloud Run reserved variables
         case "$var_name" in
-            "ENV_FILE" | "PROJECT_ID" | "DATABASE_ID" | "REGION" | "SERVICE_NAME" | "REPO_NAME" | "IMAGE_NAME" | "SERVICE_URL")
+            "ENV_FILE" | "PROJECT_ID" | "DATABASE_ID" | "REGION" | "SERVICE_NAME" | "REPO_NAME" | "IMAGE_NAME" | "SERVICE_URL" | "PORT")
                 continue
                 ;;
         esac
+
+        # Get the current value of the variable
+        var_value="${!var_name}"
 
         # Add to env vars string
         if [ -n "$env_vars" ]; then
             env_vars="${env_vars},"
         fi
         env_vars="${env_vars}${var_name}=${var_value}"
-    done < <(env | grep -E '^[A-Z][A-Z0-9_]*=' | sort)
+    done
 
     # Always include these core variables
     if [ -n "$env_vars" ]; then
@@ -170,9 +176,6 @@ if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q
     echo "   gcloud auth login"
     exit 1
 fi
-
-# Set the project
-gcloud config set project "$PROJECT_ID"
 
 # Configure Docker authentication
 gcloud auth configure-docker "$REGION-docker.pkg.dev"

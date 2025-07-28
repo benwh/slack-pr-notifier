@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -70,12 +70,12 @@ fi
 get_current_indexes() {
     local current_indexes_file=$(mktemp)
     print_status "Fetching current indexes..."
-    
+
     local list_cmd="gcloud firestore indexes composite list --project=$PROJECT_ID --format=json"
     if [[ "$DATABASE_ID" != "(default)" ]]; then
         list_cmd="$list_cmd --database=$DATABASE_ID"
     fi
-    
+
     if eval "$list_cmd" > "$current_indexes_file" 2>/dev/null; then
         echo "$current_indexes_file"
     else
@@ -91,32 +91,32 @@ index_needs_update() {
     local desired_fields="$2"
     local query_scope="$3"
     local current_indexes_file="$4"
-    
+
     # Check if the current indexes file exists and is readable
     if [[ ! -f "$current_indexes_file" ]]; then
         echo "create"
         return
     fi
-    
+
     # Check if an index with the same collection group exists
     local existing_index=$(jq -r --arg cg "$collection_group" --arg qs "$query_scope" '
         .[] | select(.collectionGroup == $cg and (.queryScope // "COLLECTION") == $qs) | .name
     ' "$current_indexes_file" 2>/dev/null)
-    
+
     if [[ -z "$existing_index" ]]; then
         # No existing index, needs creation
         echo "create"
         return
     fi
-    
+
     # Compare field configurations (excluding __name__ field that Firestore adds automatically)
     local existing_fields=$(jq -r --arg cg "$collection_group" --arg qs "$query_scope" '
-        .[] | select(.collectionGroup == $cg and (.queryScope // "COLLECTION") == $qs) | 
+        .[] | select(.collectionGroup == $cg and (.queryScope // "COLLECTION") == $qs) |
         .fields | map(select(.fieldPath != "__name__") | .fieldPath + ":" + (.order // "ASCENDING")) | sort | join(",")
     ' "$current_indexes_file" 2>/dev/null)
-    
+
     local desired_fields_sorted=$(echo "$desired_fields" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
-    
+
     if [[ "$existing_fields" != "$desired_fields_sorted" ]]; then
         # Fields differ, needs update (delete + create)
         echo "update:$existing_index"
@@ -130,12 +130,12 @@ index_needs_update() {
 delete_index() {
     local index_name="$1"
     print_status "Deleting outdated index: $index_name"
-    
+
     local delete_cmd="gcloud firestore indexes composite delete $index_name --quiet --project=$PROJECT_ID"
     if [[ "$DATABASE_ID" != "(default)" ]]; then
         delete_cmd="$delete_cmd --database=$DATABASE_ID"
     fi
-    
+
     if eval "$delete_cmd"; then
         print_status "✓ Index deleted successfully"
         return 0
@@ -158,11 +158,11 @@ UPDATED_COUNT=0
 for index in $INDEXES; do
     # Decode the base64 encoded JSON
     INDEX_DATA=$(echo "$index" | base64 --decode)
-    
+
     # Extract index properties
     COLLECTION_GROUP=$(echo "$INDEX_DATA" | jq -r '.collectionGroup')
     QUERY_SCOPE=$(echo "$INDEX_DATA" | jq -r '.queryScope // "COLLECTION"')
-    
+
     # Convert queryScope to lowercase for gcloud command
     case "$QUERY_SCOPE" in
         "COLLECTION")
@@ -175,7 +175,7 @@ for index in $INDEXES; do
             SCOPE_FLAG="collection"
             ;;
     esac
-    
+
     # Build field config arguments and track desired fields for comparison
     FIELD_CONFIGS=""
     DESIRED_FIELDS=""
@@ -184,7 +184,7 @@ for index in $INDEXES; do
         FIELD_DATA=$(echo "$field" | base64 --decode)
         FIELD_PATH=$(echo "$FIELD_DATA" | jq -r '.fieldPath')
         ORDER=$(echo "$FIELD_DATA" | jq -r '.order // "ASCENDING"')
-        
+
         # Convert order to lowercase
         case "$ORDER" in
             "ASCENDING")
@@ -197,7 +197,7 @@ for index in $INDEXES; do
                 ORDER_FLAG="ascending"
                 ;;
         esac
-        
+
         if [[ -z "$FIELD_CONFIGS" ]]; then
             FIELD_CONFIGS="--field-config=field-path=$FIELD_PATH,order=$ORDER_FLAG"
             DESIRED_FIELDS="$FIELD_PATH:$ORDER"
@@ -206,11 +206,11 @@ for index in $INDEXES; do
             DESIRED_FIELDS="$DESIRED_FIELDS,$FIELD_PATH:$ORDER"
         fi
     done
-    
+
     # Check if index needs to be created, updated, or skipped
     INDEX_ACTION=$(index_needs_update "$COLLECTION_GROUP" "$DESIRED_FIELDS" "$QUERY_SCOPE" "$CURRENT_INDEXES_FILE")
     INDEX_COUNT=$((INDEX_COUNT + 1))
-    
+
     case "$INDEX_ACTION" in
         "skip")
             print_status "⏭ Index $INDEX_COUNT for collection '$COLLECTION_GROUP' already exists and is up to date"
@@ -233,13 +233,13 @@ for index in $INDEXES; do
             fi
             ;;
     esac
-    
+
     # Build the gcloud command
     DEPLOY_CMD="gcloud firestore indexes composite create --collection-group=$COLLECTION_GROUP --query-scope=$SCOPE_FLAG $FIELD_CONFIGS --project=$PROJECT_ID --async"
     if [[ "$DATABASE_ID" != "(default)" ]]; then
         DEPLOY_CMD="$DEPLOY_CMD --database=$DATABASE_ID"
     fi
-    
+
     # Execute the command
     if output=$(eval "$DEPLOY_CMD 2>&1"); then
         print_status "✓ Index $INDEX_COUNT creation initiated successfully"
@@ -272,7 +272,7 @@ print_status "Failed: $FAILED_COUNT"
 if [[ $FAILED_COUNT -eq 0 ]]; then
     print_status ""
     print_status "✅ Index deployment completed successfully!"
-    
+
     if [[ $CREATED_COUNT -gt 0 || $UPDATED_COUNT -gt 0 ]]; then
         print_warning "Note: Index creation is asynchronous and may take several minutes to complete."
         print_status "Monitor progress with: gcloud firestore operations list --project=$PROJECT_ID"

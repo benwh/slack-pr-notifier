@@ -1,5 +1,5 @@
-#!/bin/bash
-#
+#!/usr/bin/env bash
+
 # Setup GCP infrastructure for GitHub-Slack Notifier
 # This script creates:
 # - Firestore database

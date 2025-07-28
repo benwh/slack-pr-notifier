@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/github
 
 FROM alpine:3.19
 
-RUN apk --no-cache add ca-certificates=20240226-r0
+RUN apk --no-cache add ca-certificates=20250619-r0
 
 # Create non-root user
 RUN addgroup -g 1001 -S appuser && \
