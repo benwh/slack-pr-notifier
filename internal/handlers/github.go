@@ -359,6 +359,12 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 		"title", payload.PullRequest.Title,
 	)
 
+	return h.postPRToAllWorkspaces(ctx, payload)
+}
+
+// postPRToAllWorkspaces handles the core logic of posting a PR to all configured workspaces.
+// This function is shared between handlePROpened and handlePREdited for re-posting.
+func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitHubWebhookPayload) error {
 	authorUsername := payload.PullRequest.User.Login
 	log.Debug(ctx, "Looking up user by GitHub username", "github_username", authorUsername)
 	user, err := h.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
@@ -494,7 +500,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	// Get author's Slack user ID if they're in the same workspace
 	var authorSlackUserID string
 	if user != nil && user.SlackTeamID == repo.WorkspaceID && user.Verified {
-		authorSlackUserID = user.ID
+		authorSlackUserID = user.SlackUserID
 	}
 
 	timestamp, err := h.slackService.PostPRMessage(
@@ -604,66 +610,105 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebho
 
 	// If skip directive is found, delete all tracked messages for this PR
 	if directives.Skip {
-		log.Info(ctx, "Processing skip directive - deleting tracked messages")
+		return h.processSkipDirective(ctx, payload)
+	}
 
-		// Get all tracked messages for this PR across all workspaces and channels
-		trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	// No skip directive - check if we need to re-post the PR
+	return h.handleUnskipDirective(ctx, payload)
+}
+
+// processSkipDirective handles the deletion of tracked messages when skip directive is found.
+func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing skip directive - deleting tracked messages")
+
+	// Get all tracked messages for this PR across all workspaces and channels
+	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	if err != nil {
+		log.Error(ctx, "Failed to get tracked messages for retroactive deletion",
+			"error", err,
+		)
+		return err
+	}
+
+	if len(trackedMessages) == 0 {
+		log.Info(ctx, "No tracked messages found to delete")
+		return nil
+	}
+
+	log.Info(ctx, "Found tracked messages to delete",
+		"message_count", len(trackedMessages),
+	)
+
+	// Group messages by workspace for deletion
+	messagesByWorkspace := make(map[string][]services.MessageRef)
+	messageIDs := make([]string, 0, len(trackedMessages))
+
+	for _, msg := range trackedMessages {
+		messagesByWorkspace[msg.SlackTeamID] = append(messagesByWorkspace[msg.SlackTeamID], services.MessageRef{
+			Channel:   msg.SlackChannel,
+			Timestamp: msg.SlackMessageTS,
+		})
+		messageIDs = append(messageIDs, msg.ID)
+	}
+
+	// Delete messages from Slack in each workspace
+	for workspaceID, messages := range messagesByWorkspace {
+		err := h.slackService.DeleteMultipleMessages(ctx, workspaceID, messages)
 		if err != nil {
-			log.Error(ctx, "Failed to get tracked messages for retroactive deletion",
+			log.Error(ctx, "Failed to delete some messages in workspace",
 				"error", err,
+				"workspace_id", workspaceID,
+				"message_count", len(messages),
 			)
-			return err
+			// Continue with other workspaces even if one fails
 		}
+	}
 
-		if len(trackedMessages) == 0 {
-			log.Info(ctx, "No tracked messages found to delete")
+	// Remove tracked messages from Firestore
+	err = h.firestoreService.DeleteTrackedMessages(ctx, messageIDs)
+	if err != nil {
+		log.Error(ctx, "Failed to delete tracked messages from Firestore",
+			"error", err,
+			"message_count", len(messageIDs),
+		)
+		return err
+	}
+
+	log.Info(ctx, "Successfully processed skip directive",
+		"deleted_messages", len(trackedMessages),
+	)
+	return nil
+}
+
+// handleUnskipDirective handles re-posting PRs when skip directive is removed.
+func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Debug(ctx, "No skip directive found, checking if PR needs to be re-posted")
+
+	// Get all tracked messages for this PR to see if it's already posted
+	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	if err != nil {
+		log.Error(ctx, "Failed to get tracked messages for re-post check",
+			"error", err,
+		)
+		return err
+	}
+
+	if len(trackedMessages) == 0 {
+		log.Info(ctx, "No tracked messages found - re-posting PR after skip directive removal")
+
+		// Skip draft PRs (same logic as handlePROpened)
+		if payload.PullRequest.Draft {
+			log.Debug(ctx, "Skipping draft PR for re-posting")
 			return nil
 		}
 
-		log.Info(ctx, "Found tracked messages to delete",
-			"message_count", len(trackedMessages),
-		)
-
-		// Group messages by workspace for deletion
-		messagesByWorkspace := make(map[string][]services.MessageRef)
-		messageIDs := make([]string, 0, len(trackedMessages))
-
-		for _, msg := range trackedMessages {
-			messagesByWorkspace[msg.SlackTeamID] = append(messagesByWorkspace[msg.SlackTeamID], services.MessageRef{
-				Channel:   msg.SlackChannel,
-				Timestamp: msg.SlackMessageTS,
-			})
-			messageIDs = append(messageIDs, msg.ID)
-		}
-
-		// Delete messages from Slack in each workspace
-		for workspaceID, messages := range messagesByWorkspace {
-			err := h.slackService.DeleteMultipleMessages(ctx, workspaceID, messages)
-			if err != nil {
-				log.Error(ctx, "Failed to delete some messages in workspace",
-					"error", err,
-					"workspace_id", workspaceID,
-					"message_count", len(messages),
-				)
-				// Continue with other workspaces even if one fails
-			}
-		}
-
-		// Remove tracked messages from Firestore
-		err = h.firestoreService.DeleteTrackedMessages(ctx, messageIDs)
-		if err != nil {
-			log.Error(ctx, "Failed to delete tracked messages from Firestore",
-				"error", err,
-				"message_count", len(messageIDs),
-			)
-			return err
-		}
-
-		log.Info(ctx, "Successfully processed !review-skip directive",
-			"deleted_messages", len(trackedMessages),
-		)
+		// Re-post the PR using the shared logic
+		return h.postPRToAllWorkspaces(ctx, payload)
 	}
 
+	log.Debug(ctx, "PR already has tracked messages, no re-posting needed",
+		"message_count", len(trackedMessages),
+	)
 	return nil
 }
 

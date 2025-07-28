@@ -584,6 +584,87 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		slackRequests = harness.SlackRequestCapture().GetPostMessageRequests()
 		assert.Empty(t, slackRequests, "Expected no new messages to be posted during edit")
 	})
+
+	t.Run("PR skip/unskip sequence - removing skip directive re-posts PR", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Reset httpmock call count
+		httpmock.Reset()
+
+		// Re-setup mock responses
+		harness.SetupMockResponses()
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+
+		// Step 1: Create a PR (which will post a message)
+		payload := buildPRPayloadWithDirective("testorg/testrepo", 506, "Test skip/unskip sequence", "test-user", "Initial PR description")
+
+		// Send webhook for PR opened
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed and message was posted initially
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected PR message to be posted initially")
+		initialMessage := slackRequests[0]
+		assert.Equal(t, "test-channel", initialMessage.Channel)
+		assert.Contains(t, initialMessage.Text, "Test skip/unskip sequence")
+
+		// Step 2: Edit the PR to add !review-skip directive (should delete message)
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+		httpmock.Reset()
+		harness.SetupMockResponses()
+
+		editedPayload := buildPREditedPayloadWithDirective("testorg/testrepo", 506, "Test skip/unskip sequence", "test-user", "!review-skip")
+
+		// Send webhook for PR edited with skip
+		resp = sendGitHubWebhook(t, harness, "pull_request", editedPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed for the edit
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// Verify NO new Slack messages were posted (only deleting)
+		slackRequests = harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, slackRequests, "Expected no new messages to be posted during skip")
+
+		// Step 3: Edit the PR to remove !review-skip directive (should re-post message)
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+		httpmock.Reset()
+		harness.SetupMockResponses()
+
+		unskipPayload := buildPREditedPayloadWithDirective("testorg/testrepo", 506, "Test skip/unskip sequence", "test-user",
+			"Regular PR description without skip")
+
+		// Send webhook for PR edited without skip
+		resp = sendGitHubWebhook(t, harness, "pull_request", unskipPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify job was executed for the unskip edit
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		// THIS IS THE KEY ASSERTION: Verify the PR message was re-posted to Slack
+		slackRequests = harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected PR message to be re-posted after removing skip directive")
+
+		repostedMessage := slackRequests[0]
+		assert.Equal(t, "test-channel", repostedMessage.Channel)
+		assert.Contains(t, repostedMessage.Text, "Test skip/unskip sequence")
+		assert.Contains(t, repostedMessage.Text, "https://github.com/testorg/testrepo/pull/506")
+	})
 }
 
 // Helper functions
