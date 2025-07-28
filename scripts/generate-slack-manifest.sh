@@ -37,6 +37,11 @@ if [ -z "${BASE_URL:-}" ]; then
     exit 1
 fi
 
+# Set default Slack app name if not provided
+if [ -z "${SLACK_APP_NAME:-}" ]; then
+    SLACK_APP_NAME="PR Bot"
+fi
+
 # Remove trailing slash if present
 BASE_URL="${BASE_URL%/}"
 
@@ -58,10 +63,11 @@ echo "🔧 Generating Slack app manifest..."
 echo "📁 Template: $TEMPLATE_FILE"
 echo "📄 Environment: $ENV_FILE"
 echo "🌐 Base URL: $BASE_URL"
+echo "🏷️ App Name: $SLACK_APP_NAME"
 echo "📄 Output: $OUTPUT_FILE"
 
-# Generate manifest by replacing placeholder
-sed "s|{{BASE_URL}}|$BASE_URL|g" "$TEMPLATE_FILE" > "$OUTPUT_FILE"
+# Generate manifest by replacing placeholders
+sed -e "s|{{BASE_URL}}|$BASE_URL|g" -e "s|{{SLACK_APP_NAME}}|$SLACK_APP_NAME|g" "$TEMPLATE_FILE" > "$OUTPUT_FILE"
 
 echo "✅ Manifest generated successfully!"
 echo ""
