@@ -6,6 +6,7 @@ A Go application that provides PR mirroring and status reactions between GitHub 
 
 - 🔗 **PR Mirroring**: Automatically posts PR notifications to Slack when opened (includes manual link detection)
 - 📝 **PR Status Reactions**: Syncs emoji reactions for PR reviews (approved ✅, changes requested 🔄, comments 💬) and closures (🎉 merged, ❌ closed)
+- 🔄 **Reaction Sync**: Automatically syncs reactions when manual PR links are posted, showing current review state
 - 🔐 **Secure OAuth Authentication**: Users link GitHub accounts via OAuth (no more username trust)
 - ⚙️ **Slack Configuration**: Use the App Home interface to configure your settings
 - 🚀 **Async Processing**: Uses Google Cloud Tasks for reliable webhook processing with automatic retries

@@ -21,6 +21,20 @@ The service uses a two-phase async processing model:
 - Request signature validation using `X-Slack-Signature` header
 - Required scopes: `channels:read`, `chat:write`, `commands`
 
+### GitHub API Access
+
+The application uses the GitHub API for fetching PR details and review states, particularly for the reaction sync feature:
+
+- **Authentication**: Optional GitHub App installation token (`GITHUB_APP_TOKEN`)
+- **Rate Limits**: 
+  - Without token: 60 requests/hour (public repos only)
+  - With token: 5,000 requests/hour (public and private repos where app is installed)
+- **API Endpoints Used**:
+  - `/repos/{owner}/{repo}/pulls/{number}` - Fetch PR details
+  - `/repos/{owner}/{repo}/pulls/{number}/reviews` - Fetch PR reviews
+- **Token Type**: GitHub App installation access token (not user OAuth token)
+- **Token Expiry**: Installation tokens expire after 1 hour (requires refresh in production)
+
 ## Database Schema (Firestore)
 
 ### Collections
@@ -77,7 +91,7 @@ type Repo struct {
 // Job structure for all async processing
 type Job struct {
     ID      string          // Job UUID
-    Type    string          // Job type (github_webhook, manual_pr_link)
+    Type    string          // Job type (github_webhook, manual_pr_link, reaction_sync)
     TraceID string          // Request trace ID
     Payload json.RawMessage // Type-specific payload
 }
@@ -102,6 +116,14 @@ type ManualLinkJob struct {
     SlackChannel   string // Slack channel ID
     SlackMessageTS string // Slack message timestamp
     TraceID        string // Request trace ID
+}
+
+// Reaction sync job payload
+type ReactionSyncJob struct {
+    ID           string // Job UUID
+    PRNumber     int    // PR number
+    RepoFullName string // Repository full name
+    TraceID      string // Request trace ID
 }
 ```
 
@@ -198,13 +220,16 @@ All async work is processed through a job system:
 #### Review Submitted
 
 1. Validate and queue to Cloud Tasks
-2. JobProcessor routes to GitHubHandler which processes:
-   - Find existing Slack messages across all channels
-   - Sync reactions based on review state:
+2. JobProcessor routes to GitHubHandler which:
+   - Creates and enqueues a ReactionSyncJob for async processing
+3. ReactionSyncJob processor:
+   - Fetches current PR state and reviews from GitHub API
+   - Finds existing Slack messages across all channels
+   - Syncs reactions based on review state:
      - ✅ approved
      - 🔄 changes_requested
      - 💬 commented
-   - Handle dismissed reviews by removing all review reactions
+   - Handles dismissed reviews by removing all review reactions
 
 #### PR Closed
 
@@ -214,6 +239,20 @@ All async work is processed through a job system:
    - Add reaction to all tracked messages:
      - 🎉 if merged
      - ❌ if closed without merge
+
+### Slack Events
+
+#### Manual PR Link Detection
+
+1. Slack sends message event to `/webhooks/slack/events`
+2. System detects GitHub PR links in message
+3. Creates ManualLinkJob and queues to Cloud Tasks
+4. JobProcessor routes to SlackHandler which:
+   - Creates tracked message entry for manual link
+   - Enqueues ReactionSyncJob to sync initial reactions
+5. ReactionSyncJob processor:
+   - Fetches current PR state from GitHub API
+   - Syncs reactions based on current state
 
 ### Error Handling
 
@@ -247,6 +286,9 @@ SLACK_BOT_TOKEN          # Slack bot token (xoxb-)
 GITHUB_WEBHOOK_SECRET    # GitHub webhook validation secret
 SLACK_SIGNING_SECRET     # Slack request validation secret
 API_ADMIN_KEY           # Admin API authentication key
+
+# GitHub API Access
+GITHUB_APP_TOKEN         # GitHub App installation token (optional)
 
 # Async Processing
 GOOGLE_CLOUD_PROJECT     # GCP project for Cloud Tasks

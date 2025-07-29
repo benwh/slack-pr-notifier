@@ -29,6 +29,91 @@ If you already have a GitHub App for webhooks:
 3. Note your Client ID and Client Secret
 4. Update your `.env` file
 
+### GitHub App Installation Token (For API Access)
+
+The `GITHUB_APP_TOKEN` enables the application to make authenticated API calls to GitHub for fetching PR details and review states. This is particularly important for the reaction sync feature.
+
+**What it's used for:**
+- Fetching PR details when manual links are posted in Slack
+- Getting current review states (approved, changes requested, commented)
+- Accessing private repositories where your GitHub App is installed
+- Increasing API rate limits from 60/hour to 5,000/hour
+
+**How to generate the token:**
+
+#### Method 1: Using GitHub CLI (Easiest)
+```bash
+# Install GitHub CLI if not already installed
+# https://cli.github.com/
+
+# Login with your GitHub account
+gh auth login
+
+# Generate an installation token for your app
+gh api \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  /app/installations/{installation_id}/access_tokens \
+  --method POST
+```
+
+#### Method 2: Manual Generation
+1. Create a JWT token signed with your GitHub App's private key
+2. Use the JWT to get installations: `GET /app/installations`
+3. Create an installation access token: `POST /app/installations/{installation_id}/access_tokens`
+
+#### Method 3: Using a Script
+Create a script to generate tokens (example in Ruby):
+```ruby
+require 'openssl'
+require 'jwt'
+require 'net/http'
+require 'json'
+
+# Your GitHub App's private key and app ID
+private_key = OpenSSL::PKey::RSA.new(File.read('private-key.pem'))
+app_id = 'YOUR_APP_ID'
+
+# Generate JWT
+payload = {
+  iat: Time.now.to_i - 60,
+  exp: Time.now.to_i + (10 * 60),
+  iss: app_id
+}
+jwt = JWT.encode(payload, private_key, 'RS256')
+
+# Get installations
+uri = URI('https://api.github.com/app/installations')
+req = Net::HTTP::Get.new(uri)
+req['Authorization'] = "Bearer #{jwt}"
+req['Accept'] = 'application/vnd.github+json'
+
+res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |http| http.request(req) }
+installations = JSON.parse(res.body)
+
+# Get token for first installation
+installation_id = installations[0]['id']
+uri = URI("https://api.github.com/app/installations/#{installation_id}/access_tokens")
+req = Net::HTTP::Post.new(uri)
+req['Authorization'] = "Bearer #{jwt}"
+req['Accept'] = 'application/vnd.github+json'
+
+res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |http| http.request(req) }
+token_data = JSON.parse(res.body)
+puts "GITHUB_APP_TOKEN=#{token_data['token']}"
+```
+
+**Important Notes:**
+- Installation tokens expire after 1 hour
+- In production, implement automatic token refresh
+- The token provides access to all repositories where your GitHub App is installed
+- Without this token, reaction sync will only work for public repositories within strict rate limits
+
+**Environment Variable:**
+```bash
+GITHUB_APP_TOKEN=ghs_xxxxxxxxxxxxxxxxxxxx
+```
+
 ## Slack App Configuration
 
 The application now uses **OAuth-based multi-workspace support**. The old `SLACK_BOT_TOKEN` approach is no longer supported.
