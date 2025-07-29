@@ -29,15 +29,15 @@ If you already have a GitHub App for webhooks:
 3. Note your Client ID and Client Secret
 4. Update your `.env` file
 
-### GitHub App Installation Token (For API Access)
+### GitHub App Installation Token (Required)
 
-The `GITHUB_APP_TOKEN` enables the application to make authenticated API calls to GitHub for fetching PR details and review states. This is particularly important for the reaction sync feature.
+The `GITHUB_APP_TOKEN` is **required** for the application to make authenticated API calls to GitHub for fetching PR details and review states. This is essential for the reaction sync feature.
 
 **What it's used for:**
 - Fetching PR details when manual links are posted in Slack
 - Getting current review states (approved, changes requested, commented)
 - Accessing private repositories where your GitHub App is installed
-- Increasing API rate limits from 60/hour to 5,000/hour
+- Ensuring reliable API access with 5,000 requests/hour rate limit
 
 **How to generate the token:**
 
@@ -107,11 +107,11 @@ puts "GITHUB_APP_TOKEN=#{token_data['token']}"
 - Installation tokens expire after 1 hour
 - In production, implement automatic token refresh
 - The token provides access to all repositories where your GitHub App is installed
-- Without this token, reaction sync will only work for public repositories within strict rate limits
+- This token is **required** - the application will not start without it
 
 **Environment Variable:**
 ```bash
-GITHUB_APP_TOKEN=ghs_xxxxxxxxxxxxxxxxxxxx
+GITHUB_APP_TOKEN=ghs_xxxxxxxxxxxxxxxxxxxx  # Required
 ```
 
 ## Slack App Configuration

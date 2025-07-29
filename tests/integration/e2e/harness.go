@@ -83,6 +83,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		GitHubWebhookSecret:   "test-webhook-secret",
 		GitHubClientID:        "test-github-client-id",
 		GitHubClientSecret:    "test-github-client-secret",
+		GitHubAppToken:        "test-github-app-token",
 		GoogleCloudProject:    "test-project",
 		GCPRegion:             "us-central1",
 		CloudTasksQueue:       "test-queue",

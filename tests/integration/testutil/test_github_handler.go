@@ -33,8 +33,10 @@ func NewTestGitHubHandler(
 		Merged:           "purple_heart",
 		Closed:           "x",
 	}
-	// Create a GitHub API service for the test
-	githubService := services.NewGitHubService(&config.Config{})
+	// Create a GitHub API service for the test with a test token
+	githubService := services.NewGitHubService(&config.Config{
+		GitHubAppToken: "test-github-app-token",
+	})
 
 	realHandler := handlers.NewGitHubHandler(
 		cloudTasksService,

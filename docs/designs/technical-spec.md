@@ -25,10 +25,8 @@ The service uses a two-phase async processing model:
 
 The application uses the GitHub API for fetching PR details and review states, particularly for the reaction sync feature:
 
-- **Authentication**: Optional GitHub App installation token (`GITHUB_APP_TOKEN`)
-- **Rate Limits**: 
-  - Without token: 60 requests/hour (public repos only)
-  - With token: 5,000 requests/hour (public and private repos where app is installed)
+- **Authentication**: Required GitHub App installation token (`GITHUB_APP_TOKEN`)
+- **Rate Limits**: 5,000 requests/hour (public and private repos where app is installed)
 - **API Endpoints Used**:
   - `/repos/{owner}/{repo}/pulls/{number}` - Fetch PR details
   - `/repos/{owner}/{repo}/pulls/{number}/reviews` - Fetch PR reviews
@@ -288,7 +286,7 @@ SLACK_SIGNING_SECRET     # Slack request validation secret
 API_ADMIN_KEY           # Admin API authentication key
 
 # GitHub API Access
-GITHUB_APP_TOKEN         # GitHub App installation token (optional)
+GITHUB_APP_TOKEN         # GitHub App installation token (required)
 
 # Async Processing
 GOOGLE_CLOUD_PROJECT     # GCP project for Cloud Tasks

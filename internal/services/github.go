@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github-slack-notifier/internal/config"
@@ -20,15 +19,12 @@ type GitHubService struct {
 
 // NewGitHubService creates a new GitHubService instance.
 func NewGitHubService(cfg *config.Config) *GitHubService {
-	// Create an authenticated client if token is provided
-	var httpClient *http.Client
-	if cfg.GitHubAppToken != "" {
-		transport := &github.BasicAuthTransport{
-			Username: "x-access-token",
-			Password: cfg.GitHubAppToken,
-		}
-		httpClient = transport.Client()
+	// Create an authenticated client with the GitHub App token
+	transport := &github.BasicAuthTransport{
+		Username: "x-access-token",
+		Password: cfg.GitHubAppToken,
 	}
+	httpClient := transport.Client()
 
 	return &GitHubService{
 		client: github.NewClient(httpClient),
