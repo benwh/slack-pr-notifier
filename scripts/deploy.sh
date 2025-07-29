@@ -198,6 +198,35 @@ for secret_var in "${SECRET_VARS[@]}"; do
     fi
 done
 
+# Service Account Management
+echo "👤 Managing service account..."
+SERVICE_ACCOUNT_NAME="${SERVICE_NAME}-sa"
+SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# Check if service account exists
+if ! gcloud iam service-accounts describe "${SERVICE_ACCOUNT_EMAIL}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    echo "   Creating service account: ${SERVICE_ACCOUNT_NAME}"
+    gcloud iam service-accounts create "${SERVICE_ACCOUNT_NAME}" \
+        --display-name="Service account for ${SERVICE_NAME}" \
+        --project="${PROJECT_ID}"
+else
+    echo "   Service account already exists: ${SERVICE_ACCOUNT_NAME}"
+fi
+
+# Grant secretAccessor role for each secret
+echo "🔑 Granting secret access permissions..."
+for secret_var in "${SECRET_VARS[@]}"; do
+    # Check if the secret variable has a value
+    secret_value="${!secret_var:-}"
+    if [ -n "$secret_value" ]; then
+        echo "   Granting access to secret: ${secret_var}"
+        gcloud secrets add-iam-policy-binding "${secret_var}" \
+            --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
+            --role="roles/secretmanager.secretAccessor" \
+            --project="${PROJECT_ID}" >/dev/null
+    fi
+done
+
 echo "☁️  Deploying to Cloud Run..."
 
 # Build environment variables and secrets for deployment
@@ -214,6 +243,7 @@ DEPLOY_CMD="gcloud run deploy ${SERVICE_NAME} \
   --memory=1Gi \
   --cpu=1 \
   --max-instances=10 \
+  --service-account=${SERVICE_ACCOUNT_EMAIL} \
   --project=${PROJECT_ID}"
 
 # Add environment variables if any
