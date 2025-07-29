@@ -123,7 +123,7 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			if !tt.expectError {
 				cloudTasksService = &mockCloudTasksService{}
 			}
-			handler := NewGitHubHandler(cloudTasksService, nil, nil, tt.webhookSecret, testEmojiConfig())
+			handler := NewGitHubHandler(cloudTasksService, nil, nil, nil, tt.webhookSecret, testEmojiConfig())
 
 			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(tt.body))
 			for key, values := range tt.setupHeaders() {
@@ -207,7 +207,7 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewGitHubHandler(nil, nil, nil, "", testEmojiConfig())
+			handler := NewGitHubHandler(nil, nil, nil, nil, "", testEmojiConfig())
 
 			body := `{"action":"opened","repository":{"name":"test"}}`
 			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(body))
@@ -236,7 +236,7 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	handler := NewGitHubHandler(nil, nil, nil, "", testEmojiConfig())
+	handler := NewGitHubHandler(nil, nil, nil, nil, "", testEmojiConfig())
 
 	// Create request with body that causes read error
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", &errorReader{})

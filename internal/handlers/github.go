@@ -74,6 +74,7 @@ type GitHubHandler struct {
 	cloudTasksService CloudTasksServiceInterface
 	firestoreService  *services.FirestoreService
 	slackService      *services.SlackService
+	githubService     *services.GitHubService
 	webhookSecret     string
 	emojiConfig       config.EmojiConfig
 }
@@ -82,6 +83,7 @@ func NewGitHubHandler(
 	cloudTasksService CloudTasksServiceInterface,
 	firestoreService *services.FirestoreService,
 	slackService *services.SlackService,
+	githubService *services.GitHubService,
 	webhookSecret string,
 	emojiConfig config.EmojiConfig,
 ) *GitHubHandler {
@@ -89,6 +91,7 @@ func NewGitHubHandler(
 		cloudTasksService: cloudTasksService,
 		firestoreService:  firestoreService,
 		slackService:      slackService,
+		githubService:     githubService,
 		webhookSecret:     webhookSecret,
 		emojiConfig:       emojiConfig,
 	}
@@ -228,7 +231,7 @@ func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) 
 	case EventTypePullRequest:
 		return h.processPullRequestEvent(ctx, webhookJob.Payload)
 	case EventTypePullRequestReview:
-		return h.processPullRequestReviewEvent(ctx, webhookJob.Payload)
+		return h.processPullRequestReviewEvent(ctx, webhookJob.Payload, webhookJob.TraceID)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedEventType, webhookJob.EventType)
 	}
@@ -271,7 +274,7 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 	}
 }
 
-func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, payload []byte) error {
+func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, payload []byte, traceID string) error {
 	var githubPayload GitHubWebhookPayload
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
 		log.Error(ctx, "Failed to unmarshal pull request review payload",
@@ -295,57 +298,40 @@ func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, paylo
 		return nil
 	}
 
-	// Get all tracked messages for this PR across all workspaces and channels
-	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, githubPayload.Repository.FullName, githubPayload.PullRequest.Number)
+	// Create ReactionSyncJob to handle reaction syncing asynchronously
+	reactionSyncJobID := uuid.New().String()
+	reactionSyncJob := &models.ReactionSyncJob{
+		ID:           reactionSyncJobID,
+		PRNumber:     githubPayload.PullRequest.Number,
+		RepoFullName: githubPayload.Repository.FullName,
+		TraceID:      traceID,
+	}
+
+	// Marshal the ReactionSyncJob as the payload for the Job
+	jobPayload, err := json.Marshal(reactionSyncJob)
 	if err != nil {
-		log.Error(ctx, "Failed to get tracked messages for PR review reaction",
-			"error", err,
-		)
-		return err
-	}
-	if len(trackedMessages) == 0 {
-		log.Warn(ctx, "No tracked messages found for PR review reaction")
-		return nil
+		log.Error(ctx, "Failed to marshal reaction sync job", "error", err)
+		return fmt.Errorf("failed to marshal reaction sync job: %w", err)
 	}
 
-	// Convert tracked messages to message refs
-	messageRefs := make([]services.MessageRef, len(trackedMessages))
-	for i, msg := range trackedMessages {
-		messageRefs[i] = services.MessageRef{
-			Channel:   msg.SlackChannel,
-			Timestamp: msg.SlackMessageTS,
-		}
+	// Create Job
+	job := &models.Job{
+		ID:      reactionSyncJobID,
+		Type:    models.JobTypeReactionSync,
+		TraceID: reactionSyncJob.TraceID,
+		Payload: jobPayload,
 	}
 
-	// Determine the current review state - for dismissed reviews, we remove all reactions
-	var currentState string
-	if githubPayload.Action == PRReviewActionDismissed {
-		currentState = "" // Empty state will remove all review reactions
-	} else {
-		currentState = githubPayload.Review.State
+	// Enqueue the reaction sync job
+	if err := h.cloudTasksService.EnqueueJob(ctx, job); err != nil {
+		log.Error(ctx, "Failed to enqueue reaction sync job", "error", err)
+		return fmt.Errorf("failed to enqueue reaction sync job: %w", err)
 	}
 
-	// Sync all review reactions
-	// Group message refs by team ID for proper team-scoped API calls
-	messagesByTeam := make(map[string][]services.MessageRef)
-	for i, msg := range trackedMessages {
-		messagesByTeam[msg.SlackTeamID] = append(messagesByTeam[msg.SlackTeamID], messageRefs[i])
-	}
+	log.Info(ctx, "Enqueued reaction sync job for PR review",
+		"job_id", reactionSyncJobID,
+		"review_action", githubPayload.Action)
 
-	// Sync reactions for each team separately
-	for teamID, teamMessageRefs := range messagesByTeam {
-		err = h.slackService.SyncAllReviewReactions(ctx, teamID, teamMessageRefs, currentState)
-		if err != nil {
-			log.Error(ctx, "Failed to sync review reactions for team",
-				"error", err,
-				"team_id", teamID,
-				"review_state", currentState,
-				"review_action", githubPayload.Action,
-				"message_count", len(teamMessageRefs),
-			)
-			// Continue with other teams even if one fails
-		}
-	}
 	return nil
 }
 

@@ -852,5 +852,41 @@ func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.
 		"slack_channel", manualLinkJob.SlackChannel,
 		"slack_team_id", manualLinkJob.SlackTeamID,
 		"message_ts", manualLinkJob.SlackMessageTS)
+
+	// Enqueue a reaction sync job to sync initial reactions for this PR
+	reactionSyncJobID := uuid.New().String()
+	reactionSyncJob := &models.ReactionSyncJob{
+		ID:           reactionSyncJobID,
+		PRNumber:     manualLinkJob.PRNumber,
+		RepoFullName: manualLinkJob.RepoFullName,
+		TraceID:      manualLinkJob.TraceID,
+	}
+
+	// Marshal the ReactionSyncJob as the payload for the Job
+	jobPayload, err := json.Marshal(reactionSyncJob)
+	if err != nil {
+		log.Error(ctx, "Failed to marshal reaction sync job", "error", err)
+		// Don't fail the manual link job - reactions are a best-effort feature
+		return nil
+	}
+
+	// Create Job
+	syncJob := &models.Job{
+		ID:      reactionSyncJobID,
+		Type:    models.JobTypeReactionSync,
+		TraceID: manualLinkJob.TraceID,
+		Payload: jobPayload,
+	}
+
+	// Enqueue the reaction sync job
+	if err := sh.cloudTasksService.EnqueueJob(ctx, syncJob); err != nil {
+		log.Error(ctx, "Failed to enqueue reaction sync job for manual PR link", "error", err)
+		// Don't fail the manual link job - reactions are a best-effort feature
+		return nil
+	}
+
+	log.Info(ctx, "Enqueued reaction sync job for manual PR link",
+		"reaction_sync_job_id", reactionSyncJobID)
+
 	return nil
 }

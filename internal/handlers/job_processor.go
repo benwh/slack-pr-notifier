@@ -145,6 +145,8 @@ func (jp *JobProcessor) RouteJob(ctx context.Context, job *models.Job) error {
 		return jp.githubHandler.ProcessWebhookJob(ctx, job)
 	case models.JobTypeManualPRLink:
 		return jp.slackHandler.ProcessManualPRLinkJob(ctx, job)
+	case models.JobTypeReactionSync:
+		return jp.githubHandler.ProcessReactionSyncJob(ctx, job)
 	default:
 		return models.ErrUnsupportedJobType
 	}

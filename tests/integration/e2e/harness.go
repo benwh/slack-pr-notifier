@@ -167,11 +167,15 @@ func startApplication(
 	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
 	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, httpClient)
 
+	// Create GitHub API service
+	githubService := services.NewGitHubService(cfg)
+
 	// Create handlers
 	githubHandler := handlers.NewGitHubHandler(
 		fakeCloudTasks,
 		firestoreService,
 		slackService,
+		githubService,
 		cfg.GitHubWebhookSecret,
 		cfg.Emoji,
 	)

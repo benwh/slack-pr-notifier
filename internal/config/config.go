@@ -31,6 +31,7 @@ type Config struct {
 	// GitHub OAuth settings
 	GitHubClientID     string
 	GitHubClientSecret string
+	GitHubAppToken     string // Optional: GitHub App installation token for API access
 
 	// Cloud Tasks settings
 	GoogleCloudProject string
@@ -94,6 +95,7 @@ func Load() *Config {
 		// GitHub OAuth settings (required)
 		GitHubClientID:     getEnvRequired("GITHUB_CLIENT_ID"),
 		GitHubClientSecret: getEnvRequired("GITHUB_CLIENT_SECRET"),
+		GitHubAppToken:     getEnvDefault("GITHUB_APP_TOKEN", ""),
 
 		// Cloud Tasks settings
 		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),

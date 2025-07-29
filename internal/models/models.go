@@ -157,10 +157,36 @@ func (mlj *ManualLinkJob) Validate() error {
 	return nil
 }
 
+// ReactionSyncJob represents a job to sync reactions for a PR.
+type ReactionSyncJob struct {
+	ID           string `json:"id"`
+	PRNumber     int    `json:"pr_number"`
+	RepoFullName string `json:"repo_full_name"`
+	TraceID      string `json:"trace_id"`
+}
+
+// Validate validates required fields for ReactionSyncJob.
+func (rsj *ReactionSyncJob) Validate() error {
+	if rsj.ID == "" {
+		return ErrJobIDRequired
+	}
+	if rsj.PRNumber <= 0 {
+		return ErrPRNumberRequired
+	}
+	if rsj.RepoFullName == "" {
+		return ErrRepoFullNameRequired
+	}
+	if rsj.TraceID == "" {
+		return ErrTraceIDRequired
+	}
+	return nil
+}
+
 // Job types for the job processing system.
 const (
 	JobTypeGitHubWebhook = "github_webhook"
 	JobTypeManualPRLink  = "manual_pr_link"
+	JobTypeReactionSync  = "reaction_sync"
 )
 
 // Job represents a job structure for all async processing.

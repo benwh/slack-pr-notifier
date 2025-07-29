@@ -51,21 +51,39 @@ func TestSlackEventsIntegration(t *testing.T) {
 		resp := sendSlackEvent(t, harness, payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was queued and executed
+		// Verify jobs were queued and executed
+		// We expect 2 jobs: manual link job + reaction sync job
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
-		job := jobs[0]
-		assert.Equal(t, models.JobTypeManualPRLink, job.Type)
+		// Find the manual link job
+		var manualLinkJob *models.Job
+		var reactionSyncJob *models.Job
+		for _, j := range jobs {
+			if j.Type == models.JobTypeManualPRLink {
+				manualLinkJob = j
+			} else if j.Type == models.JobTypeReactionSync {
+				reactionSyncJob = j
+			}
+		}
+
+		require.NotNil(t, manualLinkJob, "Expected a manual link job")
+		require.NotNil(t, reactionSyncJob, "Expected a reaction sync job")
 
 		// Verify the manual link job payload
 		var linkJob models.ManualLinkJob
-		require.NoError(t, json.Unmarshal(job.Payload, &linkJob))
+		require.NoError(t, json.Unmarshal(manualLinkJob.Payload, &linkJob))
 		assert.Equal(t, "testorg/testrepo", linkJob.RepoFullName)
 		assert.Equal(t, 123, linkJob.PRNumber)
 		assert.Equal(t, "C1234567890", linkJob.SlackChannel)
 		assert.Equal(t, "1234567890.123456", linkJob.SlackMessageTS)
 		assert.Equal(t, "T123456789", linkJob.SlackTeamID)
+
+		// Verify the reaction sync job payload
+		var syncJob models.ReactionSyncJob
+		require.NoError(t, json.Unmarshal(reactionSyncJob.Payload, &syncJob))
+		assert.Equal(t, "testorg/testrepo", syncJob.RepoFullName)
+		assert.Equal(t, 123, syncJob.PRNumber)
 
 		// Note: Manual PR link detection only creates a tracked message
 		// It doesn't fetch PR details from GitHub - that happens when

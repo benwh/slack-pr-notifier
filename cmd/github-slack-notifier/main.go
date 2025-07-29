@@ -112,10 +112,14 @@ func main() {
 		}
 	}()
 
+	// Create GitHub API service
+	githubService := services.NewGitHubService(cfg)
+
 	githubHandler := handlers.NewGitHubHandler(
 		cloudTasksService,
 		firestoreService,
 		slackService,
+		githubService,
 		cfg.GitHubWebhookSecret,
 		cfg.Emoji,
 	)
