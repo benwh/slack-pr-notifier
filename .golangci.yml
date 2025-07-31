@@ -1,128 +1,122 @@
+version: "2"
 run:
   timeout: 5m
   issues-exit-code: 1
   tests: true
 
 linters:
-  enable-all: true
+  default: all
   disable:
-    - tenv              # Deprecated
-    - gochecknoglobals  # Too restrictive for this project
-    - exhaustruct       # Too verbose for simple structs
-    - testpackage       # Not always necessary
-    - paralleltest      # Not always applicable
-    - wrapcheck         # Too restrictive
-    - nlreturn          # Stylistic preference
-    - wsl               # Stylistic preference
-    - varnamelen        # Too restrictive
-    - tagliatelle       # Not needed for our use case
     - depguard          # No import restrictions needed
-    - goheader          # No header requirements
+    - exhaustruct       # Too verbose for simple structs
     - forbidigo         # No forbidden identifiers
-    - revive            # We can live without comments
-    - stylecheck        # Temporarily disabled for package comments
+    - gochecknoglobals  # Too restrictive for this project
+    - goheader          # No header requirements
     - nilnil            # nil returns are fine
+    - nlreturn          # Stylistic preference
+    - paralleltest      # Not always applicable
     - perfsprint        # Temporarily disabled for string concatenation
-    - goimports         # Using gci instead
-    - gci               # Actually... using gofumpt instead
-    - gofumpt           # gofumpt conflicts with gci, and gci does a better job with imports
-
+    - revive            # We can live without comments
+    - tagliatelle       # Not needed for our use case
+    - testpackage       # Not always necessary
+    - varnamelen        # Too restrictive
+    - wrapcheck         # Too restrictive
+    - wsl               # Stylistic preference
+    - wsl_v5
+    - noinlineerr
+    - funcorder
+  settings:
+    cyclop:
+      max-complexity: 15
+    funlen:
+      lines: 200
+      statements: 50
+    gocognit:
+      min-complexity: 20
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - ifElseChain       # Allow if-else chains
+        - exitAfterDefer    # Allow log.Fatal after defer
+    lll:
+      line-length: 140
+    mnd:
+      # List of file patterns to exclude from analysis.
+      # Values always ignored: `.+_test.go`.
+      # Default: []
+      ignored-files:
+        - config.go$
+        - tests/
+        - internal/testing/
+      # List of function patterns to exclude from analysis.
+      # Following functions are always ignored: `time.Date`,
+      # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
+      # `strconv.ParseInt`, `strconv.ParseUint`, `strconv.ParseFloat`.
+      # Default: []
+      ignored-functions:
+        - getEnvDuration
+    nestif:
+      min-complexity: 8
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
   exclusions:
+    generated: lax
     rules:
-      - path: 'internal/testing'
-        linters:
-          - errcheck
-          - gosec
-          - err113
-          - lll
-
-linters-settings:
-  lll:
-    line-length: 140
-
-  mnd:
-    # List of file patterns to exclude from analysis.
-    # Values always ignored: `.+_test.go`.
-    # Default: []
-    ignored-files:
-      - 'config.go$'
-      - 'tests/'
-      - 'internal/testing/'
-    # List of function patterns to exclude from analysis.
-    # Following functions are always ignored: `time.Date`,
-    # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
-    # `strconv.ParseInt`, `strconv.ParseUint`, `strconv.ParseFloat`.
-    # Default: []
-    ignored-functions:
-      - 'getEnvDuration'
-
-  funlen:
-    lines: 200
-    statements: 50
-
-  cyclop:
-    max-complexity: 15
-
-  gocognit:
-    min-complexity: 20
-
-  nestif:
-    min-complexity: 8
-
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-
-  gocritic:
-    disabled-checks:
-      - ifElseChain       # Allow if-else chains
-      - exitAfterDefer    # Allow log.Fatal after defer
-
-  revive:
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: if-return
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unused-parameter
-      - name: unreachable-code
-      - name: redefines-builtin-id
-
-issues:
-  exclude-use-default: false
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - funlen
-        - gocognit
-        - maintidx
-        - contextcheck  # Test files often create their own contexts
-        - err113       # Dynamic errors are fine in tests
-        - unparam      # Test helpers may not use all params
-    - path: tests/integration/e2e/
-      linters:
-        - contextcheck  # Integration tests create their own contexts
-        - bodyclose    # Helper functions handle closing
-    - path: main\.go
-      linters:
-        - funlen
-    - path: internal/handlers/oauth\.go
-      linters:
-        - funlen
+      - linters:
+          - contextcheck  # Test files often create their own contexts
+          - err113       # Dynamic errors are fine in tests
+          - funlen
+          - gocognit
+          - maintidx
+          - unparam      # Test helpers may not use all params
+        path: _test\.go
+      - linters:
+          - bodyclose    # Helper functions handle closing
+          - contextcheck  # Integration tests create their own contexts
+        path: tests/integration/e2e/
+      - linters:
+          - funlen
+        path: main\.go
+      - linters:
+          - funlen
+        path: internal/handlers/oauth\.go
+    paths:
+      - tmp/
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

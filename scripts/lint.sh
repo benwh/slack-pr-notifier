@@ -7,7 +7,7 @@ echo "🔍 Running linters..."
 # Go linting
 echo "📝 Running Go linters..."
 if command -v golangci-lint &> /dev/null; then
-    golangci-lint run --exclude-dirs tmp/ ./...
+    golangci-lint run ./...
 else
     echo "⚠️  golangci-lint not found, please install"
     exit 2
