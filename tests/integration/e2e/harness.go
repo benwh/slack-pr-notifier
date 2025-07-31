@@ -74,7 +74,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		Port:                   fmt.Sprintf("%d", port),
 		GinMode:                "test",
 		LogLevel:               "error", // Keep logs quiet during tests
-		FirestoreProjectID:     "test-project",
+		FirestoreProjectID:     emulator.ProjectID,
 		FirestoreDatabaseID:    "(default)",
 		SlackSigningSecret:     "test-signing-secret",
 		SlackClientID:          "test_client_id",
@@ -85,7 +85,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		GitHubClientSecret:     "test-github-client-secret",
 		GitHubAppID:            12345,
 		GitHubPrivateKeyBase64: "dGVzdC1wcml2YXRlLWtleQ==", // "test-private-key" in base64
-		GoogleCloudProject:     "test-project",
+		GoogleCloudProject:     emulator.ProjectID,
 		GCPRegion:              "us-central1",
 		CloudTasksQueue:        "test-queue",
 		CloudTasksSecret:       "test-cloud-tasks-secret",
@@ -133,7 +133,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	// Create request capture
 	slackCapture := NewSlackRequestCapture()
 
-	return &TestHarness{
+	harness := &TestHarness{
 		baseURL:               baseURL,
 		config:                cfg,
 		SlackWorkspaceService: services.slackWorkspaceService,
@@ -144,6 +144,11 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		cancel:                cancel,
 		slackRequestCapture:   slackCapture,
 	}
+
+	// Register cleanup to run even if test panics or fails
+	t.Cleanup(harness.Cleanup)
+
+	return harness
 }
 
 // appServices holds services that need to be exposed to tests.
@@ -231,8 +236,22 @@ func startApplication(
 		WriteTimeout: cfg.ServerWriteTimeout,
 	}
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Error(ctx, "Server failed", "error", err)
+	// Start server in a goroutine
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error(ctx, "Server failed", "error", err)
+		}
+	}()
+
+	// Wait for context cancellation and then shutdown
+	<-ctx.Done()
+
+	// Graceful shutdown with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Error(ctx, "Server shutdown failed", "error", err)
 	}
 }
 
@@ -264,14 +283,14 @@ func waitForServer(t *testing.T, baseURL string) {
 
 // Cleanup shuts down the test harness.
 func (h *TestHarness) Cleanup() {
-	// Deactivate httpmock for this client
-	httpmock.Deactivate()
+	// Deactivate httpmock for this specific client only
+	httpmock.DeactivateAndReset()
 
 	// Cancel context to trigger shutdown
 	h.cancel()
 
 	// Give the server a moment to shut down gracefully
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Cleanup Firestore emulator
 	h.firestoreEmulator.Cleanup()
@@ -501,6 +520,6 @@ func (h *TestHarness) SetupMockResponses() {
 	// Mock Cloud Tasks API responses (for job queueing)
 	httpmock.RegisterResponder("POST", `=~^https://cloudtasks\.googleapis\.com/`,
 		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"name": "projects/test-project/locations/us-central1/queues/test-queue/tasks/test-task",
+			"name": fmt.Sprintf("projects/%s/locations/us-central1/queues/test-queue/tasks/test-task", h.firestoreEmulator.ProjectID),
 		}))
 }

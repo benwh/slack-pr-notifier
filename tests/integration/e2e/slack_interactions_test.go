@@ -53,8 +53,13 @@ func TestSlackInteractionsIntegration(t *testing.T) {
 		// Create valid payload
 		payload := createChannelSelectionViewSubmissionPayload("U123456789", "C987654321", "T123456789")
 
+		// Form-encode the payload for the request body
+		formData := url.Values{}
+		formData.Set("payload", payload)
+		body := formData.Encode()
+
 		// Send with invalid signature
-		req := createSlackInteractionRequest(t, harness.BaseURL()+"/webhooks/slack/interactions", payload, "invalid-signature", time.Now())
+		req := createSlackInteractionRequest(t, harness.BaseURL()+"/webhooks/slack/interactions", body, "invalid-signature", time.Now())
 		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
 		require.NoError(t, err)
@@ -110,7 +115,7 @@ func sendSlackInteraction(t *testing.T, harness *TestHarness, payload string) *h
 	body := formData.Encode()
 
 	signature := generateSlackSignature([]byte(body), harness.Config().SlackSigningSecret, timestamp)
-	req := createSlackInteractionRequest(t, harness.BaseURL()+"/webhooks/slack/interactions", payload, signature, timestamp)
+	req := createSlackInteractionRequest(t, harness.BaseURL()+"/webhooks/slack/interactions", body, signature, timestamp)
 
 	// Use a regular HTTP client for requests to our test server, not the mocked one
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -120,14 +125,10 @@ func sendSlackInteraction(t *testing.T, harness *TestHarness, payload string) *h
 	return resp
 }
 
-func createSlackInteractionRequest(t *testing.T, targetURL, payload, signature string, timestamp time.Time) *http.Request {
+func createSlackInteractionRequest(t *testing.T, targetURL, body, signature string, timestamp time.Time) *http.Request {
 	t.Helper()
 
-	// URL encode the payload
-	formData := url.Values{}
-	formData.Set("payload", payload)
-	body := formData.Encode()
-
+	// Use the already form-encoded body directly
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, targetURL, bytes.NewBufferString(body))
 	require.NoError(t, err)
 

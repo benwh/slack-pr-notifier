@@ -37,7 +37,7 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 
 	// Create test configuration
 	cfg := &config.Config{
-		FirestoreProjectID:  "test-project",
+		FirestoreProjectID:  emulator.ProjectID,
 		FirestoreDatabaseID: "(default)",
 		SlackSigningSecret:  "test-signing-secret",
 		SlackClientID:       "test_client_id",
@@ -45,7 +45,7 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 		GitHubWebhookSecret: "test-webhook-secret",
 		GitHubClientID:      "test-github-client-id",
 		GitHubClientSecret:  "test-github-client-secret",
-		GoogleCloudProject:  "test-project",
+		GoogleCloudProject:  emulator.ProjectID,
 		BaseURL:             "http://localhost:8080",
 		GCPRegion:           "us-central1",
 		CloudTasksQueue:     "test-queue",
@@ -124,6 +124,9 @@ func SetupTestApp(t *testing.T) (*TestApp, context.Context, func()) {
 	cleanup := func() {
 		emulator.Cleanup()
 	}
+
+	// Register cleanup to run even if test panics or fails
+	t.Cleanup(cleanup)
 
 	return app, ctx, cleanup
 }

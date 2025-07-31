@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,6 +32,7 @@ const (
 var (
 	ErrEmulatorStartTimeout = errors.New("emulator did not start within timeout")
 	ErrEmulatorClearFailed  = errors.New("failed to clear emulator data")
+	ErrNoAvailablePort      = errors.New("no available port found for emulator")
 )
 
 // FirestoreEmulator manages a Firestore emulator instance for testing.
@@ -49,7 +52,7 @@ func SetupFirestoreEmulator(t *testing.T) (*FirestoreEmulator, context.Context) 
 
 	ctx := context.Background()
 	emulator := &FirestoreEmulator{
-		ProjectID: defaultProjectID,
+		ProjectID: generateUniqueProjectID(t),
 	}
 
 	// Check if emulator is already running (e.g., in CI or manually started)
@@ -89,6 +92,43 @@ func SetupFirestoreEmulator(t *testing.T) (*FirestoreEmulator, context.Context) 
 	return emulator, ctx
 }
 
+// findAvailablePort finds an available port on localhost.
+func findAvailablePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, fmt.Errorf("failed to resolve TCP address: %w", err)
+	}
+
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to listen on TCP address: %w", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	return listener.Addr().(*net.TCPAddr).Port, nil
+}
+
+// generateUniqueProjectID generates a unique project ID for test isolation.
+func generateUniqueProjectID(t *testing.T) string {
+	t.Helper()
+
+	// Use timestamp and random suffix for uniqueness (keep it short and valid)
+	timestamp := time.Now().Unix()
+	randomSuffix := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(1000)
+
+	// Format as test-{timestamp}-{random} but keep it under 30 chars total
+	projectID := fmt.Sprintf("test-%d-%d", timestamp, randomSuffix)
+
+	// Ensure it's not too long (max 30 chars for GCP project IDs)
+	if len(projectID) > 30 {
+		// Truncate timestamp if needed
+		truncatedTimestamp := timestamp % 1000000 // Last 6 digits
+		projectID = fmt.Sprintf("test-%d-%d", truncatedTimestamp, randomSuffix)
+	}
+
+	return projectID
+}
+
 // startLocalEmulator attempts to start a local Firestore emulator using gcloud.
 func (e *FirestoreEmulator) startLocalEmulator(t *testing.T) error {
 	t.Helper()
@@ -98,8 +138,14 @@ func (e *FirestoreEmulator) startLocalEmulator(t *testing.T) error {
 		return fmt.Errorf("gcloud not found in PATH: %w", err)
 	}
 
-	// Start emulator
-	e.Host = defaultEmulatorHost
+	// Find an available port
+	port, err := findAvailablePort()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrNoAvailablePort, err)
+	}
+
+	// Start emulator on available port
+	e.Host = fmt.Sprintf("localhost:%d", port)
 	// #nosec G204 -- Static arguments for test emulator command
 	e.cmd = exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
 
@@ -186,7 +232,9 @@ func (e *FirestoreEmulator) ClearData(ctx context.Context) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
+	// Accept OK, Not Found, or Internal Server Error (project doesn't exist yet)
+	// These are all valid states for a fresh emulator with a unique project ID
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusInternalServerError {
 		return fmt.Errorf("%w: status %d", ErrEmulatorClearFailed, resp.StatusCode)
 	}
 
@@ -209,8 +257,18 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 		return m.Run()
 	}
 
+	// Find an available port
+	port, err := findAvailablePort()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to find available port for Firestore emulator: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Tests requiring Firestore will be skipped\n")
+		return m.Run()
+	}
+
+	emulatorHost := fmt.Sprintf("localhost:%d", port)
+
 	// Try to start emulator
-	cmd := exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", defaultEmulatorHost)
+	cmd := exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", emulatorHost)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to start Firestore emulator: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Tests requiring Firestore will be skipped\n")
@@ -218,7 +276,7 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 	}
 
 	// Set environment variable
-	_ = os.Setenv("FIRESTORE_EMULATOR_HOST", defaultEmulatorHost)
+	_ = os.Setenv("FIRESTORE_EMULATOR_HOST", emulatorHost)
 
 	// Give emulator time to start
 	time.Sleep(3 * time.Second)
