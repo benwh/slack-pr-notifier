@@ -10,8 +10,37 @@ NGROK_PID=""
 cleanup() {
     echo ""
     echo "🧹 Cleaning up..."
-    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
-    [ -n "$NGROK_PID" ] && kill $NGROK_PID 2>/dev/null || true
+
+    # Kill watchexec and its children (go run processes)
+    if [ -n "$WATCHEXEC_PID" ]; then
+        echo "🔄 Stopping watchexec and Go processes..."
+        # Kill watchexec process and its children
+        kill -TERM $WATCHEXEC_PID 2>/dev/null || true
+        # Also kill any remaining go run processes as backup
+        pkill -f "go run.*github-slack-notifier" 2>/dev/null || true
+        # Kill any watchexec processes
+        pkill -f "watchexec.*github-slack-notifier" 2>/dev/null || true
+        # Wait a moment for graceful shutdown
+        sleep 1
+        # Force kill if still running
+        kill -KILL $WATCHEXEC_PID 2>/dev/null || true
+    fi
+
+    # Kill ngrok
+    if [ -n "$NGROK_PID" ]; then
+        echo "🌐 Stopping ngrok..."
+        kill -TERM $NGROK_PID 2>/dev/null || true
+        sleep 1
+        kill -KILL $NGROK_PID 2>/dev/null || true
+    fi
+
+    # Final cleanup - kill any remaining processes on our port
+    if [ -n "$PORT" ] && lsof -ti:"$PORT" >/dev/null 2>&1; then
+        echo "🔄 Killing remaining processes on port $PORT..."
+        lsof -ti:"$PORT" | xargs kill -9 2>/dev/null || true
+    fi
+
+    echo "✅ Cleanup complete"
     exit 0
 }
 
@@ -74,9 +103,18 @@ if lsof -ti:"$PORT" >/dev/null 2>&1; then
     sleep 2
 fi
 
+# Kill any existing ngrok processes to avoid conflicts
+if pgrep -f "ngrok.*$PORT" >/dev/null 2>&1; then
+    echo "🔄 Killing existing ngrok processes..."
+    pkill -f "ngrok.*$PORT" 2>/dev/null || true
+    sleep 2
+fi
+
 # Start the Go application with hot-reload using watchexec
 echo "🔧 Starting Go application with hot-reload on port $PORT..."
-if ! watchexec \
+# Start watchexec in background with job control
+set -m  # Enable job control
+watchexec \
     --restart \
     --watch . \
     --exts go,mod \
@@ -85,11 +123,9 @@ if ! watchexec \
     --ignore logs/ \
     --ignore scripts/ \
     --debounce 1s \
-    "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" 2>&1 | tee -a tmp/app.log & then
-    echo "❌ Failed to start watchexec"
-    exit 1
-fi
+    "echo '🔄 Rebuilding application...' && go run ./cmd/github-slack-notifier" 2>&1 | tee -a tmp/app.log &
 WATCHEXEC_PID=$!
+set +m  # Disable job control to avoid job control messages
 
 # Wait for the application to start (longer initial wait to account for watchexec restarts)
 echo "⏳ Waiting for application to start..."
@@ -134,12 +170,11 @@ fi
 
 # Start ngrok tunnel
 echo "🌐 Starting ngrok tunnel with domain $NGROK_DOMAIN..."
-if ! ngrok http "$PORT" --domain="$NGROK_DOMAIN" --log=stdout 2>&1 | tee -a tmp/app.log > /dev/null & then
-    echo "❌ Failed to start ngrok"
-    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
-    exit 1
-fi
+# Start ngrok in background with job control
+set -m  # Enable job control
+ngrok http "$PORT" --domain="$NGROK_DOMAIN" --log=stdout >> tmp/app.log 2>&1 &
 NGROK_PID=$!
+set +m  # Disable job control to avoid job control messages
 
 # Wait for ngrok to start
 sleep 3
@@ -166,10 +201,6 @@ echo "🎉 Development environment ready!"
 echo "📍 Local URL:  http://localhost:$PORT"
 echo "🌍 Public URL: $NGROK_URL"
 echo ""
-echo "🔗 Webhook URLs:"
-echo "   GitHub: $NGROK_URL/webhooks/github"
-echo "   Slack:  $NGROK_URL/webhooks/slack"
-echo ""
 echo "📊 ngrok dashboard: http://localhost:4040"
 echo ""
 echo "🔄 Hot-reload is enabled - the app will automatically restart when you modify .go files"
@@ -178,6 +209,20 @@ echo "Press Ctrl+C to stop..."
 
 
 # Keep the script running until interrupted
+# Use wait instead of sleep loop to be more responsive to signals
 while true; do
-    sleep 1
+    # Check if our background processes are still running
+    if ! kill -0 $WATCHEXEC_PID 2>/dev/null; then
+        echo "❌ watchexec process died unexpectedly"
+        cleanup
+    fi
+
+    if ! kill -0 $NGROK_PID 2>/dev/null; then
+        echo "❌ ngrok process died unexpectedly"
+        cleanup
+    fi
+
+    # Sleep but make it interruptible
+    sleep 5 &
+    wait $!
 done
