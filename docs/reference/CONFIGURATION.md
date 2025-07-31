@@ -29,9 +29,9 @@ If you already have a GitHub App for webhooks:
 3. Note your Client ID and Client Secret
 4. Update your `.env` file
 
-### GitHub App Installation Token (Required)
+### GitHub App Authentication (Required)
 
-The `GITHUB_APP_TOKEN` is **required** for the application to make authenticated API calls to GitHub for fetching PR details and review states. This is essential for the reaction sync feature.
+The application authenticates as a GitHub App installation to make API calls for fetching PR details and review states. This is essential for the reaction sync feature.
 
 **What it's used for:**
 - Fetching PR details when manual links are posted in Slack
@@ -39,80 +39,50 @@ The `GITHUB_APP_TOKEN` is **required** for the application to make authenticated
 - Accessing private repositories where your GitHub App is installed
 - Ensuring reliable API access with 5,000 requests/hour rate limit
 
-**How to generate the token:**
+**Required Configuration:**
 
-#### Method 1: Using GitHub CLI (Easiest)
+You need three pieces of information from your GitHub App:
+
+1. **App ID**: Found in your GitHub App settings page
+2. **Installation ID**: The ID of the app installation for your organization/user
+3. **Private Key**: Generated from your GitHub App settings
+
+**Getting the Required Values:**
+
+#### 1. App ID
+- Go to Settings → GitHub Apps → Your App
+- The App ID is shown at the top of the page
+
+#### 2. Private Key
+- Go to Settings → GitHub Apps → Your App
+- Scroll to "Private keys" section
+- Click "Generate a private key"
+- Save the downloaded `.pem` file
+
+**Configuring the Application:**
+
 ```bash
-# Install GitHub CLI if not already installed
-# https://cli.github.com/
+# App ID from GitHub App settings
+GITHUB_APP_ID=12345
 
-# Login with your GitHub account
-gh auth login
-
-# Generate an installation token for your app
-gh api \
-  -H "Accept: application/vnd.github+json" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  /app/installations/{installation_id}/access_tokens \
-  --method POST
+# Private key in base64 format
+# Encode your private key file:
+# On macOS/Linux: base64 -i private-key.pem
+# On Windows: certutil -encode private-key.pem encoded.txt
+GITHUB_PRIVATE_KEY_BASE64=LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQo...
 ```
 
-#### Method 2: Manual Generation
-1. Create a JWT token signed with your GitHub App's private key
-2. Use the JWT to get installations: `GET /app/installations`
-3. Create an installation access token: `POST /app/installations/{installation_id}/access_tokens`
-
-#### Method 3: Using a Script
-Create a script to generate tokens (example in Ruby):
-```ruby
-require 'openssl'
-require 'jwt'
-require 'net/http'
-require 'json'
-
-# Your GitHub App's private key and app ID
-private_key = OpenSSL::PKey::RSA.new(File.read('private-key.pem'))
-app_id = 'YOUR_APP_ID'
-
-# Generate JWT
-payload = {
-  iat: Time.now.to_i - 60,
-  exp: Time.now.to_i + (10 * 60),
-  iss: app_id
-}
-jwt = JWT.encode(payload, private_key, 'RS256')
-
-# Get installations
-uri = URI('https://api.github.com/app/installations')
-req = Net::HTTP::Get.new(uri)
-req['Authorization'] = "Bearer #{jwt}"
-req['Accept'] = 'application/vnd.github+json'
-
-res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |http| http.request(req) }
-installations = JSON.parse(res.body)
-
-# Get token for first installation
-installation_id = installations[0]['id']
-uri = URI("https://api.github.com/app/installations/#{installation_id}/access_tokens")
-req = Net::HTTP::Post.new(uri)
-req['Authorization'] = "Bearer #{jwt}"
-req['Accept'] = 'application/vnd.github+json'
-
-res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |http| http.request(req) }
-token_data = JSON.parse(res.body)
-puts "GITHUB_APP_TOKEN=#{token_data['token']}"
-```
+#### 3. Installation Webhook Setup
+- The application automatically manages GitHub App installations via webhook events
+- Ensure your GitHub App webhook URL is configured to point to your deployed service: `https://your-domain.com/webhooks/github`
+- The app will automatically discover and store installations when the `installation.created` webhook event is received
 
 **Important Notes:**
-- Installation tokens expire after 1 hour
-- In production, implement automatic token refresh
-- The token provides access to all repositories where your GitHub App is installed
-- This token is **required** - the application will not start without it
-
-**Environment Variable:**
-```bash
-GITHUB_APP_TOKEN=ghs_xxxxxxxxxxxxxxxxxxxx  # Required
-```
+- The private key must be kept secure - never commit it to version control
+- Installation IDs are now managed automatically via webhook events - no manual configuration needed
+- The app automatically handles token generation and renewal
+- No need to manually refresh tokens - the ghinstallation library handles this
+- The app must have the necessary permissions for the repositories it accesses
 
 ## Slack App Configuration
 

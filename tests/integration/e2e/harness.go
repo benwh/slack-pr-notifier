@@ -71,24 +71,25 @@ func NewTestHarness(t *testing.T) *TestHarness {
 
 	// Create test configuration
 	cfg := &config.Config{
-		Port:                  fmt.Sprintf("%d", port),
-		GinMode:               "test",
-		LogLevel:              "error", // Keep logs quiet during tests
-		FirestoreProjectID:    "test-project",
-		FirestoreDatabaseID:   "(default)",
-		SlackSigningSecret:    "test-signing-secret",
-		SlackClientID:         "test_client_id",
-		SlackClientSecret:     "test_client_secret",
-		BaseURL:               fmt.Sprintf("http://localhost:%d", port),
-		GitHubWebhookSecret:   "test-webhook-secret",
-		GitHubClientID:        "test-github-client-id",
-		GitHubClientSecret:    "test-github-client-secret",
-		GitHubAppToken:        "test-github-app-token",
-		GoogleCloudProject:    "test-project",
-		GCPRegion:             "us-central1",
-		CloudTasksQueue:       "test-queue",
-		CloudTasksSecret:      "test-cloud-tasks-secret",
-		CloudTasksMaxAttempts: 3, // Allow retries in tests
+		Port:                   fmt.Sprintf("%d", port),
+		GinMode:                "test",
+		LogLevel:               "error", // Keep logs quiet during tests
+		FirestoreProjectID:     "test-project",
+		FirestoreDatabaseID:    "(default)",
+		SlackSigningSecret:     "test-signing-secret",
+		SlackClientID:          "test_client_id",
+		SlackClientSecret:      "test_client_secret",
+		BaseURL:                fmt.Sprintf("http://localhost:%d", port),
+		GitHubWebhookSecret:    "test-webhook-secret",
+		GitHubClientID:         "test-github-client-id",
+		GitHubClientSecret:     "test-github-client-secret",
+		GitHubAppID:            12345,
+		GitHubPrivateKeyBase64: "dGVzdC1wcml2YXRlLWtleQ==", // "test-private-key" in base64
+		GoogleCloudProject:     "test-project",
+		GCPRegion:              "us-central1",
+		CloudTasksQueue:        "test-queue",
+		CloudTasksSecret:       "test-cloud-tasks-secret",
+		CloudTasksMaxAttempts:  3, // Allow retries in tests
 		Emoji: config.EmojiConfig{
 			Approved:         "white_check_mark",
 			ChangesRequested: "arrows_counterclockwise",
@@ -169,7 +170,10 @@ func startApplication(
 	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, httpClient)
 
 	// Create GitHub API service
-	githubService := services.NewGitHubService(cfg)
+	githubService, err := services.NewGitHubService(cfg, firestoreService)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create GitHub service: %v", err))
+	}
 
 	// Create handlers
 	githubHandler := handlers.NewGitHubHandler(
@@ -303,6 +307,7 @@ func (h *TestHarness) SetupUser(ctx context.Context, githubUsername, slackUserID
 		"verified":              true,         // Mark test users as verified
 		"slack_team_id":         "T123456789", // Default test team ID
 		"notifications_enabled": true,         // Enable notifications for test users
+		"tagging_enabled":       true,         // Enable tagging for test users
 	}
 	_, err := h.firestoreEmulator.Client.Collection("users").Doc(githubUsername).Set(ctx, user)
 	return err
@@ -337,6 +342,23 @@ func (h *TestHarness) SetupTrackedMessage(
 		"message_source": "webhook",
 	}
 	_, _, err := h.firestoreEmulator.Client.Collection("tracked_messages").Add(ctx, msg)
+	return err
+}
+
+// SetupGitHubInstallation creates a test GitHub installation in Firestore.
+func (h *TestHarness) SetupGitHubInstallation(ctx context.Context, installationID int64, accountLogin, accountType string) error {
+	installation := map[string]interface{}{
+		"id":                   installationID,
+		"account_login":        accountLogin,
+		"account_type":         accountType,
+		"account_id":           12345, // Test account ID
+		"repository_selection": "all",
+		"repositories":         []string{},
+		"installed_at":         "2024-01-01T00:00:00Z",
+		"updated_at":           "2024-01-01T00:00:00Z",
+	}
+	docID := fmt.Sprintf("%d", installationID)
+	_, err := h.firestoreEmulator.Client.Collection("github_installations").Doc(docID).Set(ctx, installation)
 	return err
 }
 

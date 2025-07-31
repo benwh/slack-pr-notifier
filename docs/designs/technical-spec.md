@@ -25,13 +25,17 @@ The service uses a two-phase async processing model:
 
 The application uses the GitHub API for fetching PR details and review states, particularly for the reaction sync feature:
 
-- **Authentication**: Required GitHub App installation token (`GITHUB_APP_TOKEN`)
+- **Authentication**: GitHub App installation using JWT and auto-renewing tokens
+- **Required Configuration**:
+  - `GITHUB_APP_ID`: The numeric ID of your GitHub App  
+  - `GITHUB_PRIVATE_KEY_BASE64`: Base64 encoded private key from GitHub App
+- **Installation Management**: Installations are automatically discovered and managed via `installation.created` webhook events
 - **Rate Limits**: 5,000 requests/hour (public and private repos where app is installed)
 - **API Endpoints Used**:
   - `/repos/{owner}/{repo}/pulls/{number}` - Fetch PR details
   - `/repos/{owner}/{repo}/pulls/{number}/reviews` - Fetch PR reviews
-- **Token Type**: GitHub App installation access token (not user OAuth token)
-- **Token Expiry**: Installation tokens expire after 1 hour (requires refresh in production)
+- **Token Management**: Handled automatically by ghinstallation library
+- **Token Expiry**: Installation tokens auto-refresh (no manual intervention needed)
 
 ## Database Schema (Firestore)
 
@@ -285,8 +289,10 @@ GITHUB_WEBHOOK_SECRET    # GitHub webhook validation secret
 SLACK_SIGNING_SECRET     # Slack request validation secret
 API_ADMIN_KEY           # Admin API authentication key
 
-# GitHub API Access
-GITHUB_APP_TOKEN         # GitHub App installation token (required)
+# GitHub App Configuration (required)
+GITHUB_APP_ID              # GitHub App ID
+GITHUB_PRIVATE_KEY_BASE64  # Private key in base64 format
+# Note: Installation IDs are now managed automatically via webhook events
 
 # Async Processing
 GOOGLE_CLOUD_PROJECT     # GCP project for Cloud Tasks

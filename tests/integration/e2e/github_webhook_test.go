@@ -51,6 +51,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Setup test data in Firestore
 		setupTestUser(t, harness, userName, userID, channel)
 		setupTestRepo(t, harness, channel)
+		setupGitHubInstallation(t, harness)
 
 		// Create GitHub webhook payload
 		payload := buildPayload(repoName, prNumber, title, userName)

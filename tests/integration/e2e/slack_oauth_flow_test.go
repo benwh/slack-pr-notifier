@@ -324,7 +324,7 @@ func TestSlackWorkspaceValidation(t *testing.T) {
 					InstalledAt: time.Now(),
 					UpdatedAt:   time.Now(),
 				},
-				wantError: "Slack team ID is required",
+				wantError: "slack team ID is required",
 			},
 			{
 				name: "Missing team name",

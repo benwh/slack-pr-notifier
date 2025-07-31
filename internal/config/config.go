@@ -31,7 +31,10 @@ type Config struct {
 	// GitHub OAuth settings
 	GitHubClientID     string
 	GitHubClientSecret string
-	GitHubAppToken     string // GitHub App installation token for API access
+
+	// GitHub App settings for API access
+	GitHubAppID            int64  // GitHub App ID
+	GitHubPrivateKeyBase64 string // GitHub App private key (base64 encoded)
 
 	// Cloud Tasks settings
 	GoogleCloudProject string
@@ -95,7 +98,6 @@ func Load() *Config {
 		// GitHub OAuth settings (required)
 		GitHubClientID:     getEnvRequired("GITHUB_CLIENT_ID"),
 		GitHubClientSecret: getEnvRequired("GITHUB_CLIENT_SECRET"),
-		GitHubAppToken:     getEnvRequired("GITHUB_APP_TOKEN"),
 
 		// Cloud Tasks settings
 		GoogleCloudProject: getEnvRequired("GOOGLE_CLOUD_PROJECT"),
@@ -118,6 +120,10 @@ func Load() *Config {
 
 	// Parse Cloud Tasks retry configuration
 	cfg.CloudTasksMaxAttempts = getEnvInt32("CLOUD_TASKS_MAX_ATTEMPTS", 100)
+
+	// Parse GitHub App configuration
+	cfg.GitHubAppID = getEnvInt64Required("GITHUB_APP_ID")
+	cfg.GitHubPrivateKeyBase64 = getEnvRequired("GITHUB_PRIVATE_KEY_BASE64")
 
 	// Parse emoji configuration
 	cfg.Emoji = EmojiConfig{
@@ -155,7 +161,6 @@ func (c *Config) validateRequiredFields() {
 		"SLACK_CLIENT_SECRET":   c.SlackClientSecret,
 		"GITHUB_CLIENT_ID":      c.GitHubClientID,
 		"GITHUB_CLIENT_SECRET":  c.GitHubClientSecret,
-		"GITHUB_APP_TOKEN":      c.GitHubAppToken,
 		"GOOGLE_CLOUD_PROJECT":  c.GoogleCloudProject,
 		"BASE_URL":              c.BaseURL,
 		"CLOUD_TASKS_SECRET":    c.CloudTasksSecret,
@@ -168,6 +173,14 @@ func (c *Config) validateRequiredFields() {
 	}
 
 	// Slack OAuth is now required - validation happens in the required fields check above
+
+	// Validate GitHub App configuration
+	if c.GitHubAppID <= 0 {
+		panic("GITHUB_APP_ID must be a positive integer")
+	}
+	if c.GitHubPrivateKeyBase64 == "" {
+		panic("GITHUB_PRIVATE_KEY_BASE64 is required")
+	}
 }
 
 // validateGinMode validates the GIN_MODE setting.
@@ -247,4 +260,18 @@ func getEnvInt32(key string, defaultValue int32) int32 {
 		panic(fmt.Sprintf("invalid int32 value for %s: %s", key, value))
 	}
 	return int32(i)
+}
+
+// getEnvInt64Required gets a required int64 environment variable.
+// Panics if the variable is not set or cannot be parsed as an int64.
+func getEnvInt64Required(key string) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		panic(fmt.Sprintf("required environment variable %s is not set", key))
+	}
+	i, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		panic(fmt.Sprintf("invalid int64 value for %s: %s", key, value))
+	}
+	return i
 }

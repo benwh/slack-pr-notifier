@@ -55,3 +55,12 @@ func setupTrackedMessage(t *testing.T, harness *TestHarness, repoFullName string
 	err := harness.SetupTrackedMessage(ctx, repoFullName, prNumber, channelID, teamID, messageTS)
 	require.NoError(t, err)
 }
+
+// setupGitHubInstallation creates a test GitHub installation for the test organization.
+func setupGitHubInstallation(t *testing.T, harness *TestHarness) {
+	t.Helper()
+	ctx := context.Background()
+	// Set up installation for testorg with installation ID 12345 (matches test config)
+	err := harness.SetupGitHubInstallation(ctx, 12345, "testorg", "Organization")
+	require.NoError(t, err)
+}

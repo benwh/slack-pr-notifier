@@ -60,9 +60,10 @@ func TestSlackEventsIntegration(t *testing.T) {
 		var manualLinkJob *models.Job
 		var reactionSyncJob *models.Job
 		for _, j := range jobs {
-			if j.Type == models.JobTypeManualPRLink {
+			switch j.Type {
+			case models.JobTypeManualPRLink:
 				manualLinkJob = j
-			} else if j.Type == models.JobTypeReactionSync {
+			case models.JobTypeReactionSync:
 				reactionSyncJob = j
 			}
 		}

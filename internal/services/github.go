@@ -2,44 +2,117 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v73/github"
 )
 
 // GitHubService provides methods for interacting with the GitHub API.
 type GitHubService struct {
-	client *github.Client
+	config           *config.Config
+	firestoreService *FirestoreService
+	privateKeyBytes  []byte
+	clientCache      map[int64]*github.Client // Cache clients by installation ID
 }
 
 // NewGitHubService creates a new GitHubService instance.
-func NewGitHubService(cfg *config.Config) *GitHubService {
-	// Create an authenticated client with the GitHub App token
-	transport := &github.BasicAuthTransport{
-		Username: "x-access-token",
-		Password: cfg.GitHubAppToken,
+func NewGitHubService(cfg *config.Config, firestoreService *FirestoreService) (*GitHubService, error) {
+	// Decode the base64 encoded private key
+	privateKeyBytes, err := base64.StdEncoding.DecodeString(cfg.GitHubPrivateKeyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode GitHub private key: %w", err)
 	}
-	httpClient := transport.Client()
 
 	return &GitHubService{
-		client: github.NewClient(httpClient),
-	}
+		config:           cfg,
+		firestoreService: firestoreService,
+		privateKeyBytes:  privateKeyBytes,
+		clientCache:      make(map[int64]*github.Client),
+	}, nil
 }
 
 var (
 	// ErrInvalidRepoFormat is returned when repository name format is invalid.
 	ErrInvalidRepoFormat = errors.New("invalid repository name format")
+	// ErrInstallationNotFound is returned when GitHub installation is not found.
+	ErrInstallationNotFound = errors.New("GitHub installation not found for repository owner")
 )
 
 const (
 	expectedRepoParts = 2
 	maxReviewsPerPage = 100
 )
+
+// ClientForRepo returns a GitHub client configured for the given repository.
+// It looks up the GitHub installation for the repository owner and creates a client.
+func (s *GitHubService) ClientForRepo(ctx context.Context, repoFullName string) (*github.Client, error) {
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != expectedRepoParts {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRepoFormat, repoFullName)
+	}
+	owner := parts[0]
+
+	// Look up GitHub installation for this repository owner
+	installation, err := s.firestoreService.GetGitHubInstallationByAccountLogin(ctx, owner)
+	if err != nil {
+		if errors.Is(err, ErrGitHubInstallationNotFound) {
+			log.Error(ctx, "GitHub installation not found for repository owner",
+				"owner", owner,
+				"repo", repoFullName,
+			)
+			return nil, fmt.Errorf("%w for owner %s", ErrInstallationNotFound, owner)
+		}
+		return nil, fmt.Errorf("failed to lookup GitHub installation: %w", err)
+	}
+
+	// Check if we have a cached client for this installation
+	if client, exists := s.clientCache[installation.ID]; exists {
+		return client, nil
+	}
+
+	// Create new client for this installation
+	client, err := s.createClientForInstallation(installation.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client for installation %d: %w", installation.ID, err)
+	}
+
+	// Cache the client
+	s.clientCache[installation.ID] = client
+
+	log.Debug(ctx, "Created GitHub client for repository",
+		"repo", repoFullName,
+		"owner", owner,
+		"installation_id", installation.ID,
+	)
+
+	return client, nil
+}
+
+// createClientForInstallation creates a GitHub client for a specific installation.
+func (s *GitHubService) createClientForInstallation(installationID int64) (*github.Client, error) {
+	// Create the installation transport
+	itr, err := ghinstallation.New(
+		http.DefaultTransport,
+		s.config.GitHubAppID,
+		installationID,
+		s.privateKeyBytes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub App installation transport: %w", err)
+	}
+
+	// Create GitHub client with the installation transport
+	client := github.NewClient(&http.Client{Transport: itr})
+	return client, nil
+}
 
 // GetPullRequestWithReviews fetches a pull request and its review states.
 func (s *GitHubService) GetPullRequestWithReviews(
@@ -51,8 +124,14 @@ func (s *GitHubService) GetPullRequestWithReviews(
 	}
 	owner, repo := parts[0], parts[1]
 
+	// Get client for this repository
+	client, err := s.ClientForRepo(ctx, repoFullName)
+	if err != nil {
+		return nil, "", err
+	}
+
 	// Fetch PR details
-	pr, _, err := s.client.PullRequests.Get(ctx, owner, repo, prNumber)
+	pr, _, err := client.PullRequests.Get(ctx, owner, repo, prNumber)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to fetch PR: %w", err)
 	}
@@ -63,7 +142,7 @@ func (s *GitHubService) GetPullRequestWithReviews(
 	}
 
 	// Fetch PR reviews
-	reviews, _, err := s.client.PullRequests.ListReviews(ctx, owner, repo, prNumber, &github.ListOptions{
+	reviews, _, err := client.PullRequests.ListReviews(ctx, owner, repo, prNumber, &github.ListOptions{
 		PerPage: maxReviewsPerPage,
 	})
 	if err != nil {

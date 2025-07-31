@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/handlers"
@@ -13,6 +14,7 @@ import (
 // TestGitHubHandler wraps a real GitHubHandler but overrides Slack calls with mocks.
 type TestGitHubHandler struct {
 	*handlers.GitHubHandler
+
 	mockSlackService *MockSlackService
 	firestoreService *services.FirestoreService
 }
@@ -33,10 +35,14 @@ func NewTestGitHubHandler(
 		Merged:           "purple_heart",
 		Closed:           "x",
 	}
-	// Create a GitHub API service for the test with a test token
-	githubService := services.NewGitHubService(&config.Config{
-		GitHubAppToken: "test-github-app-token",
-	})
+	// Create a GitHub API service for the test with test credentials
+	githubService, err := services.NewGitHubService(&config.Config{
+		GitHubAppID:            12345,
+		GitHubPrivateKeyBase64: "dGVzdC1wcml2YXRlLWtleQ==", // "test-private-key" in base64
+	}, firestoreService)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create GitHub service for test: %v", err))
+	}
 
 	realHandler := handlers.NewGitHubHandler(
 		cloudTasksService,

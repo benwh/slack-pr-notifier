@@ -100,6 +100,7 @@ func (e *FirestoreEmulator) startLocalEmulator(t *testing.T) error {
 
 	// Start emulator
 	e.Host = defaultEmulatorHost
+	// #nosec G204 -- Static arguments for test emulator command
 	e.cmd = exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
 
 	// Start in background
@@ -217,7 +218,7 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 	}
 
 	// Set environment variable
-	os.Setenv("FIRESTORE_EMULATOR_HOST", defaultEmulatorHost)
+	_ = os.Setenv("FIRESTORE_EMULATOR_HOST", defaultEmulatorHost)
 
 	// Give emulator time to start
 	time.Sleep(3 * time.Second)
@@ -226,7 +227,7 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 	code := m.Run()
 
 	// Cleanup
-	cmd.Process.Kill()
+	_ = cmd.Process.Kill()
 
 	return code
 }

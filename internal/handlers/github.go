@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github-slack-notifier/internal/config"
@@ -23,6 +24,7 @@ var (
 	ErrUnsupportedEventType = errors.New("unsupported event type")
 	ErrMissingAction        = errors.New("missing required field: action")
 	ErrMissingRepository    = errors.New("missing required field: repository")
+	ErrMissingInstallation  = errors.New("missing required field: installation")
 )
 
 const (
@@ -32,8 +34,10 @@ const (
 	PRActionReadyForReview     = "ready_for_review"
 	PRReviewActionSubmitted    = "submitted"
 	PRReviewActionDismissed    = "dismissed"
+	InstallationActionCreated  = "created"
 	EventTypePullRequest       = "pull_request"
 	EventTypePullRequestReview = "pull_request_review"
+	EventTypeInstallation      = "installation"
 )
 
 // GitHubWebhookPayload represents the structure of GitHub webhook events.
@@ -63,6 +67,18 @@ type GitHubWebhookPayload struct {
 			Login string `json:"login"`
 		} `json:"user"`
 	} `json:"review"`
+	Installation struct {
+		ID      int64 `json:"id"`
+		Account struct {
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
+			Type  string `json:"type"`
+		} `json:"account"`
+		RepositorySelection string `json:"repository_selection"`
+		Repositories        []struct {
+			FullName string `json:"full_name"`
+		} `json:"repositories,omitempty"`
+	} `json:"installation"`
 }
 
 // CloudTasksServiceInterface defines the interface for cloud tasks operations.
@@ -190,6 +206,8 @@ func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte)
 	switch eventType {
 	case "pull_request", "pull_request_review":
 		return h.validateGitHubPayload(payload)
+	case "installation":
+		return h.validateInstallationPayload(payload)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedEventType, eventType)
 	}
@@ -232,6 +250,8 @@ func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) 
 		return h.processPullRequestEvent(ctx, webhookJob.Payload)
 	case EventTypePullRequestReview:
 		return h.processPullRequestReviewEvent(ctx, webhookJob.Payload, webhookJob.TraceID)
+	case EventTypeInstallation:
+		return h.processInstallationEvent(ctx, webhookJob.Payload)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedEventType, webhookJob.EventType)
 	}
@@ -909,4 +929,118 @@ func (h *GitHubHandler) attemptAutoRegistration(
 		"notifications_enabled", user != nil && user.NotificationsEnabled)
 
 	return nil, nil // No auto-registration possible
+}
+
+func (h *GitHubHandler) validateInstallationPayload(payload []byte) error {
+	var installationPayload map[string]interface{}
+	if err := json.Unmarshal(payload, &installationPayload); err != nil {
+		return fmt.Errorf("invalid JSON payload: %w", err)
+	}
+
+	if _, exists := installationPayload["action"]; !exists {
+		return ErrMissingAction
+	}
+
+	if _, exists := installationPayload["installation"]; !exists {
+		return ErrMissingInstallation
+	}
+
+	return nil
+}
+
+func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []byte) error {
+	var githubPayload GitHubWebhookPayload
+	if err := json.Unmarshal(payload, &githubPayload); err != nil {
+		log.Error(ctx, "Failed to unmarshal installation payload",
+			"error", err,
+			"payload_size", len(payload),
+		)
+		return fmt.Errorf("failed to unmarshal installation payload: %w", err)
+	}
+
+	// Add installation metadata to context for all subsequent log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"installation_id":     githubPayload.Installation.ID,
+		"account_login":       githubPayload.Installation.Account.Login,
+		"account_type":        githubPayload.Installation.Account.Type,
+		"installation_action": githubPayload.Action,
+	})
+
+	log.Info(ctx, "Handling installation event")
+
+	switch githubPayload.Action {
+	case InstallationActionCreated:
+		return h.handleInstallationCreated(ctx, &githubPayload)
+	default:
+		log.Warn(ctx, "Installation action not handled")
+		return nil
+	}
+}
+
+func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation created event")
+
+	// Extract repository list for selected repositories
+	var repositories []string
+	if payload.Installation.RepositorySelection == "selected" {
+		for _, repo := range payload.Installation.Repositories {
+			repositories = append(repositories, repo.FullName)
+		}
+	}
+
+	// Create GitHubInstallation record
+	installation := &models.GitHubInstallation{
+		ID:                  payload.Installation.ID,
+		AccountLogin:        payload.Installation.Account.Login,
+		AccountType:         payload.Installation.Account.Type,
+		AccountID:           payload.Installation.Account.ID,
+		RepositorySelection: payload.Installation.RepositorySelection,
+		Repositories:        repositories,
+		InstalledAt:         time.Now(),
+		UpdatedAt:           time.Now(),
+	}
+
+	// Delete existing installation record if it exists (handles reinstalls)
+	// This prevents duplicates since we don't listen to installation.deleted events
+	existingInstallation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	if err == nil && existingInstallation != nil {
+		log.Info(ctx, "Deleting existing installation record before creating new one",
+			"installation_id", payload.Installation.ID,
+			"account_login", existingInstallation.AccountLogin)
+
+		err = h.firestoreService.DeleteGitHubInstallation(ctx, payload.Installation.ID)
+		if err != nil {
+			// Check if the error is "not found" - this is actually success for our purposes
+			if errors.Is(err, services.ErrGitHubInstallationNotFound) {
+				log.Debug(ctx, "Installation record already removed during cleanup",
+					"installation_id", payload.Installation.ID)
+			} else {
+				// This is a real deletion failure (database connectivity, etc.)
+				log.Error(ctx, "Failed to delete existing installation record",
+					"error", err,
+					"installation_id", payload.Installation.ID)
+				return fmt.Errorf("failed to clean up existing installation record: %w", err)
+			}
+		} else {
+			log.Info(ctx, "Successfully cleaned up existing installation record",
+				"installation_id", payload.Installation.ID)
+		}
+	}
+
+	// Save installation to database
+	err = h.firestoreService.CreateGitHubInstallation(ctx, installation)
+	if err != nil {
+		log.Error(ctx, "Failed to save GitHub installation",
+			"error", err,
+		)
+		return fmt.Errorf("failed to save GitHub installation: %w", err)
+	}
+
+	log.Info(ctx, "Successfully processed installation created event",
+		"repository_selection", installation.RepositorySelection,
+		"repository_count", len(repositories),
+		"repository_list", strings.Join(repositories, ","),
+	)
+
+	return nil
 }

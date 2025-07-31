@@ -11,12 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"cloud.google.com/go/firestore"
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/handlers"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/middleware"
 	"github-slack-notifier/internal/services"
+
+	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
 )
 
@@ -113,7 +114,11 @@ func main() {
 	}()
 
 	// Create GitHub API service
-	githubService := services.NewGitHubService(cfg)
+	githubService, err := services.NewGitHubService(cfg, firestoreService)
+	if err != nil {
+		log.Error(context.Background(), "Failed to create GitHub service", "error", err)
+		panic(fmt.Sprintf("failed to initialize GitHub service: %v", err))
+	}
 
 	githubHandler := handlers.NewGitHubHandler(
 		cloudTasksService,

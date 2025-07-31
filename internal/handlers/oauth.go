@@ -103,6 +103,8 @@ func (h *OAuthHandler) HandleGitHubLink(c *gin.Context) {
 func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.Context) (string, string, bool) {
 	code := c.Query("code")
 	stateID := c.Query("state")
+	installationID := c.Query("installation_id")
+	setupAction := c.Query("setup_action")
 
 	// Check for error from GitHub
 	if errorParam := c.Query("error"); errorParam != "" {
@@ -115,7 +117,23 @@ func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.
 		return "", "", false
 	}
 
-	// Validate required parameters
+	// Handle GitHub App installation callback (installation_id + setup_action)
+	if installationID != "" && setupAction == "install" {
+		log.Info(ctx, "GitHub App installation callback received",
+			"installation_id", installationID,
+			"setup_action", setupAction)
+
+		// Determine redirect URL based on installation type
+		redirectURL := h.getInstallationRedirectURL(ctx, installationID)
+		log.Info(ctx, "Redirecting user after successful GitHub App installation",
+			"installation_id", installationID,
+			"redirect_url", redirectURL)
+
+		c.Redirect(http.StatusFound, redirectURL)
+		return "", "", false
+	}
+
+	// Validate required parameters for OAuth flow
 	if code == "" || stateID == "" {
 		log.Error(ctx, "Missing required parameters in OAuth callback")
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -126,6 +144,40 @@ func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.
 	}
 
 	return code, stateID, true
+}
+
+// getInstallationRedirectURL determines the appropriate GitHub settings URL based on installation type.
+func (h *OAuthHandler) getInstallationRedirectURL(ctx context.Context, installationIDStr string) string {
+	// Default to personal settings page
+	defaultURL := "https://github.com/settings/installations"
+
+	// Try to look up the installation to determine if it's for an organization
+	installationID := 0
+	if _, err := fmt.Sscanf(installationIDStr, "%d", &installationID); err != nil {
+		log.Warn(ctx, "Invalid installation ID format, using default redirect",
+			"installation_id", installationIDStr, "error", err)
+		return defaultURL
+	}
+
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, int64(installationID))
+	if err != nil {
+		log.Warn(ctx, "Could not find installation in database, using default redirect",
+			"installation_id", installationID, "error", err)
+		return defaultURL
+	}
+
+	// If it's an organization installation, redirect to organization settings
+	if installation.AccountType == "Organization" {
+		orgURL := fmt.Sprintf("https://github.com/organizations/%s/settings/installations", installation.AccountLogin)
+		log.Info(ctx, "Redirecting to organization installations page",
+			"organization", installation.AccountLogin, "url", orgURL)
+		return orgURL
+	}
+
+	// For user installations, use the default personal settings page
+	log.Info(ctx, "Redirecting to personal installations page",
+		"account_login", installation.AccountLogin)
+	return defaultURL
 }
 
 // createOrUpdateUserFromGitHub creates or updates a user after successful GitHub authentication.

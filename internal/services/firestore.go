@@ -18,11 +18,12 @@ import (
 
 // Sentinel errors for not found cases.
 var (
-	ErrUserNotFound           = errors.New("user not found")
-	ErrMessageNotFound        = errors.New("message not found")
-	ErrTrackedMessageNotFound = errors.New("tracked message not found")
-	ErrRepoNotFound           = errors.New("repository not found")
-	ErrOAuthStateNotFound     = errors.New("OAuth state not found")
+	ErrUserNotFound               = errors.New("user not found")
+	ErrMessageNotFound            = errors.New("message not found")
+	ErrTrackedMessageNotFound     = errors.New("tracked message not found")
+	ErrRepoNotFound               = errors.New("repository not found")
+	ErrOAuthStateNotFound         = errors.New("OAuth state not found")
+	ErrGitHubInstallationNotFound = errors.New("GitHub installation not found")
 )
 
 // FirestoreService provides database operations for Firestore.
@@ -628,4 +629,141 @@ func (fs *FirestoreService) ListChannelConfigs(ctx context.Context, slackTeamID 
 	})
 
 	return configs, nil
+}
+
+// CreateGitHubInstallation creates a new GitHub installation record.
+func (fs *FirestoreService) CreateGitHubInstallation(ctx context.Context, installation *models.GitHubInstallation) error {
+	if err := installation.Validate(); err != nil {
+		return fmt.Errorf("invalid GitHub installation: %w", err)
+	}
+
+	// Use installation ID as document ID
+	docID := fmt.Sprintf("%d", installation.ID)
+
+	_, err := fs.client.Collection("github_installations").Doc(docID).Set(ctx, installation)
+	if err != nil {
+		log.Error(ctx, "Failed to create GitHub installation",
+			"error", err,
+			"installation_id", installation.ID,
+			"account_login", installation.AccountLogin,
+		)
+		return fmt.Errorf("failed to create GitHub installation: %w", err)
+	}
+
+	log.Info(ctx, "GitHub installation created successfully",
+		"installation_id", installation.ID,
+		"account_login", installation.AccountLogin,
+		"account_type", installation.AccountType,
+		"repository_selection", installation.RepositorySelection,
+	)
+
+	return nil
+}
+
+// GetGitHubInstallationByID retrieves a GitHub installation by installation ID.
+func (fs *FirestoreService) GetGitHubInstallationByID(ctx context.Context, installationID int64) (*models.GitHubInstallation, error) {
+	docID := fmt.Sprintf("%d", installationID)
+	doc, err := fs.client.Collection("github_installations").Doc(docID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, ErrGitHubInstallationNotFound
+		}
+		log.Error(ctx, "Failed to get GitHub installation by ID",
+			"error", err,
+			"installation_id", installationID,
+		)
+		return nil, fmt.Errorf("failed to get GitHub installation: %w", err)
+	}
+
+	var installation models.GitHubInstallation
+	if err := doc.DataTo(&installation); err != nil {
+		log.Error(ctx, "Failed to unmarshal GitHub installation",
+			"error", err,
+			"installation_id", installationID,
+		)
+		return nil, fmt.Errorf("failed to unmarshal GitHub installation: %w", err)
+	}
+
+	return &installation, nil
+}
+
+// GetGitHubInstallationByAccountLogin retrieves a GitHub installation by account login (org/username).
+func (fs *FirestoreService) GetGitHubInstallationByAccountLogin(
+	ctx context.Context, accountLogin string,
+) (*models.GitHubInstallation, error) {
+	iter := fs.client.Collection("github_installations").Where("account_login", "==", accountLogin).Documents(ctx)
+	defer iter.Stop()
+
+	doc, err := iter.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
+			return nil, ErrGitHubInstallationNotFound
+		}
+		log.Error(ctx, "Failed to query GitHub installation by account login",
+			"error", err,
+			"account_login", accountLogin,
+		)
+		return nil, fmt.Errorf("failed to query GitHub installation: %w", err)
+	}
+
+	var installation models.GitHubInstallation
+	if err := doc.DataTo(&installation); err != nil {
+		log.Error(ctx, "Failed to unmarshal GitHub installation",
+			"error", err,
+			"account_login", accountLogin,
+		)
+		return nil, fmt.Errorf("failed to unmarshal GitHub installation: %w", err)
+	}
+
+	return &installation, nil
+}
+
+// UpdateGitHubInstallation updates an existing GitHub installation.
+func (fs *FirestoreService) UpdateGitHubInstallation(ctx context.Context, installation *models.GitHubInstallation) error {
+	if err := installation.Validate(); err != nil {
+		return fmt.Errorf("invalid GitHub installation: %w", err)
+	}
+
+	installation.UpdatedAt = time.Now()
+	docID := fmt.Sprintf("%d", installation.ID)
+
+	_, err := fs.client.Collection("github_installations").Doc(docID).Set(ctx, installation)
+	if err != nil {
+		log.Error(ctx, "Failed to update GitHub installation",
+			"error", err,
+			"installation_id", installation.ID,
+			"account_login", installation.AccountLogin,
+		)
+		return fmt.Errorf("failed to update GitHub installation: %w", err)
+	}
+
+	log.Info(ctx, "GitHub installation updated successfully",
+		"installation_id", installation.ID,
+		"account_login", installation.AccountLogin,
+	)
+
+	return nil
+}
+
+// DeleteGitHubInstallation deletes a GitHub installation record.
+func (fs *FirestoreService) DeleteGitHubInstallation(ctx context.Context, installationID int64) error {
+	docID := fmt.Sprintf("%d", installationID)
+
+	_, err := fs.client.Collection("github_installations").Doc(docID).Delete(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return ErrGitHubInstallationNotFound
+		}
+		log.Error(ctx, "Failed to delete GitHub installation",
+			"error", err,
+			"installation_id", installationID,
+		)
+		return fmt.Errorf("failed to delete GitHub installation: %w", err)
+	}
+
+	log.Info(ctx, "GitHub installation deleted successfully",
+		"installation_id", installationID,
+	)
+
+	return nil
 }

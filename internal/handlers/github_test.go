@@ -125,7 +125,7 @@ func TestGitHubHandler_HandleWebhook_GitHubLibraryIntegration(t *testing.T) {
 			}
 			handler := NewGitHubHandler(cloudTasksService, nil, nil, nil, tt.webhookSecret, testEmojiConfig())
 
-			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(tt.body))
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/github", bytes.NewBufferString(tt.body))
 			for key, values := range tt.setupHeaders() {
 				for _, value := range values {
 					req.Header.Set(key, value)
@@ -210,7 +210,7 @@ func TestGitHubHandler_HandleWebhook_SecurityHeaders(t *testing.T) {
 			handler := NewGitHubHandler(nil, nil, nil, nil, "", testEmojiConfig())
 
 			body := `{"action":"opened","repository":{"name":"test"}}`
-			req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString(body))
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/github", bytes.NewBufferString(body))
 			for key, values := range tt.setupHeaders() {
 				for _, value := range values {
 					req.Header.Set(key, value)
@@ -239,7 +239,7 @@ func TestGitHubHandler_HandleWebhook_BodyReading(t *testing.T) {
 	handler := NewGitHubHandler(nil, nil, nil, nil, "", testEmojiConfig())
 
 	// Create request with body that causes read error
-	req, _ := http.NewRequest(http.MethodPost, "/webhooks/github", &errorReader{})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/github", &errorReader{})
 	req.Header.Set("X-Github-Event", "pull_request")
 	req.Header.Set("X-Github-Delivery", "test-delivery-id")
 	req.Header.Set("Content-Type", "application/json")

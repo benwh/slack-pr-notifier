@@ -7,20 +7,25 @@ import (
 )
 
 var (
-	ErrJobIDRequired          = errors.New("job ID is required")
-	ErrEventTypeRequired      = errors.New("event type is required")
-	ErrPayloadRequired        = errors.New("payload is required")
-	ErrJobTypeRequired        = errors.New("job type is required")
-	ErrUnsupportedJobType     = errors.New("unsupported job type")
-	ErrPRNumberRequired       = errors.New("PR number is required")
-	ErrRepoFullNameRequired   = errors.New("repository full name is required")
-	ErrSlackChannelRequired   = errors.New("Slack channel is required")
-	ErrSlackMessageTSRequired = errors.New("Slack message timestamp is required")
-	ErrSlackTeamIDRequired    = errors.New("Slack team ID is required")
-	ErrTraceIDRequired        = errors.New("trace ID is required")
-	ErrAccessTokenRequired    = errors.New("access token is required")
-	ErrTeamNameRequired       = errors.New("team name is required")
-	ErrSlackOAuthFailed       = errors.New("Slack OAuth failed")
+	ErrJobIDRequired               = errors.New("job ID is required")
+	ErrEventTypeRequired           = errors.New("event type is required")
+	ErrPayloadRequired             = errors.New("payload is required")
+	ErrJobTypeRequired             = errors.New("job type is required")
+	ErrUnsupportedJobType          = errors.New("unsupported job type")
+	ErrPRNumberRequired            = errors.New("PR number is required")
+	ErrRepoFullNameRequired        = errors.New("repository full name is required")
+	ErrSlackChannelRequired        = errors.New("slack channel is required")
+	ErrSlackMessageTSRequired      = errors.New("slack message timestamp is required")
+	ErrSlackTeamIDRequired         = errors.New("slack team ID is required")
+	ErrTraceIDRequired             = errors.New("trace ID is required")
+	ErrAccessTokenRequired         = errors.New("access token is required")
+	ErrTeamNameRequired            = errors.New("team name is required")
+	ErrSlackOAuthFailed            = errors.New("slack OAuth failed")
+	ErrInstallationIDRequired      = errors.New("installation ID is required")
+	ErrAccountLoginRequired        = errors.New("account login is required")
+	ErrAccountTypeRequired         = errors.New("account type is required")
+	ErrRepositorySelectionRequired = errors.New("repository selection is required")
+	ErrInvalidRepositorySelection  = errors.New("repository selection must be 'all' or 'selected'")
 )
 
 type User struct {
@@ -70,6 +75,41 @@ func (sw *SlackWorkspace) Validate() error {
 	}
 	if sw.AccessToken == "" {
 		return ErrAccessTokenRequired
+	}
+	return nil
+}
+
+// GitHubInstallation represents a GitHub App installation.
+type GitHubInstallation struct {
+	ID                  int64     `firestore:"id"`                     // GitHub installation ID
+	AccountLogin        string    `firestore:"account_login"`          // Organization or user login
+	AccountType         string    `firestore:"account_type"`           // "Organization" or "User" (for debugging)
+	AccountID           int64     `firestore:"account_id"`             // GitHub account ID
+	RepositorySelection string    `firestore:"repository_selection"`   // "all" or "selected"
+	Repositories        []string  `firestore:"repositories,omitempty"` // List of selected repos (if "selected")
+	InstalledAt         time.Time `firestore:"installed_at"`
+	UpdatedAt           time.Time `firestore:"updated_at"`
+	// Fields below reserved for future implementation
+	SuspendedAt *time.Time `firestore:"suspended_at,omitempty"`
+	SuspendedBy string     `firestore:"suspended_by,omitempty"`
+}
+
+// Validate validates required fields for GitHubInstallation.
+func (gi *GitHubInstallation) Validate() error {
+	if gi.ID <= 0 {
+		return ErrInstallationIDRequired
+	}
+	if gi.AccountLogin == "" {
+		return ErrAccountLoginRequired
+	}
+	if gi.AccountType == "" {
+		return ErrAccountTypeRequired
+	}
+	if gi.RepositorySelection == "" {
+		return ErrRepositorySelectionRequired
+	}
+	if gi.RepositorySelection != "all" && gi.RepositorySelection != "selected" {
+		return ErrInvalidRepositorySelection
 	}
 	return nil
 }
