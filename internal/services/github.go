@@ -21,14 +21,25 @@ type GitHubService struct {
 	firestoreService *FirestoreService
 	privateKeyBytes  []byte
 	clientCache      map[int64]*github.Client // Cache clients by installation ID
+	transport        http.RoundTripper        // Custom transport for testing
 }
 
 // NewGitHubService creates a new GitHubService instance.
 func NewGitHubService(cfg *config.Config, firestoreService *FirestoreService) (*GitHubService, error) {
+	return NewGitHubServiceWithTransport(cfg, firestoreService, nil)
+}
+
+// NewGitHubServiceWithTransport creates a new GitHubService instance with a custom transport.
+func NewGitHubServiceWithTransport(cfg *config.Config, firestoreService *FirestoreService, transport http.RoundTripper) (*GitHubService, error) {
 	// Decode the base64 encoded private key
 	privateKeyBytes, err := base64.StdEncoding.DecodeString(cfg.GitHubPrivateKeyBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode GitHub private key: %w", err)
+	}
+
+	// Use default transport if none provided
+	if transport == nil {
+		transport = http.DefaultTransport
 	}
 
 	return &GitHubService{
@@ -36,6 +47,7 @@ func NewGitHubService(cfg *config.Config, firestoreService *FirestoreService) (*
 		firestoreService: firestoreService,
 		privateKeyBytes:  privateKeyBytes,
 		clientCache:      make(map[int64]*github.Client),
+		transport:        transport,
 	}, nil
 }
 
@@ -100,7 +112,7 @@ func (s *GitHubService) ClientForRepo(ctx context.Context, repoFullName string) 
 func (s *GitHubService) createClientForInstallation(installationID int64) (*github.Client, error) {
 	// Create the installation transport
 	itr, err := ghinstallation.New(
-		http.DefaultTransport,
+		s.transport,
 		s.config.GitHubAppID,
 		installationID,
 		s.privateKeyBytes,

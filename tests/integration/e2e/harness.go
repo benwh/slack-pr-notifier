@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"context"
+	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -11,17 +13,22 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/firestore"
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/handlers"
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/middleware"
+	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	firestoreTesting "github-slack-notifier/internal/testing"
+
+	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/require"
 )
+
+//go:embed test-private-key.pem
+var testPrivateKeyPEM []byte
 
 // TestHarness provides an end-to-end testing environment for the application.
 type TestHarness struct {
@@ -35,8 +42,8 @@ type TestHarness struct {
 	SlackWorkspaceService *services.SlackWorkspaceService
 	Router                *gin.Engine
 
-	// Firestore emulator for cleanup
-	firestoreEmulator *firestoreTesting.FirestoreEmulator
+	// Test database with isolation
+	testDB *firestoreTesting.TestDatabase
 
 	// Fake Cloud Tasks service
 	fakeCloudTasks *FakeCloudTasksService
@@ -58,8 +65,12 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	// Setup test context
 	_, cancel := context.WithCancel(context.Background())
 
-	// Setup Firestore emulator
-	emulator, emulatorCtx := firestoreTesting.SetupFirestoreEmulator(t)
+	// Use shared emulator instead of per-test emulator
+	emulator, err := firestoreTesting.GetGlobalEmulator()
+	require.NoError(t, err)
+
+	testDB, err := firestoreTesting.NewTestDatabase(t)
+	require.NoError(t, err)
 
 	// Find an available port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -84,7 +95,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		GitHubClientID:         "test-github-client-id",
 		GitHubClientSecret:     "test-github-client-secret",
 		GitHubAppID:            12345,
-		GitHubPrivateKeyBase64: "dGVzdC1wcml2YXRlLWtleQ==", // "test-private-key" in base64
+		GitHubPrivateKeyBase64: loadTestPrivateKey(), // Load test private key from file
 		GoogleCloudProject:     emulator.ProjectID,
 		GCPRegion:              "us-central1",
 		CloudTasksQueue:        "test-queue",
@@ -103,12 +114,12 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		WebhookProcessingTimeout: 5 * time.Second, // Reasonable timeout for tests
 	}
 
-	// Create HTTP client with mocking
+	// Create per-test HTTP client with isolated mocking
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
-	// Activate httpmock for this client
+	// Activate httpmock for this specific client (isolated per test)
 	httpmock.ActivateNonDefault(httpClient)
 
 	// Create fake Cloud Tasks service
@@ -121,7 +132,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	servicesChan := make(chan *appServices, 1)
 
 	// Start the application in a goroutine
-	go startApplication(emulatorCtx, cfg, emulator.Client, httpClient, fakeCloudTasks, servicesChan)
+	go startApplication(context.Background(), cfg, testDB.Client(), httpClient, fakeCloudTasks, servicesChan)
 
 	// Wait for server to be ready
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -130,7 +141,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	// Wait for services to be available
 	services := <-servicesChan
 
-	// Create request capture
+	// Create per-test request capture for isolation
 	slackCapture := NewSlackRequestCapture()
 
 	harness := &TestHarness{
@@ -138,15 +149,21 @@ func NewTestHarness(t *testing.T) *TestHarness {
 		config:                cfg,
 		SlackWorkspaceService: services.slackWorkspaceService,
 		Router:                services.router,
-		firestoreEmulator:     emulator,
+		testDB:                testDB,
 		fakeCloudTasks:        fakeCloudTasks,
 		httpClient:            httpClient,
 		cancel:                cancel,
 		slackRequestCapture:   slackCapture,
 	}
 
-	// Register cleanup to run even if test panics or fails
-	t.Cleanup(harness.Cleanup)
+	// Register cleanup for this specific test
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = testDB.Cleanup(ctx)
+		_ = testDB.Close()
+		harness.Cleanup()
+	})
 
 	return harness
 }
@@ -174,8 +191,8 @@ func startApplication(
 	slackWorkspaceService := services.NewSlackWorkspaceService(firestoreClient)
 	slackService := services.NewSlackService(slackWorkspaceService, cfg.Emoji, cfg, httpClient)
 
-	// Create GitHub API service
-	githubService, err := services.NewGitHubService(cfg, firestoreService)
+	// Create GitHub API service with mocked transport
+	githubService, err := services.NewGitHubServiceWithTransport(cfg, firestoreService, httpClient.Transport)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create GitHub service: %v", err))
 	}
@@ -283,17 +300,16 @@ func waitForServer(t *testing.T, baseURL string) {
 
 // Cleanup shuts down the test harness.
 func (h *TestHarness) Cleanup() {
-	// Deactivate httpmock for this specific client only
+	// Deactivate httpmock for this specific client to avoid interference
 	httpmock.DeactivateAndReset()
 
-	// Cancel context to trigger shutdown
+	// Cancel the server context
 	h.cancel()
 
 	// Give the server a moment to shut down gracefully
 	time.Sleep(100 * time.Millisecond)
 
-	// Cleanup Firestore emulator
-	h.firestoreEmulator.Cleanup()
+	// Note: TestDatabase cleanup is handled in the test cleanup function
 }
 
 // BaseURL returns the base URL of the test server.
@@ -311,9 +327,40 @@ func (h *TestHarness) HTTPClient() *http.Client {
 	return h.httpClient
 }
 
-// ClearFirestore clears all data from the Firestore emulator.
+// ClearFirestore clears all data from the test database.
 func (h *TestHarness) ClearFirestore(ctx context.Context) error {
-	return h.firestoreEmulator.ClearData(ctx)
+	return h.testDB.Cleanup(ctx)
+}
+
+// ResetForTest provides comprehensive cleanup between tests to ensure isolation.
+func (h *TestHarness) ResetForTest(ctx context.Context) error {
+	// Clear Firestore data
+	if err := h.ClearFirestore(ctx); err != nil {
+		return fmt.Errorf("failed to clear Firestore: %w", err)
+	}
+
+	// Clear fake service state
+	h.FakeCloudTasks().ClearExecutedJobs()
+	h.SlackRequestCapture().Clear()
+
+	// Reset httpmock and restore mock responses
+	httpmock.Reset()
+	h.SetupMockResponses()
+	httpmock.ZeroCallCounters()
+
+	return nil
+}
+
+// ResetForNextStep provides mid-test cleanup for multi-step tests.
+func (h *TestHarness) ResetForNextStep() {
+	// Clear fake service state but keep Firestore data
+	h.FakeCloudTasks().ClearExecutedJobs()
+	h.SlackRequestCapture().Clear()
+
+	// Reset httpmock and restore mock responses
+	httpmock.Reset()
+	h.SetupMockResponses()
+	httpmock.ZeroCallCounters()
 }
 
 // SetupUser creates a test user in Firestore.
@@ -328,7 +375,7 @@ func (h *TestHarness) SetupUser(ctx context.Context, githubUsername, slackUserID
 		"notifications_enabled": true,         // Enable notifications for test users
 		"tagging_enabled":       true,         // Enable tagging for test users
 	}
-	_, err := h.firestoreEmulator.Client.Collection("users").Doc(githubUsername).Set(ctx, user)
+	_, err := h.testDB.Collection("users").Doc(githubUsername).Set(ctx, user)
 	return err
 }
 
@@ -344,7 +391,7 @@ func (h *TestHarness) SetupRepo(ctx context.Context, repoFullName, channelID, te
 		"slack_channels": []string{channelID},
 		"slack_team_id":  teamID,
 	}
-	_, err := h.firestoreEmulator.Client.Collection("repos").Doc(docID).Set(ctx, repo)
+	_, err := h.testDB.Collection("repos").Doc(docID).Set(ctx, repo)
 	return err
 }
 
@@ -360,24 +407,25 @@ func (h *TestHarness) SetupTrackedMessage(
 		"message_ts":     messageTS,
 		"message_source": "webhook",
 	}
-	_, _, err := h.firestoreEmulator.Client.Collection("tracked_messages").Add(ctx, msg)
+	_, _, err := h.testDB.Collection("tracked_messages").Add(ctx, msg)
 	return err
 }
 
 // SetupGitHubInstallation creates a test GitHub installation in Firestore.
 func (h *TestHarness) SetupGitHubInstallation(ctx context.Context, installationID int64, accountLogin, accountType string) error {
-	installation := map[string]interface{}{
-		"id":                   installationID,
-		"account_login":        accountLogin,
-		"account_type":         accountType,
-		"account_id":           12345, // Test account ID
-		"repository_selection": "all",
-		"repositories":         []string{},
-		"installed_at":         "2024-01-01T00:00:00Z",
-		"updated_at":           "2024-01-01T00:00:00Z",
+	testTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	installation := &models.GitHubInstallation{
+		ID:                  installationID,
+		AccountLogin:        accountLogin,
+		AccountType:         accountType,
+		AccountID:           12345, // Test account ID
+		RepositorySelection: "all",
+		Repositories:        []string{},
+		InstalledAt:         testTime,
+		UpdatedAt:           testTime,
 	}
 	docID := fmt.Sprintf("%d", installationID)
-	_, err := h.firestoreEmulator.Client.Collection("github_installations").Doc(docID).Set(ctx, installation)
+	_, err := h.testDB.Collection("github_installations").Doc(docID).Set(ctx, installation)
 	return err
 }
 
@@ -391,12 +439,12 @@ func (h *TestHarness) SlackRequestCapture() *SlackRequestCapture {
 	return h.slackRequestCapture
 }
 
-// SetupMockResponses sets up common mock responses for GitHub and Slack APIs.
+// SetupMockResponses sets up mock responses for this test harness's HTTP client.
 func (h *TestHarness) SetupMockResponses() {
-	// Mock Slack API responses with request capture
+	// Mock Slack API responses with per-test request capture
 	httpmock.RegisterResponder("POST", "https://slack.com/api/chat.postMessage",
 		func(req *http.Request) (*http.Response, error) {
-			// Capture the request
+			// Capture the request using this test's capture
 			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
 				return nil, err
 			}
@@ -416,7 +464,7 @@ func (h *TestHarness) SetupMockResponses() {
 
 	httpmock.RegisterResponder("POST", "https://slack.com/api/chat.delete",
 		func(req *http.Request) (*http.Response, error) {
-			// Capture the request
+			// Capture the request using this test's capture
 			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
 				return nil, err
 			}
@@ -432,7 +480,7 @@ func (h *TestHarness) SetupMockResponses() {
 
 	httpmock.RegisterResponder("POST", "https://slack.com/api/reactions.add",
 		func(req *http.Request) (*http.Response, error) {
-			// Capture the request
+			// Capture the request using this test's capture
 			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
 				return nil, err
 			}
@@ -446,7 +494,7 @@ func (h *TestHarness) SetupMockResponses() {
 
 	httpmock.RegisterResponder("POST", "https://slack.com/api/reactions.remove",
 		func(req *http.Request) (*http.Response, error) {
-			// Capture the request
+			// Capture the request using this test's capture
 			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
 				return nil, err
 			}
@@ -502,6 +550,23 @@ func (h *TestHarness) SetupMockResponses() {
 			},
 		}))
 
+	// Mock GitHub App installation access token endpoint
+	httpmock.RegisterResponder("POST", `=~^https://api\.github\.com/app/installations/\d+/access_tokens$`,
+		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
+			"token":      "ghs_test_installation_token",
+			"expires_at": "2025-12-31T23:59:59Z",
+		}))
+
+	// Mock GitHub PR reviews endpoint
+	httpmock.RegisterResponder("GET", `=~^https://api\.github\.com/repos/[^/]+/[^/]+/pulls/\d+/reviews`,
+		httpmock.NewJsonResponderOrPanic(200, []interface{}{
+			map[string]interface{}{
+				"id":     12345,
+				"state":  "APPROVED",
+				"author": map[string]interface{}{"login": "reviewer"},
+			},
+		}))
+
 	// Mock Slack OAuth endpoint
 	httpmock.RegisterResponder("POST", "https://slack.com/api/oauth.v2.access",
 		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
@@ -520,6 +585,11 @@ func (h *TestHarness) SetupMockResponses() {
 	// Mock Cloud Tasks API responses (for job queueing)
 	httpmock.RegisterResponder("POST", `=~^https://cloudtasks\.googleapis\.com/`,
 		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"name": fmt.Sprintf("projects/%s/locations/us-central1/queues/test-queue/tasks/test-task", h.firestoreEmulator.ProjectID),
+			"name": fmt.Sprintf("projects/%s/locations/us-central1/queues/test-queue/tasks/test-task", h.config.GoogleCloudProject),
 		}))
+}
+
+// loadTestPrivateKey loads the test private key from embedded data and returns it as base64.
+func loadTestPrivateKey() string {
+	return base64.StdEncoding.EncodeToString(testPrivateKeyPEM)
 }

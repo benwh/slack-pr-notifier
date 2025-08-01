@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +37,13 @@ var (
 	ErrNoAvailablePort      = errors.New("no available port found for emulator")
 )
 
+// Global emulator singleton.
+var (
+	globalEmulator     *FirestoreEmulator
+	globalEmulatorOnce sync.Once
+	globalEmulatorErr  error
+)
+
 // FirestoreEmulator manages a Firestore emulator instance for testing.
 type FirestoreEmulator struct {
 	Host      string
@@ -42,6 +51,13 @@ type FirestoreEmulator struct {
 	Client    *firestore.Client
 	cmd       *exec.Cmd
 	cleanup   func()
+}
+
+// TestDatabase provides isolated database access for individual tests.
+type TestDatabase struct {
+	client    *firestore.Client
+	testID    string
+	namespace string
 }
 
 // SetupFirestoreEmulator creates a new Firestore emulator instance for testing.
@@ -288,4 +304,172 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 	_ = cmd.Process.Kill()
 
 	return code
+}
+
+// GetGlobalEmulator returns the global shared emulator instance.
+func GetGlobalEmulator() (*FirestoreEmulator, error) {
+	globalEmulatorOnce.Do(func() {
+		globalEmulator, globalEmulatorErr = startGlobalEmulator()
+	})
+	return globalEmulator, globalEmulatorErr
+}
+
+// startGlobalEmulator starts the global emulator instance.
+func startGlobalEmulator() (*FirestoreEmulator, error) {
+	emulator := &FirestoreEmulator{
+		ProjectID: "test-project-global",
+	}
+
+	// Check if emulator is already running (e.g., in CI or manually started)
+	if existingHost := os.Getenv("FIRESTORE_EMULATOR_HOST"); existingHost != "" {
+		emulator.Host = existingHost
+	} else {
+		// Use fixed port for stability
+		emulator.Host = "localhost:8089"
+		if err := emulator.startLocalEmulatorOnPort(8089); err != nil {
+			return nil, err
+		}
+	}
+
+	// Create Firestore client
+	ctx := context.Background()
+	client, err := emulator.createClient(ctx)
+	if err != nil {
+		if emulator.cmd != nil {
+			_ = emulator.cmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("failed to create Firestore client: %w", err)
+	}
+	emulator.Client = client
+
+	// Set cleanup function
+	emulator.cleanup = func() {
+		_ = client.Close()
+		if emulator.cmd != nil {
+			_ = emulator.cmd.Process.Kill()
+		}
+	}
+
+	return emulator, nil
+}
+
+// startLocalEmulatorOnPort starts emulator on a specific port.
+func (e *FirestoreEmulator) startLocalEmulatorOnPort(port int) error {
+	// Check if gcloud is available
+	if _, err := exec.LookPath("gcloud"); err != nil {
+		return fmt.Errorf("gcloud not found in PATH: %w", err)
+	}
+
+	// Start emulator on specific port
+	e.Host = fmt.Sprintf("localhost:%d", port)
+	// #nosec G204 -- Static arguments for test emulator command
+	e.cmd = exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
+
+	// Start in background
+	if err := e.cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start emulator: %w", err)
+	}
+
+	// Set environment variable
+	_ = os.Setenv("FIRESTORE_EMULATOR_HOST", e.Host)
+
+	// Wait for emulator to be ready
+	if err := e.waitForEmulator(); err != nil {
+		_ = e.cmd.Process.Kill()
+		return fmt.Errorf("emulator failed to start: %w", err)
+	}
+
+	return nil
+}
+
+// NewTestDatabase creates an isolated database connection for a test.
+func NewTestDatabase(t *testing.T) (*TestDatabase, error) {
+	emulator, err := GetGlobalEmulator()
+	if err != nil {
+		return nil, err
+	}
+
+	// Use the shared emulator client instead of creating a new one
+	// We'll rely on test cleanup rather than namespacing for isolation
+	return &TestDatabase{
+		client: emulator.Client,
+		testID: fmt.Sprintf("test_%s_%d",
+			strings.ReplaceAll(t.Name(), "/", "_"),
+			time.Now().UnixNano()),
+		namespace: "", // No namespace needed with shared client
+	}, nil
+}
+
+// Collection returns a collection reference (no namespacing with shared client).
+func (td *TestDatabase) Collection(name string) *firestore.CollectionRef {
+	// Use regular collection names since we're using a shared client
+	return td.client.Collection(name)
+}
+
+// Client returns the underlying Firestore client.
+func (td *TestDatabase) Client() *firestore.Client {
+	return td.client
+}
+
+// Cleanup deletes all data from the emulator database.
+func (td *TestDatabase) Cleanup(ctx context.Context) error {
+	// Get the global emulator and use its clear data method
+	emulator, err := GetGlobalEmulator()
+	if err != nil {
+		return err
+	}
+
+	return emulator.ClearData(ctx)
+}
+
+// deleteCollection deletes all documents in a collection.
+func (td *TestDatabase) deleteCollection(ctx context.Context, collectionRef *firestore.CollectionRef) error {
+	docs := collectionRef.Documents(ctx)
+	batch := td.client.Batch()
+	batchSize := 0
+
+	for {
+		doc, err := docs.Next()
+		if err != nil {
+			break // No more documents
+		}
+
+		batch.Delete(doc.Ref)
+		batchSize++
+
+		// Firestore batch has a limit of 500 operations
+		if batchSize >= 500 {
+			if _, err := batch.Commit(ctx); err != nil {
+				return err
+			}
+			batch = td.client.Batch()
+			batchSize = 0
+		}
+	}
+
+	// Commit remaining operations
+	if batchSize > 0 {
+		_, err := batch.Commit(ctx)
+		return err
+	}
+
+	return nil
+}
+
+// Close closes the test database client (no-op since we share the global client).
+func (td *TestDatabase) Close() error {
+	// Don't close the shared client, it will be closed when the global emulator stops
+	return nil
+}
+
+// StopGlobalEmulator stops the global emulator instance.
+func StopGlobalEmulator() error {
+	if globalEmulator != nil && globalEmulator.cleanup != nil {
+		globalEmulator.cleanup()
+		globalEmulator = nil
+		// Reset the sync.Once so it can be started again
+		globalEmulatorOnce = sync.Once{}
+		return nil
+	}
+	return nil
 }

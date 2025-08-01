@@ -83,6 +83,9 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 				"ok":    false,
 				"error": "invalid_code",
 			}))
+
+		// Note: Mocks are now per-test, no global cleanup needed
+
 		req := httptest.NewRequest(http.MethodGet, "/auth/slack/callback?code=invalid_code", nil)
 		w := httptest.NewRecorder()
 
@@ -95,9 +98,6 @@ func TestSlackOAuthInstallationFlow(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		assert.Equal(t, "Installation Failed", response["error"])
-
-		// Restore the global mock for other tests
-		harness.SetupMockResponses()
 	})
 
 	t.Run("Successful OAuth installation flow", func(t *testing.T) {

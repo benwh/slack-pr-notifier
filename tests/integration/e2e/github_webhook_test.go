@@ -9,16 +9,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"github-slack-notifier/internal/models"
+	firestoreTesting "github-slack-notifier/internal/testing"
 
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Note: Mock setup is now per-test-harness to ensure proper isolation.
+
+// TestMain manages the global emulator lifecycle for all e2e tests.
+func TestMain(m *testing.M) {
+	// Start global emulator
+	_, err := firestoreTesting.GetGlobalEmulator()
+	if err != nil {
+		log.Fatalf("Failed to start global emulator: %v", err)
+	}
+
+	// Run all tests
+	code := m.Run()
+
+	// Cleanup global emulator
+	if err := firestoreTesting.StopGlobalEmulator(); err != nil {
+		log.Printf("Error stopping emulator: %v", err)
+	}
+
+	os.Exit(code)
+}
 
 func TestGitHubWebhookIntegration(t *testing.T) {
 	// Setup test harness - this starts the real application
@@ -40,10 +64,8 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		buildPayload func(string, int, string, string) []byte,
 	) {
 		t.Helper()
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace first (required for multi-workspace support)
 		setupTestWorkspace(t, harness, userID)
@@ -107,13 +129,8 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("Draft PR opened should not post to Slack", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace first (required for multi-workspace support)
 		setupTestWorkspace(t, harness, "U123456789")
@@ -121,6 +138,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Setup test data in Firestore
 		setupTestUser(t, harness, "draft-author", "U123456789", "draft-channel")
 		setupTestRepo(t, harness, "draft-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create GitHub webhook payload for draft PR
 		payload := buildDraftPROpenedPayload("testorg/draftrepo", 999, "WIP: Draft PR", "draft-author")
@@ -147,10 +165,8 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR review webhook with reaction sync", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace first (required for multi-workspace support)
 		setupTestWorkspace(t, harness, "U987654321")
@@ -158,6 +174,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Setup test data
 		setupTestUser(t, harness, "reviewer", "U987654321", "test-channel")
 		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create a tracked message (simulating a previous PR notification)
 		setupTrackedMessage(t, harness, "testorg/testrepo", 456, "test-channel", "T123456789", "1234567890.123456")
@@ -172,9 +189,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request_review", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed
+		// Verify jobs were executed (github_webhook + reaction_sync)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		// Verify reaction was added for approved review
 		reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
@@ -221,6 +238,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Setup test data
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Configure fake Cloud Tasks to execute asynchronously
 		harness.FakeCloudTasks().SetAsync(true, 10*time.Millisecond)
@@ -247,6 +265,13 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		err := harness.FakeCloudTasks().WaitForJobs(numWebhooks, 5*time.Second)
 		require.NoError(t, err)
 
+		// CRITICAL: Switch back to synchronous execution to ensure all HTTP requests complete
+		// before this test finishes (prevents pollution of subsequent tests)
+		harness.FakeCloudTasks().SetAsync(false, 0)
+
+		// Additional safety: small delay to ensure any in-flight HTTP requests complete
+		time.Sleep(50 * time.Millisecond)
+
 		// Verify all jobs were executed
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
 		assert.Len(t, jobs, numWebhooks)
@@ -268,10 +293,8 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				// Clear any existing data
-				require.NoError(t, harness.ClearFirestore(ctx))
-				harness.FakeCloudTasks().ClearExecutedJobs()
-				harness.SlackRequestCapture().Clear()
+				// Reset all test state for proper isolation
+				require.NoError(t, harness.ResetForTest(ctx))
 
 				// Setup OAuth workspace
 				setupTestWorkspace(t, harness, "U123456789")
@@ -279,6 +302,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				// Setup test data
 				setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 				setupTestRepo(t, harness, "test-channel")
+				setupGitHubInstallation(t, harness)
 
 				// Create PR webhook payload with specific line counts
 				payload := buildPRPayloadWithSize("testorg/testrepo", 2000, tc.name, "test-user",
@@ -314,10 +338,8 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				// Clear any existing data
-				require.NoError(t, harness.ClearFirestore(ctx))
-				harness.FakeCloudTasks().ClearExecutedJobs()
-				harness.SlackRequestCapture().Clear()
+				// Reset all test state for proper isolation
+				require.NoError(t, harness.ResetForTest(ctx))
 
 				// Setup OAuth workspace
 				setupTestWorkspace(t, harness, "U987654321")
@@ -325,6 +347,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				// Setup test data
 				setupTestUser(t, harness, "reviewer", "U987654321", "test-channel")
 				setupTestRepo(t, harness, "test-channel")
+				setupGitHubInstallation(t, harness)
 
 				// Create a tracked message
 				const messageTS = "1234567890.123456"
@@ -340,9 +363,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				resp := sendGitHubWebhook(t, harness, "pull_request_review", payload)
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-				// Wait for job execution
+				// Wait for job execution (github_webhook + reaction_sync)
 				jobs := harness.FakeCloudTasks().GetExecutedJobs()
-				require.Len(t, jobs, 1)
+				require.Len(t, jobs, 2)
 
 				// Verify the correct reaction was added
 				reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
@@ -358,15 +381,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 	// PR Directive Tests
 	t.Run("PR directives - skip notification", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
+		// Use comprehensive reset for better test isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create payload with skip directive
 		payload := buildPRPayloadWithDirective("testorg/testrepo", 500, "PR with skip", "test-user", "!review: skip")
@@ -390,21 +412,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR directives - channel override", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
-
-		// Re-setup mock responses
-		harness.SetupMockResponses()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "default-channel")
 		setupTestRepo(t, harness, "default-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create payload with channel override directive
 		payload := buildPRPayloadWithDirective("testorg/testrepo", 501, "PR with channel override", "test-user", "!review: #override-channel")
@@ -425,21 +440,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR directives - user CC", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
-
-		// Re-setup mock responses
-		harness.SetupMockResponses()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create payload with user CC directive
 		payload := buildPRPayloadWithDirective("testorg/testrepo", 502, "PR with user CC", "test-user", "!review: @jane.smith")
@@ -460,21 +468,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR directives - combined channel and user CC", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
-
-		// Re-setup mock responses
-		harness.SetupMockResponses()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "default-channel")
 		setupTestRepo(t, harness, "default-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create payload with combined directive
 		payload := buildPRPayloadWithDirective("testorg/testrepo", 503, "PR with combined directives", "test-user",
@@ -497,21 +498,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR directives - last directive wins", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
-
-		// Re-setup mock responses
-		harness.SetupMockResponses()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "default-channel")
 		setupTestRepo(t, harness, "default-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Create payload with multiple directives - last one should win
 		body := "!review: #first-channel @first.user\n!review: #final-channel @final.user"
@@ -534,21 +528,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR directives - retroactive message deletion with !review-skip", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
-
-		// Re-setup mock responses
-		harness.SetupMockResponses()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
 
 		// First, create a PR (which will post a message)
 		payload := buildPRPayloadWithDirective("testorg/testrepo", 505, "PR to be deleted", "test-user", "Initial PR description")
@@ -565,10 +552,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		require.Len(t, slackRequests, 1, "Expected PR message to be posted initially")
 
 		// Clear for the edit event
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-		httpmock.Reset()
-		harness.SetupMockResponses()
+		harness.ResetForNextStep()
 
 		// Now edit the PR with !review-skip directive
 		editedPayload := buildPREditedPayloadWithDirective("testorg/testrepo", 505, "PR to be deleted", "test-user", "!review-skip")
@@ -587,21 +571,14 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 	})
 
 	t.Run("PR skip/unskip sequence - removing skip directive re-posts PR", func(t *testing.T) {
-		// Clear any existing data
-		require.NoError(t, harness.ClearFirestore(ctx))
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-
-		// Reset httpmock call count
-		httpmock.Reset()
-
-		// Re-setup mock responses
-		harness.SetupMockResponses()
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
 
 		// Setup OAuth workspace and test data
 		setupTestWorkspace(t, harness, "U123456789")
 		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
 		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
 
 		// Step 1: Create a PR (which will post a message)
 		payload := buildPRPayloadWithDirective("testorg/testrepo", 506, "Test skip/unskip sequence", "test-user", "Initial PR description")
@@ -621,10 +598,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		assert.Contains(t, initialMessage.Text, "Test skip/unskip sequence")
 
 		// Step 2: Edit the PR to add !review-skip directive (should delete message)
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-		httpmock.Reset()
-		harness.SetupMockResponses()
+		harness.ResetForNextStep()
 
 		editedPayload := buildPREditedPayloadWithDirective("testorg/testrepo", 506, "Test skip/unskip sequence", "test-user", "!review-skip")
 
@@ -641,10 +615,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		assert.Empty(t, slackRequests, "Expected no new messages to be posted during skip")
 
 		// Step 3: Edit the PR to remove !review-skip directive (should re-post message)
-		harness.FakeCloudTasks().ClearExecutedJobs()
-		harness.SlackRequestCapture().Clear()
-		httpmock.Reset()
-		harness.SetupMockResponses()
+		harness.ResetForNextStep()
 
 		unskipPayload := buildPREditedPayloadWithDirective("testorg/testrepo", 506, "Test skip/unskip sequence", "test-user",
 			"Regular PR description without skip")
