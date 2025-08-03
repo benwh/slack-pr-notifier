@@ -19,7 +19,6 @@ import (
 // Sentinel errors for not found cases.
 var (
 	ErrUserNotFound               = errors.New("user not found")
-	ErrMessageNotFound            = errors.New("message not found")
 	ErrTrackedMessageNotFound     = errors.New("tracked message not found")
 	ErrRepoNotFound               = errors.New("repository not found")
 	ErrOAuthStateNotFound         = errors.New("OAuth state not found")
@@ -138,81 +137,6 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 			"operation", "create_or_update_user",
 		)
 		return fmt.Errorf("failed to create or update user %s: %w", user.ID, err)
-	}
-	return nil
-}
-
-func (fs *FirestoreService) GetMessage(
-	ctx context.Context,
-	repoFullName string,
-	prNumber int,
-) (*models.Message, error) {
-	iter := fs.client.Collection("messages").
-		Where("repo_full_name", "==", repoFullName).
-		Where("pr_number", "==", prNumber).
-		Documents(ctx)
-
-	doc, err := iter.Next()
-	if err != nil {
-		if status.Code(err) == codes.NotFound || err.Error() == "no more items in iterator" {
-			return nil, nil
-		}
-		log.Error(ctx, "Failed to query message",
-			"error", err,
-			"repo", repoFullName,
-			"pr_number", prNumber,
-			"operation", "query_message",
-		)
-		return nil, fmt.Errorf("failed to query message for repo %s PR %d: %w", repoFullName, prNumber, err)
-	}
-
-	var message models.Message
-	err = doc.DataTo(&message)
-	if err != nil {
-		log.Error(ctx, "Failed to unmarshal message data",
-			"error", err,
-			"repo", repoFullName,
-			"pr_number", prNumber,
-			"operation", "unmarshal_message_data",
-		)
-		return nil, fmt.Errorf("failed to unmarshal message data for repo %s PR %d: %w", repoFullName, prNumber, err)
-	}
-
-	return &message, nil
-}
-
-func (fs *FirestoreService) CreateMessage(ctx context.Context, message *models.Message) error {
-	message.CreatedAt = time.Now()
-	docRef := fs.client.Collection("messages").NewDoc()
-	message.ID = docRef.ID
-
-	_, err := docRef.Set(ctx, message)
-	if err != nil {
-		log.Error(ctx, "Failed to create message",
-			"error", err,
-			"repo", message.RepoFullName,
-			"pr_number", message.PRNumber,
-			"slack_channel", message.SlackChannel,
-			"author", message.AuthorGitHubUsername,
-			"operation", "create_message",
-		)
-		return fmt.Errorf("failed to create message for repo %s PR %d: %w", message.RepoFullName, message.PRNumber, err)
-	}
-	return nil
-}
-
-func (fs *FirestoreService) UpdateMessage(ctx context.Context, message *models.Message) error {
-	_, err := fs.client.Collection("messages").Doc(message.ID).Set(ctx, message)
-	if err != nil {
-		log.Error(ctx, "Failed to update message",
-			"error", err,
-			"message_id", message.ID,
-			"repo", message.RepoFullName,
-			"pr_number", message.PRNumber,
-			"last_status", message.LastStatus,
-			"operation", "update_message",
-		)
-		return fmt.Errorf("failed to update message %s: %w", message.ID, err)
 	}
 	return nil
 }

@@ -126,19 +126,6 @@ type TrackedMessage struct {
 	CreatedAt      time.Time `firestore:"created_at"`       // When we started tracking this message
 }
 
-// Message (deprecated - replaced by TrackedMessage but kept for migration compatibility).
-type Message struct {
-	ID                   string    `firestore:"id"`
-	PRNumber             int       `firestore:"pr_number"`
-	RepoFullName         string    `firestore:"repo_full_name"`
-	SlackChannel         string    `firestore:"slack_channel"`
-	SlackMessageTS       string    `firestore:"slack_message_ts"`
-	GitHubPRURL          string    `firestore:"github_pr_url"`
-	AuthorGitHubUsername string    `firestore:"author_github_username"`
-	CreatedAt            time.Time `firestore:"created_at"`
-	LastStatus           string    `firestore:"last_status"`
-}
-
 type Repo struct {
 	ID           string    `firestore:"id"`             // {workspace_id}#{repo_full_name} (for backward compatibility)
 	RepoFullName string    `firestore:"repo_full_name"` // e.g., "owner/repo" (denormalized for queries)

@@ -211,7 +211,7 @@ export SLACK_APP_ID=A1234567890
 - **cmd/github-slack-notifier/main.go**: Application entry point with HTTP server setup, graceful shutdown, and dependency injection
 - **internal/handlers/**: HTTP handlers for GitHub webhooks (`github.go`), job processing (`job_processor.go`), and Slack webhooks (`slack.go`)
 - **internal/services/**: Business logic layer with `FirestoreService`, `SlackService`, and `CloudTasksService`
-- **internal/models/**: Data structures for `User`, `Message`, `Repo`, `Job`, `WebhookJob`, and `ManualLinkJob` entities
+- **internal/models/**: Data structures for `User`, `TrackedMessage`, `Repo`, `Job`, `WebhookJob`, and `ManualLinkJob` entities
 - **internal/middleware/**: HTTP middleware including structured logging with trace IDs
 - **internal/log/**: Custom logging utilities with context support
 

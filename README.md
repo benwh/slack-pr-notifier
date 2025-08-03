@@ -297,7 +297,7 @@ github-slack-notifier/
 │   │   ├── slack.go             # Slack API operations
 │   │   └── cloud_tasks.go       # Task queue operations
 │   ├── models/                   # Data structures
-│   │   └── models.go            # User, Message, Repo, WebhookJob
+│   │   └── models.go            # User, TrackedMessage, Repo, WebhookJob
 │   ├── middleware/               # HTTP middleware
 │   │   └── logging.go           # Request logging with trace IDs
 │   ├── config/                   # Configuration
