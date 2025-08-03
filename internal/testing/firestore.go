@@ -2,9 +2,10 @@ package testing
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -35,13 +36,14 @@ var (
 	ErrEmulatorStartTimeout = errors.New("emulator did not start within timeout")
 	ErrEmulatorClearFailed  = errors.New("failed to clear emulator data")
 	ErrNoAvailablePort      = errors.New("no available port found for emulator")
+	ErrInvalidTCPAddress    = errors.New("failed to cast listener address to TCP address")
 )
 
 // Global emulator singleton.
 var (
 	globalEmulator     *FirestoreEmulator
 	globalEmulatorOnce sync.Once
-	globalEmulatorErr  error
+	errGlobalEmulator  error
 )
 
 // FirestoreEmulator manages a Firestore emulator instance for testing.
@@ -121,7 +123,11 @@ func findAvailablePort() (int, error) {
 	}
 	defer func() { _ = listener.Close() }()
 
-	return listener.Addr().(*net.TCPAddr).Port, nil
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, ErrInvalidTCPAddress
+	}
+	return tcpAddr.Port, nil
 }
 
 // generateUniqueProjectID generates a unique project ID for test isolation.
@@ -130,7 +136,14 @@ func generateUniqueProjectID(t *testing.T) string {
 
 	// Use timestamp and random suffix for uniqueness (keep it short and valid)
 	timestamp := time.Now().Unix()
-	randomSuffix := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(1000)
+
+	// Generate cryptographically secure random number
+	randomBig, err := rand.Int(rand.Reader, big.NewInt(1000))
+	if err != nil {
+		// Fallback to timestamp-based randomness if crypto/rand fails
+		randomBig = big.NewInt(timestamp % 1000)
+	}
+	randomSuffix := randomBig.Int64()
 
 	// Format as test-{timestamp}-{random} but keep it under 30 chars total
 	projectID := fmt.Sprintf("test-%d-%d", timestamp, randomSuffix)
@@ -284,6 +297,7 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 	emulatorHost := fmt.Sprintf("localhost:%d", port)
 
 	// Try to start emulator
+	// #nosec G204 -- Static arguments for test emulator command
 	cmd := exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", emulatorHost)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to start Firestore emulator: %v\n", err)
@@ -309,9 +323,9 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 // GetGlobalEmulator returns the global shared emulator instance.
 func GetGlobalEmulator() (*FirestoreEmulator, error) {
 	globalEmulatorOnce.Do(func() {
-		globalEmulator, globalEmulatorErr = startGlobalEmulator()
+		globalEmulator, errGlobalEmulator = startGlobalEmulator()
 	})
-	return globalEmulator, globalEmulatorErr
+	return globalEmulator, errGlobalEmulator
 }
 
 // startGlobalEmulator starts the global emulator instance.
@@ -384,6 +398,8 @@ func (e *FirestoreEmulator) startLocalEmulatorOnPort(port int) error {
 
 // NewTestDatabase creates an isolated database connection for a test.
 func NewTestDatabase(t *testing.T) (*TestDatabase, error) {
+	t.Helper()
+
 	emulator, err := GetGlobalEmulator()
 	if err != nil {
 		return nil, err
@@ -420,40 +436,6 @@ func (td *TestDatabase) Cleanup(ctx context.Context) error {
 	}
 
 	return emulator.ClearData(ctx)
-}
-
-// deleteCollection deletes all documents in a collection.
-func (td *TestDatabase) deleteCollection(ctx context.Context, collectionRef *firestore.CollectionRef) error {
-	docs := collectionRef.Documents(ctx)
-	batch := td.client.Batch()
-	batchSize := 0
-
-	for {
-		doc, err := docs.Next()
-		if err != nil {
-			break // No more documents
-		}
-
-		batch.Delete(doc.Ref)
-		batchSize++
-
-		// Firestore batch has a limit of 500 operations
-		if batchSize >= 500 {
-			if _, err := batch.Commit(ctx); err != nil {
-				return err
-			}
-			batch = td.client.Batch()
-			batchSize = 0
-		}
-	}
-
-	// Commit remaining operations
-	if batchSize > 0 {
-		_, err := batch.Commit(ctx)
-		return err
-	}
-
-	return nil
 }
 
 // Close closes the test database client (no-op since we share the global client).

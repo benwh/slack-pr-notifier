@@ -30,7 +30,9 @@ func NewGitHubService(cfg *config.Config, firestoreService *FirestoreService) (*
 }
 
 // NewGitHubServiceWithTransport creates a new GitHubService instance with a custom transport.
-func NewGitHubServiceWithTransport(cfg *config.Config, firestoreService *FirestoreService, transport http.RoundTripper) (*GitHubService, error) {
+func NewGitHubServiceWithTransport(
+	cfg *config.Config, firestoreService *FirestoreService, transport http.RoundTripper,
+) (*GitHubService, error) {
 	// Decode the base64 encoded private key
 	privateKeyBytes, err := base64.StdEncoding.DecodeString(cfg.GitHubPrivateKeyBase64)
 	if err != nil {
