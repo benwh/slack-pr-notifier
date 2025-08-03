@@ -24,6 +24,7 @@ fi
 
 # Source .env file to load environment variables
 set -a  # automatically export all variables
+# shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
 

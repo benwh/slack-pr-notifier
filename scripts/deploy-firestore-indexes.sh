@@ -24,7 +24,10 @@ print_error() {
 # Load environment variables
 if [[ -f ".env" ]]; then
     # Export variables from .env, filtering out comments and blank lines
-    export $(grep -v '^#' .env | grep -v '^$' | xargs)
+    set -a
+    # shellcheck source=/dev/null
+    source .env
+    set +a
     print_status "Loaded environment variables from .env"
 else
     print_warning ".env file not found, using system environment variables"
@@ -68,7 +71,8 @@ fi
 
 # Function to get current indexes
 get_current_indexes() {
-    local current_indexes_file=$(mktemp)
+    local current_indexes_file
+    current_indexes_file=$(mktemp)
     print_status "Fetching current indexes..."
 
     local list_cmd="gcloud firestore indexes composite list --project=$PROJECT_ID --format=json"
@@ -99,7 +103,8 @@ index_needs_update() {
     fi
 
     # Check if an index with the same collection group exists
-    local existing_index=$(jq -r --arg cg "$collection_group" --arg qs "$query_scope" '
+    local existing_index
+    existing_index=$(jq -r --arg cg "$collection_group" --arg qs "$query_scope" '
         .[] | select(.collectionGroup == $cg and (.queryScope // "COLLECTION") == $qs) | .name
     ' "$current_indexes_file" 2>/dev/null)
 
@@ -110,12 +115,14 @@ index_needs_update() {
     fi
 
     # Compare field configurations (excluding __name__ field that Firestore adds automatically)
-    local existing_fields=$(jq -r --arg cg "$collection_group" --arg qs "$query_scope" '
+    local existing_fields
+    existing_fields=$(jq -r --arg cg "$collection_group" --arg qs "$query_scope" '
         .[] | select(.collectionGroup == $cg and (.queryScope // "COLLECTION") == $qs) |
         .fields | map(select(.fieldPath != "__name__") | .fieldPath + ":" + (.order // "ASCENDING")) | sort | join(",")
     ' "$current_indexes_file" 2>/dev/null)
 
-    local desired_fields_sorted=$(echo "$desired_fields" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
+    local desired_fields_sorted
+    desired_fields_sorted=$(echo "$desired_fields" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
 
     if [[ "$existing_fields" != "$desired_fields_sorted" ]]; then
         # Fields differ, needs update (delete + create)

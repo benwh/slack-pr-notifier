@@ -164,7 +164,9 @@ done
 if [ $RETRIES -eq $MAX_RETRIES ]; then
     echo "❌ Application failed to start (health check failed after $MAX_RETRIES attempts)"
     echo "💡 Check tmp/app.log for compilation errors or startup issues"
-    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
+    if [ -n "$WATCHEXEC_PID" ]; then
+        kill $WATCHEXEC_PID 2>/dev/null || true
+    fi
     exit 1
 fi
 
@@ -182,7 +184,9 @@ sleep 3
 # Check if ngrok process is still running
 if ! kill -0 $NGROK_PID 2>/dev/null; then
     echo "❌ ngrok process died"
-    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
+    if [ -n "$WATCHEXEC_PID" ]; then
+        kill $WATCHEXEC_PID 2>/dev/null || true
+    fi
     exit 1
 fi
 
@@ -192,8 +196,12 @@ NGROK_URL="https://$NGROK_DOMAIN"
 # Verify the tunnel is working
 if ! curl -s "$NGROK_URL" > /dev/null; then
     echo "❌ ngrok tunnel not accessible at $NGROK_URL"
-    [ -n "$WATCHEXEC_PID" ] && kill $WATCHEXEC_PID 2>/dev/null || true
-    [ -n "$NGROK_PID" ] && kill $NGROK_PID 2>/dev/null || true
+    if [ -n "$WATCHEXEC_PID" ]; then
+        kill $WATCHEXEC_PID 2>/dev/null || true
+    fi
+    if [ -n "$NGROK_PID" ]; then
+        kill $NGROK_PID 2>/dev/null || true
+    fi
     exit 1
 fi
 

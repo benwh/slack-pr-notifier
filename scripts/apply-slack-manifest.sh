@@ -84,6 +84,7 @@ done
 # Load environment variables from .env if it exists
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
     set -a  # automatically export all variables
+    # shellcheck source=/dev/null
     source "$PROJECT_ROOT/.env"
     set +a
 fi
@@ -92,7 +93,7 @@ fi
 get_token_from_file() {
     if [[ -f "$TOKEN_FILE" ]]; then
         # Clean any whitespace that might have gotten into the file
-        cat "$TOKEN_FILE" | tr -d '\n\r\t ' | sed 's/[[:space:]]//g'
+        tr -d '\n\r\t ' < "$TOKEN_FILE" | sed 's/[[:space:]]//g'
     else
         echo ""
     fi
@@ -128,11 +129,9 @@ refresh_config_token() {
 
     # Call Slack's tooling.tokens.rotate API
     local refresh_response
-    refresh_response=$(curl -s -X POST "https://slack.com/api/tooling.tokens.rotate" \
+    if ! refresh_response=$(curl -s -X POST "https://slack.com/api/tooling.tokens.rotate" \
         -H "Content-Type: application/x-www-form-urlencoded" \
-        -d "refresh_token=${SLACK_CONFIG_REFRESH_TOKEN}")
-
-    if [[ $? -ne 0 ]]; then
+        -d "refresh_token=${SLACK_CONFIG_REFRESH_TOKEN}"); then
         echo -e "${RED}Error: Failed to call token refresh API${NC}" >&2
         return 1
     fi
@@ -192,8 +191,7 @@ get_valid_token() {
 
     # If still no token, try to refresh
     if [[ -z "$token" ]]; then
-        token=$(refresh_config_token)
-        if [[ $? -ne 0 ]]; then
+        if ! token=$(refresh_config_token); then
             return 1
         fi
     fi
@@ -283,7 +281,7 @@ fi
 SAFE_COMMAND_ARGS=("${COMMAND_ARGS[@]}")
 for i in "${!SAFE_COMMAND_ARGS[@]}"; do
     if [[ "${SAFE_COMMAND_ARGS[$i]}" == "-at" && $((i+1)) -lt ${#SAFE_COMMAND_ARGS[@]} ]]; then
-        SAFE_COMMAND_ARGS[$((i+1))]="***masked***"
+        SAFE_COMMAND_ARGS[i+1]="***masked***"
         break
     fi
 done
@@ -325,7 +323,7 @@ else
         COMMAND_ARGS=("${COMMAND_ARGS[@]}")  # Copy array
         for i in "${!COMMAND_ARGS[@]}"; do
             if [[ "${COMMAND_ARGS[$i]}" == "-at" && $((i+1)) -lt ${#COMMAND_ARGS[@]} ]]; then
-                COMMAND_ARGS[$((i+1))]="$REFRESHED_TOKEN"
+                COMMAND_ARGS[i+1]="$REFRESHED_TOKEN"
                 break
             fi
         done

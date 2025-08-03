@@ -28,7 +28,7 @@ done < <(env | cut -d= -f1)
 # Load environment variables from specified env file
 echo "📋 Loading environment variables from $ENV_FILE..."
 set -a
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
 
