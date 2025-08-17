@@ -130,7 +130,7 @@ type Repo struct {
 	ID           string    `firestore:"id"`             // {workspace_id}#{repo_full_name} (for backward compatibility)
 	RepoFullName string    `firestore:"repo_full_name"` // e.g., "owner/repo" (denormalized for queries)
 	WorkspaceID  string    `firestore:"workspace_id"`   // Slack team ID (denormalized for queries)
-	Enabled      bool      `firestore:"enabled"`
+	Enabled      bool      `firestore:"enabled"`        // Used in GetReposForAllWorkspaces() query (no UI to disable yet)
 	CreatedAt    time.Time `firestore:"created_at"`
 }
 
