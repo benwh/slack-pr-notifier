@@ -134,6 +134,46 @@ fi
 echo "🐳 Configuring Docker authentication..."
 gcloud auth configure-docker "$REGION-docker.pkg.dev" --project="$PROJECT_ID"
 
+# Create service account for the application
+echo "🔐 Creating service account..."
+SERVICE_NAME="github-slack-notifier"
+SERVICE_ACCOUNT_NAME="$SERVICE_NAME"
+SERVICE_ACCOUNT_EMAIL="$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+
+if gcloud iam service-accounts describe "$SERVICE_ACCOUNT_EMAIL" --project="$PROJECT_ID" 2>/dev/null; then
+    echo "✅ Service account already exists"
+else
+    gcloud iam service-accounts create "$SERVICE_ACCOUNT_NAME" \
+        --display-name="Service account for $SERVICE_NAME" \
+        --description="Service account used by the GitHub Slack Notifier application" \
+        --project="$PROJECT_ID"
+    echo "✅ Service account created: $SERVICE_ACCOUNT_EMAIL"
+fi
+
+# Grant required IAM permissions to the service account
+echo "🔑 Granting IAM permissions to service account..."
+
+# Required roles for the application:
+# - datastore.user: Read/write access to Firestore
+# - cloudtasks.enqueuer: Ability to enqueue Cloud Tasks
+# - run.invoker: Ability to invoke Cloud Run services (for task processing)
+REQUIRED_ROLES=(
+    "roles/datastore.user"
+    "roles/cloudtasks.enqueuer" 
+    "roles/run.invoker"
+)
+
+for role in "${REQUIRED_ROLES[@]}"; do
+    echo "   Granting $role..."
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+        --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+        --role="$role" \
+        --project="$PROJECT_ID" \
+        --condition=None \
+        --quiet
+    echo "   ✅ $role granted"
+done
+
 # Create Cloud Tasks queue (for async processing)
 echo "📤 Creating Cloud Tasks queue..."
 

@@ -198,18 +198,17 @@ for secret_var in "${SECRET_VARS[@]}"; do
 done
 
 # Service Account Management
-echo "👤 Managing service account..."
-SERVICE_ACCOUNT_NAME="${SERVICE_NAME}-sa"
+echo "👤 Using service account..."
+SERVICE_ACCOUNT_NAME="$SERVICE_NAME"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# Check if service account exists
+# Verify service account exists (should be created by setup-infrastructure.sh)
 if ! gcloud iam service-accounts describe "${SERVICE_ACCOUNT_EMAIL}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
-    echo "   Creating service account: ${SERVICE_ACCOUNT_NAME}"
-    gcloud iam service-accounts create "${SERVICE_ACCOUNT_NAME}" \
-        --display-name="Service account for ${SERVICE_NAME}" \
-        --project="${PROJECT_ID}"
+    echo "❌ Service account not found: ${SERVICE_ACCOUNT_NAME}"
+    echo "   Please run: ./scripts/setup-infrastructure.sh $ENV_FILE"
+    exit 1
 else
-    echo "   Service account already exists: ${SERVICE_ACCOUNT_NAME}"
+    echo "✅ Service account exists: ${SERVICE_ACCOUNT_NAME}"
 fi
 
 # Grant secretAccessor role for each secret
@@ -225,6 +224,7 @@ for secret_var in "${SECRET_VARS[@]}"; do
             --project="${PROJECT_ID}" >/dev/null
     fi
 done
+
 
 echo "☁️  Deploying to Cloud Run..."
 
