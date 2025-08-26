@@ -112,7 +112,7 @@ func (sws *SlackWorkspaceService) GetWorkspace(ctx context.Context, teamID strin
 	return &workspace, nil
 }
 
-// GetWorkspaceToken retrieves the bot token for a specific workspace.
+// GetWorkspaceToken retrieves the OAuth access token for a specific workspace.
 func (sws *SlackWorkspaceService) GetWorkspaceToken(ctx context.Context, teamID string) (string, error) {
 	workspace, err := sws.GetWorkspace(ctx, teamID)
 	if err != nil {

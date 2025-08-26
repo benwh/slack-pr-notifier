@@ -2,8 +2,6 @@
 
 This guide walks you through creating a Slack app with OAuth support for multi-workspace installations.
 
-> **Important**: This application now uses OAuth-based multi-workspace support. The old `SLACK_BOT_TOKEN` approach is no longer supported.
-
 ## Quick Setup with Manifest
 
 ### Option 1: Command Line (Recommended)
@@ -110,8 +108,6 @@ EMOJI_COMMENTED=speech_balloon
 EMOJI_MERGED=tada
 EMOJI_CLOSED=x
 ```
-
-> **Note**: `SLACK_BOT_TOKEN` is no longer used. The app obtains workspace-specific tokens through OAuth installation.
 
 ## Installation Flow
 
@@ -226,26 +222,6 @@ Check which workspaces are installed:
 # View application logs during installation
 # Look for "Workspace saved successfully" messages
 ```
-
-## Migration from Bot Token
-
-If migrating from the old `SLACK_BOT_TOKEN` system:
-
-1. **Remove old environment variables**:
-   - Remove `SLACK_BOT_TOKEN` from your `.env`
-   - The app will no longer accept this configuration
-
-2. **Add OAuth credentials**:
-   - Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, etc.
-   - Update your Slack app with OAuth settings
-
-3. **Reinstall to workspaces**:
-   - Each workspace needs to complete the OAuth flow
-   - Use the installation URL: `https://your-domain.com/auth/slack/install`
-
-4. **Update documentation**:
-   - Share the new installation URL with users
-   - Update any internal setup documentation
 
 ## Next Steps
 

@@ -58,7 +58,7 @@ type OAuthState struct {
 type SlackWorkspace struct {
 	ID          string    `firestore:"id"`           // Slack team ID (primary key)
 	TeamName    string    `firestore:"team_name"`    // Workspace name
-	AccessToken string    `firestore:"access_token"` // Bot token for this workspace
+	AccessToken string    `firestore:"access_token"` // OAuth access token for this workspace
 	Scope       string    `firestore:"scope"`        // Granted scopes
 	InstalledBy string    `firestore:"installed_by"` // Slack user ID who installed the app
 	InstalledAt time.Time `firestore:"installed_at"` // Installation timestamp

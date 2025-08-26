@@ -27,7 +27,7 @@ The application uses the GitHub API for fetching PR details and review states, p
 
 - **Authentication**: GitHub App installation using JWT and auto-renewing tokens
 - **Required Configuration**:
-  - `GITHUB_APP_ID`: The numeric ID of your GitHub App  
+  - `GITHUB_APP_ID`: The numeric ID of your GitHub App
   - `GITHUB_PRIVATE_KEY_BASE64`: Base64 encoded private key from GitHub App
 - **Installation Management**: Installations are automatically discovered and managed via `installation.created` webhook events
 - **Rate Limits**: 5,000 requests/hour (public and private repos where app is installed)
@@ -284,10 +284,8 @@ Simple, concise format with:
 # Core Configuration
 FIRESTORE_PROJECT_ID      # GCP project ID
 FIRESTORE_DATABASE_ID     # Firestore database ID
-SLACK_BOT_TOKEN          # Slack bot token (xoxb-)
 GITHUB_WEBHOOK_SECRET    # GitHub webhook validation secret
 SLACK_SIGNING_SECRET     # Slack request validation secret
-API_ADMIN_KEY           # Admin API authentication key
 
 # GitHub App Configuration (required)
 GITHUB_APP_ID              # GitHub App ID

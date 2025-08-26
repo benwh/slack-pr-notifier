@@ -156,7 +156,7 @@ cp .env.example .env
    gcloud run services update github-slack-notifier \
      --region=europe-west1 \
      --project=your-project-id \
-     --set-env-vars="SLACK_BOT_TOKEN=xoxb-...,GITHUB_WEBHOOK_SECRET=...,SLACK_SIGNING_SECRET=..."
+     --set-env-vars="GITHUB_WEBHOOK_SECRET=...,SLACK_SIGNING_SECRET=..."
    ```
 
 2. **Configure repositories through Slack App Home**:

@@ -48,7 +48,6 @@ FIRESTORE_PROJECT_ID=your-local-project-id
 FIRESTORE_DATABASE_ID=github-slack-notifier
 GITHUB_WEBHOOK_SECRET=your-github-webhook-secret
 SLACK_SIGNING_SECRET=your-slack-signing-secret
-API_ADMIN_KEY=some-random-long-string
 ```
 
 ### 2. Slack OAuth Setup
@@ -65,7 +64,7 @@ API_ADMIN_KEY=some-random-long-string
 2. Add redirect URL: `http://localhost:8080/auth/slack/callback`
 3. Add bot scopes:
    - `channels:read`
-   - `chat:write`  
+   - `chat:write`
    - `links:read`
    - `channels:history`
 
@@ -134,7 +133,7 @@ CLOUD_TASKS_SECRET=local-development-secret
 # Terminal 1: Start Firestore emulator
 gcloud emulators firestore start --host-port=localhost:8080
 
-# Terminal 2: Start application  
+# Terminal 2: Start application
 export FIRESTORE_EMULATOR_HOST=localhost:8080
 go run ./cmd/github-slack-notifier
 
@@ -244,7 +243,6 @@ FIRESTORE_PROJECT_ID=local-dev-project
 FIRESTORE_DATABASE_ID=github-slack-notifier
 GITHUB_WEBHOOK_SECRET=your-github-webhook-secret-from-app-setup
 SLACK_SIGNING_SECRET=your-slack-signing-secret-from-app-setup
-API_ADMIN_KEY=local-dev-admin-key
 
 # Slack OAuth Configuration
 SLACK_CLIENT_ID=1234567890.1234567890

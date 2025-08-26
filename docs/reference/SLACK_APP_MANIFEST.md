@@ -5,11 +5,13 @@ This document explains how to set up your Slack app using the provided manifest 
 ## Quick Setup
 
 1. **Generate the manifest with your service URL:**
+
    ```bash
    ./scripts/generate-manifest.sh https://your-service-url.run.app
    ```
 
 2. **Copy the generated manifest:**
+
    ```bash
    cat slack-app-manifest.yaml
    ```
@@ -56,10 +58,9 @@ The app subscribes to these events for manual PR link detection:
 
 ## Environment Variables
 
-After creating the app, set these environment variables in your deployment:
+After creating the app, set this environment variable in your deployment:
 
 ```bash
-SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_SIGNING_SECRET=your-signing-secret-here
 ```
 
@@ -79,29 +80,36 @@ After deployment, Slack will verify your endpoints:
    - Note: The bot will automatically join public channels when you select them!
 
 2. **Test manual PR link detection:**
+
    ```
    Check out this PR: https://github.com/owner/repo/pull/123
    ```
+
    The bot will automatically add status reactions!
 
 3. **For private channels only:**
    If you need to use a private channel (not recommended), you must first invite the bot:
+
    ```
    /invite @GitHub PR Bot
    ```
+
    However, the app will reject private channels for security reasons.
 
 ## Troubleshooting
 
 ### "URL verification failed"
+
 - Ensure your service is deployed and accessible
 - Check that the `/webhooks/slack/events` endpoint returns the challenge
 
 ### "App Home not loading"
+
 - Verify the App Home tab is enabled in your Slack app settings
 - Check that the `/webhooks/slack/interactions` endpoint is accessible
 
 ### "Missing scopes"
+
 - Use the manifest to ensure all required OAuth scopes are granted
 - Reinstall the app if you added new scopes
 
@@ -124,3 +132,4 @@ If you prefer to configure manually instead of using the manifest:
    - Enable the Home Tab in App Home settings
    - Disable the Messages Tab
    - Set Interactivity Request URL: `https://your-service-url/webhooks/slack/interactions`
+
