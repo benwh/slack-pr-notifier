@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Generate Slack App Manifest from template
-# Reads the base URL from WEBHOOK_WORKER_URL in .env file
-# Usage: ./scripts/generate-slack-manifest.sh
+# Reads the base URL from specified .env file
+# Usage: ./scripts/generate-slack-manifest.sh <env-file>
+# Example: ./scripts/generate-slack-manifest.sh production.env
 
 set -euo pipefail
 
@@ -10,15 +11,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMPLATE_FILE="$PROJECT_ROOT/slack-app-manifest.template.yaml"
 OUTPUT_FILE="$PROJECT_ROOT/slack-app-manifest.yaml"
-ENV_FILE="$PROJECT_ROOT/.env"
 
-# Check if .env file exists
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Error: .env file not found at $ENV_FILE"
+# Check if env file argument is provided
+if [ $# -eq 0 ]; then
+    echo "❌ Error: No environment file specified"
     echo ""
-    echo "Please create a .env file with WEBHOOK_WORKER_URL configured."
+    echo "Usage: $0 <env-file>"
+    echo "Example: $0 production.env"
+    echo "         $0 .env"
+    exit 1
+fi
+
+ENV_FILE="$PROJECT_ROOT/$1"
+
+# Check if specified .env file exists
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ Error: Environment file not found at $ENV_FILE"
+    echo ""
+    echo "Please create the environment file with BASE_URL configured."
     echo "Example:"
-    echo "  WEBHOOK_WORKER_URL=https://my-service-abc123.run.app/process-webhook"
+    echo "  BASE_URL=https://my-service-abc123.run.app"
     exit 1
 fi
 
@@ -62,7 +74,7 @@ fi
 
 echo "🔧 Generating Slack app manifest..."
 echo "📁 Template: $TEMPLATE_FILE"
-echo "📄 Environment: $ENV_FILE"
+echo "📄 Environment: $1"
 echo "🌐 Base URL: $BASE_URL"
 echo "🏷️ App Name: $SLACK_APP_NAME"
 echo "📄 Output: $OUTPUT_FILE"

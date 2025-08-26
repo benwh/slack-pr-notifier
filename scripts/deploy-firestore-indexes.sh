@@ -21,17 +21,29 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Load environment variables
-if [[ -f ".env" ]]; then
-    # Export variables from .env, filtering out comments and blank lines
-    set -a
-    # shellcheck source=/dev/null
-    source .env
-    set +a
-    print_status "Loaded environment variables from .env"
-else
-    print_warning ".env file not found, using system environment variables"
+# Check if env file argument is provided
+if [ $# -eq 0 ]; then
+    print_error "Usage: $0 <env-file>"
+    echo "   Example: $0 production.env"
+    echo "   Example: $0 staging.env"
+    exit 1
 fi
+
+ENV_FILE="$1"
+
+# Check if env file exists
+if [ ! -f "$ENV_FILE" ]; then
+    print_error "Environment file '$ENV_FILE' not found"
+    echo "   Please create it based on .env.example"
+    exit 1
+fi
+
+# Load environment variables from specified env file
+print_status "Loading environment variables from $ENV_FILE..."
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
 
 # Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
@@ -48,7 +60,7 @@ fi
 # Use project ID from environment variables only
 PROJECT_ID=${FIRESTORE_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-}}
 if [[ -z "$PROJECT_ID" ]]; then
-    print_error "No GCP project found. Set FIRESTORE_PROJECT_ID or GOOGLE_CLOUD_PROJECT in .env"
+    print_error "No GCP project found. Set FIRESTORE_PROJECT_ID or GOOGLE_CLOUD_PROJECT in $ENV_FILE"
     exit 1
 fi
 

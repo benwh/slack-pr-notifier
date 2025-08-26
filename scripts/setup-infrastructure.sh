@@ -9,28 +9,38 @@
 
 set -euo pipefail
 
-# Load environment variables from .env file
-if [ -f ".env" ]; then
-    echo "📋 Loading environment variables from .env..."
-    set -a
-    # shellcheck disable=SC1091
-    source .env
-    set +a
-else
-    echo "❌ .env file not found. Please create it:"
-    echo "   cp .env.example .env"
-    echo "   # Edit .env with your configuration"
+# Check if env file argument is provided
+if [ $# -eq 0 ]; then
+    echo "❌ Usage: $0 <env-file>"
+    echo "   Example: $0 production.env"
+    echo "   Example: $0 staging.env"
     exit 1
 fi
 
+ENV_FILE="$1"
+
+# Check if env file exists
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ Environment file '$ENV_FILE' not found"
+    echo "   Please create it based on .env.example"
+    exit 1
+fi
+
+# Load environment variables from specified env file
+echo "📋 Loading environment variables from $ENV_FILE..."
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
+
 # Check required environment variables
 if [ -z "$FIRESTORE_PROJECT_ID" ]; then
-    echo "❌ FIRESTORE_PROJECT_ID must be set in .env file"
+    echo "❌ FIRESTORE_PROJECT_ID must be set in $ENV_FILE"
     exit 1
 fi
 
 if [ -z "$FIRESTORE_DATABASE_ID" ]; then
-    echo "❌ FIRESTORE_DATABASE_ID must be set in .env file"
+    echo "❌ FIRESTORE_DATABASE_ID must be set in $ENV_FILE"
     exit 1
 fi
 
@@ -64,14 +74,26 @@ fi
 # Use project flag instead of setting global config
 echo "📋 Using project: $PROJECT_ID"
 
-# Enable required APIs
+# Enable required APIs (idempotent - safe to re-run)
 echo "🔧 Enabling required APIs..."
-gcloud services enable firestore.googleapis.com --project="$PROJECT_ID"
-gcloud services enable cloudbuild.googleapis.com --project="$PROJECT_ID"
-gcloud services enable run.googleapis.com --project="$PROJECT_ID"
-gcloud services enable artifactregistry.googleapis.com --project="$PROJECT_ID"
-gcloud services enable cloudtasks.googleapis.com --project="$PROJECT_ID"
-gcloud services enable secretmanager.googleapis.com --project="$PROJECT_ID"
+APIS=(
+    "firestore.googleapis.com"
+    "cloudbuild.googleapis.com"
+    "run.googleapis.com"
+    "artifactregistry.googleapis.com"
+    "cloudtasks.googleapis.com"
+    "secretmanager.googleapis.com"
+)
+
+for api in "${APIS[@]}"; do
+    if gcloud services list --enabled --filter="name:$api" --format="value(name)" --project="$PROJECT_ID" | grep -q "$api"; then
+        echo "   ✅ $api already enabled"
+    else
+        echo "   Enabling $api..."
+        gcloud services enable "$api" --project="$PROJECT_ID"
+        echo "   ✅ $api enabled"
+    fi
+done
 
 # Create Firestore database
 echo "🗄️  Creating Firestore database..."
@@ -82,27 +104,16 @@ else
     echo "✅ Firestore database created"
 fi
 
-# Create indexes
-echo "📚 Creating Firestore indexes..."
-
-# Create composite index for messages collection
-echo "   Creating index for messages collection..."
-gcloud firestore indexes composite create \
-    --collection-group=messages \
-    --field-config=field-path=repo_full_name,order=ascending \
-    --field-config=field-path=pr_number,order=ascending \
-    --database="$DATABASE_ID" \
-    --project="$PROJECT_ID" \
-    --quiet || echo "   Index may already exist"
-
-# Create composite index for users collection
-echo "   Creating index for users collection..."
-gcloud firestore indexes composite create \
-    --collection-group=users \
-    --field-config=field-path=slack_user_id,order=ascending \
-    --database="$DATABASE_ID" \
-    --project="$PROJECT_ID" \
-    --quiet || echo "   Index may already exist"
+# Deploy Firestore indexes using dedicated script
+echo "📚 Deploying Firestore indexes..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/deploy-firestore-indexes.sh" ]; then
+    echo "   Running deploy-firestore-indexes.sh..."
+    "$SCRIPT_DIR/deploy-firestore-indexes.sh" "$ENV_FILE"
+else
+    echo "   ⚠️  deploy-firestore-indexes.sh not found, skipping index deployment"
+    echo "   You can deploy indexes manually with: ./scripts/deploy-firestore-indexes.sh $ENV_FILE"
+fi
 
 # Create Artifact Registry repository
 echo "🏺 Creating Artifact Registry repository..."
@@ -170,6 +181,5 @@ fi
 echo "🎉 GCP infrastructure setup complete!"
 echo ""
 echo "📝 Next steps:"
-echo "1. Configure your environment variables in .env"
-echo "2. Run './scripts/dev.sh' for local development"
-echo "3. Run './scripts/deploy.sh <your-env-file>' to deploy to Cloud Run"
+echo "1. Run './scripts/dev.sh' for local development"
+echo "2. Run './scripts/deploy.sh $ENV_FILE' to deploy to Cloud Run"
