@@ -73,7 +73,8 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	require.NoError(t, err)
 
 	// Find an available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listenConfig := &net.ListenConfig{}
+	listener, err := listenConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
 	require.True(t, ok, "Failed to get TCP address")

@@ -176,7 +176,7 @@ func (e *FirestoreEmulator) startLocalEmulator(t *testing.T) error {
 	// Start emulator on available port
 	e.Host = fmt.Sprintf("localhost:%d", port)
 	// #nosec G204 -- Static arguments for test emulator command
-	e.cmd = exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
+	e.cmd = exec.CommandContext(context.Background(), "gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
 
 	// Start in background
 	if err := e.cmd.Start(); err != nil {
@@ -298,7 +298,7 @@ func RunWithFirestoreEmulator(m *testing.M) int {
 
 	// Try to start emulator
 	// #nosec G204 -- Static arguments for test emulator command
-	cmd := exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", emulatorHost)
+	cmd := exec.CommandContext(context.Background(), "gcloud", "emulators", "firestore", "start", "--host-port", emulatorHost)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to start Firestore emulator: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Tests requiring Firestore will be skipped\n")
@@ -377,7 +377,7 @@ func (e *FirestoreEmulator) startLocalEmulatorOnPort(port int) error {
 	// Start emulator on specific port
 	e.Host = fmt.Sprintf("localhost:%d", port)
 	// #nosec G204 -- Static arguments for test emulator command
-	e.cmd = exec.Command("gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
+	e.cmd = exec.CommandContext(context.Background(), "gcloud", "emulators", "firestore", "start", "--host-port", e.Host)
 
 	// Start in background
 	if err := e.cmd.Start(); err != nil {
