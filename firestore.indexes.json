@@ -15,16 +15,6 @@
       ]
     },
     {
-      "collectionGroup": "users",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "slack_user_id",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "repos",
       "queryScope": "COLLECTION",
       "fields": [
