@@ -20,6 +20,13 @@ import (
 	"github.com/slack-go/slack/slackevents"
 )
 
+var (
+	// ErrMissingSlackSignature indicates the X-Slack-Signature header is missing.
+	ErrMissingSlackSignature = fmt.Errorf("missing X-Slack-Signature header")
+	// ErrMissingSlackTimestamp indicates the X-Slack-Request-Timestamp header is missing.
+	ErrMissingSlackTimestamp = fmt.Errorf("missing X-Slack-Request-Timestamp header")
+)
+
 // SlackHandler handles Slack webhook events.
 type SlackHandler struct {
 	firestoreService  *services.FirestoreService
@@ -50,31 +57,49 @@ func NewSlackHandler(
 
 // HandleEvent processes incoming Slack Events API events.
 func (sh *SlackHandler) HandleEvent(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		log.Error(ctx, "Failed to read request body", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read body"})
 		return
 	}
 
+	log.Debug(ctx, "Received Slack event", "body_length", len(body))
+
 	if err := sh.verifySignature(c.Request.Header, body); err != nil {
+		log.Error(ctx, "Signature verification failed for Slack event",
+			"error", err,
+			"user_agent", c.Request.UserAgent(),
+			"remote_addr", c.ClientIP(),
+		)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
 		return
 	}
 
 	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
 	if err != nil {
+		log.Error(ctx, "Failed to parse Slack event", "error", err, "body_length", len(body))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse event"})
 		return
 	}
 
+	log.Info(ctx, "Parsed Slack event", "event_type", eventsAPIEvent.Type)
+
 	// Handle URL verification challenge
 	if eventsAPIEvent.Type == slackevents.URLVerification {
+		log.Info(ctx, "Received URL verification challenge from Slack")
+
 		var r *slackevents.ChallengeResponse
 		err := json.Unmarshal(body, &r)
 		if err != nil {
+			log.Error(ctx, "Failed to parse URL verification challenge", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse challenge"})
 			return
 		}
+
+		log.Info(ctx, "Responding to URL verification challenge", "challenge_length", len(r.Challenge))
 		c.String(http.StatusOK, r.Challenge)
 		return
 	}
@@ -789,19 +814,49 @@ func (sh *SlackHandler) handleSaveChannelTracking(ctx context.Context, interacti
 
 func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {
 	if sh.signingSecret == "" {
+		log.Warn(context.Background(), "Slack signing secret is empty, skipping signature verification")
 		return nil
+	}
+
+	// Check for required headers
+	signature := header.Get("X-Slack-Signature")
+	timestamp := header.Get("X-Slack-Request-Timestamp")
+
+	if signature == "" {
+		log.Error(context.Background(), "Missing X-Slack-Signature header")
+		return ErrMissingSlackSignature
+	}
+
+	if timestamp == "" {
+		log.Error(context.Background(), "Missing X-Slack-Request-Timestamp header")
+		return ErrMissingSlackTimestamp
 	}
 
 	sv, err := slack.NewSecretsVerifier(header, sh.signingSecret)
 	if err != nil {
+		log.Error(context.Background(), "Failed to create secrets verifier",
+			"error", err,
+			"has_signature", signature != "",
+			"has_timestamp", timestamp != "",
+		)
 		return fmt.Errorf("failed to create secrets verifier: %w", err)
 	}
 
 	if _, err := sv.Write(body); err != nil {
+		log.Error(context.Background(), "Failed to write body to verifier",
+			"error", err,
+			"body_length", len(body),
+		)
 		return fmt.Errorf("failed to write body to verifier: %w", err)
 	}
 
 	if err := sv.Ensure(); err != nil {
+		log.Error(context.Background(), "Signature verification failed",
+			"error", err,
+			"signature", signature, // Full signature is safe to log
+			"timestamp", timestamp,
+			"body_length", len(body),
+		)
 		return fmt.Errorf("signature verification failed: %w", err)
 	}
 

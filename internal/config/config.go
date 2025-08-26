@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -222,13 +223,15 @@ func (c *Config) validateCloudTasksRetryConfig() {
 
 // getEnvRequired gets an environment variable or returns empty string if not set.
 // The validate() function will panic if required values are missing.
+// Automatically trims whitespace from the value.
 func getEnvRequired(key string) string {
-	return os.Getenv(key)
+	return strings.TrimSpace(os.Getenv(key))
 }
 
 // getEnvDefault gets an environment variable with a default value.
+// Automatically trims whitespace from the value.
 func getEnvDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
 	}
 	return defaultValue
@@ -236,8 +239,9 @@ func getEnvDefault(key, defaultValue string) string {
 
 // getEnvDuration gets a duration environment variable with a default value.
 // Panics if the value cannot be parsed as a duration.
+// Automatically trims whitespace from the value.
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
-	value := os.Getenv(key)
+	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
 		return defaultValue
 	}
@@ -250,8 +254,9 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 
 // getEnvInt32 gets an int32 environment variable with a default value.
 // Panics if the value cannot be parsed as an int32.
+// Automatically trims whitespace from the value.
 func getEnvInt32(key string, defaultValue int32) int32 {
-	value := os.Getenv(key)
+	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
 		return defaultValue
 	}
@@ -264,8 +269,9 @@ func getEnvInt32(key string, defaultValue int32) int32 {
 
 // getEnvInt64Required gets a required int64 environment variable.
 // Panics if the variable is not set or cannot be parsed as an int64.
+// Automatically trims whitespace from the value.
 func getEnvInt64Required(key string) int64 {
-	value := os.Getenv(key)
+	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
 		panic(fmt.Sprintf("required environment variable %s is not set", key))
 	}
