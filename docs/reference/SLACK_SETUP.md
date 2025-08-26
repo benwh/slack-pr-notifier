@@ -2,9 +2,9 @@
 
 This guide walks you through creating a Slack app with OAuth support for multi-workspace installations.
 
-## Quick Setup with Manifest
+## Quick Setup with Manifest (Recommended)
 
-### Option 1: Command Line (Recommended)
+### Option 1: Command Line
 
 **Prerequisites:**
 
@@ -34,56 +34,43 @@ export SLACK_APP_ID=A1234567890
 
 ### Option 2: Web Interface
 
-1. Go to [Slack App Management](https://api.slack.com/apps)
-2. Click **"Create New App"**
-3. Select **"From an app manifest"**
+1. Generate the manifest: `./scripts/generate-slack-manifest.sh`
+2. Go to [Slack App Management](https://api.slack.com/apps)
+3. Click **"Create New App"** → **"From an app manifest"**
 4. Choose your development workspace
-5. Click **"Next"**
-6. Copy and paste the contents of `slack-app-manifest.yaml` into the input field
-7. Click **"Next"**
-8. Review the configuration and click **"Create"**
+5. Copy and paste the contents of `slack-app-manifest.yaml`
+6. Click **"Next"** → Review → **"Create"**
 
 ## OAuth Configuration
 
-### 1. Enable OAuth & Permissions
+### Required Bot Token Scopes
 
-In your Slack app settings:
+The manifest configures these OAuth scopes automatically:
 
-1. Go to **"OAuth & Permissions"**
-2. Add your redirect URLs (constructed automatically from BASE_URL):
-   - Development: `http://localhost:8080/auth/slack/callback` (BASE_URL + "/auth/slack/callback")
-   - Production: `https://your-domain.com/auth/slack/callback` (BASE_URL + "/auth/slack/callback")
+| Scope | Purpose |
+|-------|---------|
+| `channels:read` | View basic information about public channels |
+| `chat:write` | Send PR notifications and add emoji reactions |
+| `links:read` | Read GitHub links in messages for manual PR detection |
+| `channels:history` | Required by message.channels event subscription |
 
-### 2. Required Bot Token Scopes
+### Event Subscriptions
 
-Ensure these scopes are configured:
+The app subscribes to these events for manual PR link detection:
 
-- `channels:read` - View basic channel information for channel validation
-- `chat:write` - Send PR notifications to channels
-- `links:read` - Detect manual PR links in messages
-- `channels:history` - Required for the message.channels event subscription
+| Event | Purpose |
+|-------|---------|
+| `message.channels` | Detect GitHub PR links in public channels |
+| `app_home_opened` | For App Home interface |
 
-### 3. Event Subscriptions
+### Endpoints Configured
 
-1. Go to **"Event Subscriptions"**
-2. Enable events
-3. Set Request URL: `https://your-domain.com/webhooks/slack/events`
-4. Subscribe to **Bot Events**:
-   - `message.channels` - For manual PR link detection
-   - `app_home_opened` - For App Home interface
+| Type | Endpoint | Purpose |
+|------|----------|---------|
+| Interactive Components | `/webhooks/slack/interactions` | Handle App Home interactions |
+| Event Subscriptions | `/webhooks/slack/events` | Process message events for PR links |
 
-### 4. App Home & Interactivity
-
-1. **App Home**:
-   - Go to **"App Home"**
-   - Enable the **"Home Tab"**
-
-2. **Interactivity**:
-   - Go to **"Interactivity & Shortcuts"**
-   - Enable **"Interactivity"**
-   - Set Request URL: `https://your-domain.com/webhooks/slack/interactions`
-
-### 5. Get OAuth Credentials
+## Get OAuth Credentials
 
 From your app's **"Basic Information"** page:
 
@@ -91,22 +78,13 @@ From your app's **"Basic Information"** page:
 2. Copy the **Client Secret** (you may need to generate one)
 3. Copy the **Signing Secret**
 
-## Environment Configuration
-
-Add these OAuth credentials to your `.env` file:
+Add these to your environment:
 
 ```bash
-# Slack OAuth Configuration (REQUIRED)
+# Slack OAuth Configuration (required)
 SLACK_CLIENT_ID=1234567890.1234567890
 SLACK_CLIENT_SECRET=your-client-secret-here
 SLACK_SIGNING_SECRET=your-signing-secret-here
-
-# Optional: Custom emoji for different PR states
-EMOJI_APPROVED=white_check_mark
-EMOJI_CHANGES_REQUESTED=arrows_counterclockwise
-EMOJI_COMMENTED=speech_balloon
-EMOJI_MERGED=tada
-EMOJI_CLOSED=x
 ```
 
 ## Installation Flow
@@ -162,7 +140,7 @@ Update your Slack app settings with production URLs:
 1. Go to **"OAuth & Permissions"**
 2. Update **Redirect URLs**:
    - Remove development URLs (`localhost`)
-   - Add production URL: `https://your-domain.com/auth/slack/callback` (matches your BASE_URL)
+   - Add production URL: `https://your-domain.com/auth/slack/callback`
 
 ### Event Subscription URLs
 
@@ -216,19 +194,24 @@ curl https://your-domain.com/auth/slack/install
 
 ### Debug Workspace Installations
 
-Check which workspaces are installed:
+Check which workspaces are installed by looking for "Workspace saved successfully" messages in your application logs during installation.
 
-```bash
-# View application logs during installation
-# Look for "Workspace saved successfully" messages
-```
+## Manual Configuration (Alternative)
 
-## Next Steps
+If you prefer to configure manually instead of using the manifest:
 
-Once your Slack app is set up with OAuth:
+1. **Basic Information:**
+   - App Name: `GitHub PR Notifier`
+   - Description: `Automatically notify Slack channels about GitHub pull request events and track manual PR links`
 
-1. **Test the installation flow** with a development workspace
-2. **Configure GitHub webhooks** to point to your application
-3. **Test the complete flow** from GitHub PR to Slack notification
-4. **Set up monitoring** for OAuth installations and errors
-5. **Document the installation process** for your users
+2. **OAuth & Permissions:**
+   - Add all scopes listed above under "Required Bot Token Scopes"
+
+3. **Event Subscriptions:**
+   - Request URL: `https://your-service-url/webhooks/slack/events`
+   - Subscribe to bot events: `message.channels`, `app_home_opened`
+
+4. **App Home:**
+   - Enable the Home Tab in App Home settings
+   - Disable the Messages Tab
+   - Set Interactivity Request URL: `https://your-service-url/webhooks/slack/interactions`

@@ -1,12 +1,10 @@
 # Configuration Guide
 
-This document covers all configuration aspects of the GitHub-Slack Notifier.
+This document covers GitHub App setup and deployment configuration for the GitHub-Slack Notifier.
 
 ## Environment Variables
 
-All configuration is managed through environment variables. For local development, copy `.env.example` to `.env` and update the values.
-
-**Reference**: See [`.env.example`](../.env.example) for all available configuration options and their descriptions.
+All configuration is managed through environment variables. See [`.env.example`](../.env.example) for all available configuration options and their descriptions.
 
 ## GitHub App Setup
 
@@ -203,29 +201,7 @@ After creating the GitHub App, you need to install it to your organization or re
 
 ## Slack App Configuration
 
-See [SLACK_APP_SETUP.md](./SLACK_APP_SETUP.md) for detailed setup instructions.
-
-**Quick Setup:**
-
-1. Generate the manifest: `./scripts/generate-slack-manifest.sh`
-2. Create app from CLI: `./scripts/apply-slack-manifest.sh --create`
-3. Or create manually at <https://api.slack.com/apps> using "From an app manifest"
-4. Configure OAuth settings and get credentials
-
-**Required Environment Variables:**
-
-- `SLACK_CLIENT_ID` - App Client ID for OAuth flow
-- `SLACK_CLIENT_SECRET` - App Client Secret for OAuth flow
-- `SLACK_SIGNING_SECRET` - Signing secret for webhook verification
-- `SLACK_CONFIG_ACCESS_TOKEN` - App-Level Token for CLI management (optional, starts with `xoxe-1-`)
-
-**Note**: Slack OAuth redirect URL is automatically constructed as `BASE_URL + "/auth/slack/callback"`
-
-**Multi-Workspace Installation:**
-
-- Each workspace installs the app via OAuth at: `https://your-domain.com/auth/slack/install`
-- Workspace-specific tokens are stored securely in Firestore
-- No manual token configuration needed per workspace
+See [SLACK_SETUP.md](./SLACK_SETUP.md) for complete Slack app setup instructions.
 
 ## Database Setup
 

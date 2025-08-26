@@ -38,88 +38,25 @@ The `dev.sh` script will:
 
 ## Environment Configuration
 
-### 1. Core Settings
+### 1. Quick Setup
 
-Edit `.env` and configure these required settings:
-
-```bash
-# Core Configuration
-FIRESTORE_PROJECT_ID=your-local-project-id
-FIRESTORE_DATABASE_ID=github-slack-notifier
-GITHUB_WEBHOOK_SECRET=your-github-webhook-secret
-SLACK_SIGNING_SECRET=your-slack-signing-secret
-```
-
-### 2. Slack OAuth Setup
-
-**Create a Slack App** (if you haven't already):
-
-1. Go to [Slack App Management](https://api.slack.com/apps)
-2. Click **"Create New App"** → **"From scratch"**
-3. Name your app and select a development workspace
-
-**Configure OAuth settings:**
-
-1. Go to **"OAuth & Permissions"**
-2. Add redirect URL: `http://localhost:8080/auth/slack/callback`
-3. Add bot scopes:
-   - `channels:read`
-   - `chat:write`
-   - `links:read`
-   - `channels:history`
-
-**Get credentials** from **"Basic Information"**:
+Copy the environment template and configure:
 
 ```bash
-# Add to .env
-SLACK_CLIENT_ID=1234567890.1234567890
-SLACK_CLIENT_SECRET=your-slack-client-secret
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your configuration
+vim .env
 ```
 
-### 3. GitHub App Setup
+### 2. App Setup
 
-**Create a GitHub App**:
+**GitHub App**: See [CONFIGURATION.md](./CONFIGURATION.md) for GitHub App creation and setup.
 
-1. Go to [GitHub Apps](https://github.com/settings/apps/new)
-2. Fill required fields:
-   - **App name**: "PR Bot Dev" (make it unique)
-   - **Homepage URL**: `http://localhost:8080`
-   - **Webhook URL**: `https://your-ngrok-domain.ngrok.io/webhooks/github`
-   - **Webhook secret**: Generate with `openssl rand -hex 32`
+**Slack App**: See [SLACK_SETUP.md](./SLACK_SETUP.md) for Slack app creation and OAuth configuration.
 
-3. **Permissions**:
-   - Repository permissions → Pull requests: **Read**
-   - Repository permissions → Metadata: **Read**
-
-4. **Events**:
-   - Pull requests
-   - Pull request reviews
-
-5. **Install** the app on your test repositories
-
-**Configure OAuth** (same app):
-
-1. Enable **"Request user authorization (OAuth) during installation"**
-2. Set **"User authorization callback URL"**: `http://localhost:8080/auth/github/callback`
-
-**Get credentials**:
-
-```bash
-# Add to .env
-GITHUB_CLIENT_ID=your_github_app_client_id
-GITHUB_CLIENT_SECRET=your_github_app_client_secret
-```
-
-### 4. Cloud Tasks (Simulated)
-
-For local development, Cloud Tasks is replaced with direct HTTP calls:
-
-```bash
-# Local development settings
-GOOGLE_CLOUD_PROJECT=local-dev-project
-BASE_URL=http://localhost:8080
-CLOUD_TASKS_SECRET=local-development-secret
-```
+**Important**: For local development, you must use your **ngrok tunnel URL** (not localhost) for webhook and OAuth callback endpoints since GitHub and Slack need to reach your local server from the internet.
 
 ## Development Workflow
 
@@ -145,7 +82,7 @@ ngrok http 8080
 
 #### 1. Test Slack OAuth Installation
 
-1. **Visit installation URL**: `http://localhost:8080/auth/slack/install`
+1. **Visit installation URL**: `https://your-ngrok-url.ngrok.io/auth/slack/install`
 2. **Complete OAuth flow** in your development workspace
 3. **Check logs** for "Workspace saved successfully"
 
@@ -191,7 +128,7 @@ curl -X DELETE http://localhost:8080/admin/clear-data \
 #### Test Specific Workflows
 
 ```bash
-# Test GitHub webhook (simulate PR opened)
+# Test GitHub webhook (simulate PR opened) - use localhost for direct testing
 curl -X POST http://localhost:8080/webhooks/github \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: pull_request" \
@@ -199,7 +136,7 @@ curl -X POST http://localhost:8080/webhooks/github \
   -d '{"action":"opened","pull_request":{"number":123,"title":"Test PR"}}'
 
 # Test Slack OAuth installation
-curl http://localhost:8080/auth/slack/install
+curl https://your-ngrok-url.ngrok.io/auth/slack/install
 # Should redirect to Slack OAuth
 ```
 
@@ -233,54 +170,9 @@ go vet ./...
 
 ## Development Environment Variables
 
-### Full .env Example for Development
+### Environment Variables Reference
 
-```bash
-# vim: ft=sh
-
-# Core Configuration
-FIRESTORE_PROJECT_ID=local-dev-project
-FIRESTORE_DATABASE_ID=github-slack-notifier
-GITHUB_WEBHOOK_SECRET=your-github-webhook-secret-from-app-setup
-SLACK_SIGNING_SECRET=your-slack-signing-secret-from-app-setup
-
-# Slack OAuth Configuration
-SLACK_CLIENT_ID=1234567890.1234567890
-SLACK_CLIENT_SECRET=your-slack-client-secret
-
-# GitHub OAuth Configuration
-GITHUB_CLIENT_ID=your_github_app_client_id
-GITHUB_CLIENT_SECRET=your_github_app_client_secret
-
-# Cloud Tasks Configuration (local simulation)
-GOOGLE_CLOUD_PROJECT=local-dev-project
-BASE_URL=http://localhost:8080
-GCP_REGION=us-central1
-CLOUD_TASKS_QUEUE=local-queue
-CLOUD_TASKS_SECRET=local-development-secret
-CLOUD_TASKS_MAX_ATTEMPTS=3
-
-# Server Configuration
-PORT=8080
-GIN_MODE=debug
-LOG_LEVEL=debug
-
-# Timeouts
-SERVER_READ_TIMEOUT=30s
-SERVER_WRITE_TIMEOUT=30s
-SERVER_SHUTDOWN_TIMEOUT=30s
-WEBHOOK_PROCESSING_TIMEOUT=1m
-
-# Development settings
-NGROK_DOMAIN=your-subdomain.ngrok.io
-
-# Emoji customization (optional)
-EMOJI_APPROVED=white_check_mark
-EMOJI_CHANGES_REQUESTED=arrows_counterclockwise
-EMOJI_COMMENTED=speech_balloon
-EMOJI_MERGED=tada
-EMOJI_CLOSED=x
-```
+See [`.env.example`](../../.env.example) for a complete list of configuration options with documentation.
 
 ## Troubleshooting
 
