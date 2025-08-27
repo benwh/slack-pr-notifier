@@ -349,7 +349,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 
 // redirectToSuccessPage creates and returns the OAuth success HTML page.
 func (h *OAuthHandler) redirectToSuccessPage(c *gin.Context, teamID, githubUsername string) {
-	slackDeepLink := fmt.Sprintf("slack://channel?team=%s&id=general", teamID)
+	slackDeepLink := fmt.Sprintf("slack://app?team=%s&id=%s&tab=home", teamID, h.config.SlackAppID)
 	successHTML := fmt.Sprintf(`
 <!DOCTYPE html>
 <html>

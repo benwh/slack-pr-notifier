@@ -28,6 +28,7 @@ type Config struct {
 	// Slack OAuth settings (required)
 	SlackClientID     string
 	SlackClientSecret string
+	SlackAppID        string
 
 	// GitHub OAuth settings
 	GitHubClientID     string
@@ -95,6 +96,7 @@ func Load() *Config {
 		// Slack OAuth settings (required)
 		SlackClientID:     getEnvRequired("SLACK_CLIENT_ID"),
 		SlackClientSecret: getEnvRequired("SLACK_CLIENT_SECRET"),
+		SlackAppID:        getEnvRequired("SLACK_APP_ID"),
 
 		// GitHub OAuth settings (required)
 		GitHubClientID:     getEnvRequired("GITHUB_CLIENT_ID"),
@@ -160,6 +162,7 @@ func (c *Config) validateRequiredFields() {
 		"SLACK_SIGNING_SECRET":  c.SlackSigningSecret,
 		"SLACK_CLIENT_ID":       c.SlackClientID,
 		"SLACK_CLIENT_SECRET":   c.SlackClientSecret,
+		"SLACK_APP_ID":          c.SlackAppID,
 		"GITHUB_CLIENT_ID":      c.GitHubClientID,
 		"GITHUB_CLIENT_SECRET":  c.GitHubClientSecret,
 		"GOOGLE_CLOUD_PROJECT":  c.GoogleCloudProject,
