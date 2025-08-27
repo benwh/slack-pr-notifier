@@ -56,13 +56,16 @@ type OAuthState struct {
 
 // SlackWorkspace represents a Slack workspace installation with OAuth tokens.
 type SlackWorkspace struct {
-	ID          string    `firestore:"id"`           // Slack team ID (primary key)
-	TeamName    string    `firestore:"team_name"`    // Workspace name
-	AccessToken string    `firestore:"access_token"` // OAuth access token for this workspace
-	Scope       string    `firestore:"scope"`        // Granted scopes
-	InstalledBy string    `firestore:"installed_by"` // Slack user ID who installed the app
-	InstalledAt time.Time `firestore:"installed_at"` // Installation timestamp
-	UpdatedAt   time.Time `firestore:"updated_at"`   // Last update timestamp
+	ID           string    `firestore:"id"`                      // Slack team ID (primary key)
+	TeamName     string    `firestore:"team_name"`               // Workspace name
+	AccessToken  string    `firestore:"access_token"`            // OAuth access token for this workspace
+	Scope        string    `firestore:"scope"`                   // Granted scopes
+	InstalledBy  string    `firestore:"installed_by"`            // Slack user ID who installed the app
+	InstalledAt  time.Time `firestore:"installed_at"`            // Installation timestamp
+	UpdatedAt    time.Time `firestore:"updated_at"`              // Last update timestamp
+	AppID        string    `firestore:"app_id"`                  // Slack app ID from installation
+	BotUserID    string    `firestore:"bot_user_id"`             // Bot user ID in workspace
+	EnterpriseID string    `firestore:"enterprise_id,omitempty"` // Enterprise Grid ID
 }
 
 // Validate validates required fields for SlackWorkspace.

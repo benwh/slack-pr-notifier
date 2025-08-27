@@ -583,7 +583,7 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 	}
 
 	if user == nil || user.SlackTeamID == "" {
-		log.Error(ctx, "User not found or missing team ID for home view refresh", "user_id", userID)
+		log.Error(ctx, "User not found or missing team ID for home view refresh")
 		return
 	}
 

@@ -18,13 +18,16 @@ func setupTestWorkspace(t *testing.T, harness *TestHarness, installedBy string) 
 	const teamName = "Test Workspace"
 	const accessToken = "xoxb-test-token" // #nosec G101 -- Test token, not real credentials
 	workspace := &models.SlackWorkspace{
-		ID:          teamID,
-		TeamName:    teamName,
-		AccessToken: accessToken,
-		Scope:       "channels:read,chat:write,links:read,channels:history",
-		InstalledBy: installedBy,
-		InstalledAt: time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:           teamID,
+		TeamName:     teamName,
+		AccessToken:  accessToken,
+		Scope:        "channels:read,chat:write,links:read,channels:history",
+		InstalledBy:  installedBy,
+		InstalledAt:  time.Now(),
+		UpdatedAt:    time.Now(),
+		AppID:        "A123456789",
+		BotUserID:    "U987654321",
+		EnterpriseID: "",
 	}
 	err := harness.SlackWorkspaceService.SaveWorkspace(ctx, workspace)
 	require.NoError(t, err)

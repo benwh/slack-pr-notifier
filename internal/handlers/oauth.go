@@ -2,11 +2,9 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github-slack-notifier/internal/config"
@@ -14,6 +12,7 @@ import (
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/slack-go/slack"
 )
 
 // OAuthHandler handles GitHub and Slack OAuth endpoints.
@@ -188,6 +187,7 @@ func (h *OAuthHandler) createOrUpdateUserFromGitHub(
 ) (*models.User, error) {
 	user := &models.User{
 		ID:                   state.SlackUserID, // Use Slack user ID as document ID
+		SlackUserID:          state.SlackUserID, // Set the slack_user_id field
 		GitHubUsername:       githubUser.Login,
 		GitHubUserID:         githubUser.ID,
 		Verified:             true,
@@ -214,11 +214,11 @@ func (h *OAuthHandler) createOrUpdateUserFromGitHub(
 	// Check if user already exists
 	existingUser, err := h.firestoreService.GetUser(ctx, state.SlackUserID)
 	if err == nil && existingUser != nil {
-		// Update existing user
+		// Update existing user - preserve user preferences but update GitHub data
 		user.DefaultChannel = existingUser.DefaultChannel
 		user.CreatedAt = existingUser.CreatedAt
-		// Preserve existing notification preference
 		user.NotificationsEnabled = existingUser.NotificationsEnabled
+		user.TaggingEnabled = existingUser.TaggingEnabled
 		// Preserve display name if we didn't get a new one
 		if user.SlackDisplayName == "" && existingUser.SlackDisplayName != "" {
 			user.SlackDisplayName = existingUser.SlackDisplayName
@@ -403,21 +403,6 @@ func (h *OAuthHandler) redirectToSuccessPage(c *gin.Context, teamID, githubUsern
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }
 
-// SlackOAuthResponse represents the response from Slack's oauth.v2.access endpoint.
-type SlackOAuthResponse struct {
-	OK          bool   `json:"ok"`
-	Error       string `json:"error,omitempty"`
-	AccessToken string `json:"access_token"`
-	Scope       string `json:"scope"`
-	Team        struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	} `json:"team"`
-	AuthedUser struct {
-		ID string `json:"id"`
-	} `json:"authed_user"`
-}
-
 // GET /auth/slack/install.
 func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -504,13 +489,16 @@ func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
 
 	// Save workspace installation
 	workspace := &models.SlackWorkspace{
-		ID:          token.Team.ID,
-		TeamName:    token.Team.Name,
-		AccessToken: token.AccessToken,
-		Scope:       token.Scope,
-		InstalledBy: token.AuthedUser.ID,
-		InstalledAt: time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:           token.Team.ID,
+		TeamName:     token.Team.Name,
+		AccessToken:  token.AccessToken,
+		Scope:        token.Scope,
+		InstalledBy:  token.AuthedUser.ID,
+		InstalledAt:  time.Now(),
+		UpdatedAt:    time.Now(),
+		AppID:        token.AppID,
+		BotUserID:    token.BotUserID,
+		EnterpriseID: token.Enterprise.ID,
 	}
 
 	if err := h.slackWorkspaceService.SaveWorkspace(ctx, workspace); err != nil {
@@ -524,7 +512,8 @@ func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
 
 	log.Info(ctx, "Slack workspace installed successfully")
 
-	// Create success page
+	// Create success page with deep link to app home
+	slackDeepLink := fmt.Sprintf("slack://app?team=%s&id=%s&tab=home", token.Team.ID, h.config.SlackAppID)
 	successHTML := fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
@@ -554,7 +543,14 @@ func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
             margin: 0 10px;
         }
         .btn:hover { background-color: #4a154b; }
+        .auto-redirect { margin-top: 20px; color: #6c757d; font-size: 14px; }
     </style>
+    <script>
+        // Try to redirect to Slack after 2 seconds
+        setTimeout(function() {
+            window.location.href = '%s';
+        }, 2000);
+    </script>
 </head>
 <body>
     <div class="success-icon">🎉</div>
@@ -563,44 +559,28 @@ func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
         Successfully installed PR Bot in <strong>%s</strong> workspace.<br>
         You can now receive GitHub PR notifications in Slack!
     </div>
-    <a href="slack://open" class="btn">Open Slack</a>
+    <a href="%s" class="btn">Open Slack</a>
+    <div class="auto-redirect">Automatically redirecting to Slack in 2 seconds...</div>
 </body>
-</html>`, token.Team.Name)
+</html>`, slackDeepLink, token.Team.Name, slackDeepLink)
 
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }
 
 // exchangeSlackOAuthCode exchanges an OAuth authorization code for an access token.
-func (h *OAuthHandler) exchangeSlackOAuthCode(ctx context.Context, code string) (*SlackOAuthResponse, error) {
-	// Prepare the request to Slack's oauth.v2.access endpoint
-	data := url.Values{}
-	data.Set("client_id", h.config.SlackClientID)
-	data.Set("client_secret", h.config.SlackClientSecret)
-	data.Set("code", code)
-	data.Set("redirect_uri", h.config.SlackRedirectURL())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://slack.com/api/oauth.v2.access", strings.NewReader(data.Encode()))
+func (h *OAuthHandler) exchangeSlackOAuthCode(ctx context.Context, code string) (*slack.OAuthV2Response, error) {
+	// Use slack-go library to exchange code for access token
+	resp, err := slack.GetOAuthV2ResponseContext(
+		ctx,
+		h.httpClient,
+		h.config.SlackClientID,
+		h.config.SlackClientSecret,
+		code,
+		h.config.SlackRedirectURL(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OAuth request: %w", err)
+		return nil, fmt.Errorf("%w: %s", models.ErrSlackOAuthFailed, err.Error())
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("OAuth request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var oauthResp SlackOAuthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
-		return nil, fmt.Errorf("failed to decode OAuth response: %w", err)
-	}
-
-	if !oauthResp.OK {
-		return nil, fmt.Errorf("%w: %s", models.ErrSlackOAuthFailed, oauthResp.Error)
-	}
-
-	return &oauthResp, nil
+	return resp, nil
 }
