@@ -755,8 +755,8 @@ func (s *SlackService) OpenView(ctx context.Context, teamID, triggerID string, v
 }
 
 // BuildHomeView constructs the home tab view based on user data.
-func (s *SlackService) BuildHomeView(user *models.User) slack.HomeTabViewRequest {
-	return s.uiBuilder.BuildHomeView(user)
+func (s *SlackService) BuildHomeView(user *models.User, hasGitHubInstallations bool) slack.HomeTabViewRequest {
+	return s.uiBuilder.BuildHomeView(user, hasGitHubInstallations)
 }
 
 // BuildOAuthModal builds the OAuth connection modal.

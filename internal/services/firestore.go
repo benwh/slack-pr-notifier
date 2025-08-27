@@ -691,3 +691,24 @@ func (fs *FirestoreService) DeleteGitHubInstallation(ctx context.Context, instal
 
 	return nil
 }
+
+// HasGitHubInstallations checks if any GitHub installations exist in the database.
+func (fs *FirestoreService) HasGitHubInstallations(ctx context.Context) (bool, error) {
+	iter := fs.client.Collection("github_installations").Limit(1).Documents(ctx)
+	defer iter.Stop()
+
+	doc, err := iter.Next()
+	if errors.Is(err, iterator.Done) {
+		// No installations found
+		return false, nil
+	}
+	if err != nil {
+		log.Error(ctx, "Failed to check for GitHub installations",
+			"error", err,
+		)
+		return false, fmt.Errorf("failed to check for GitHub installations: %w", err)
+	}
+
+	// At least one installation exists
+	return doc.Exists(), nil
+}

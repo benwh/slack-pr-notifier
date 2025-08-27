@@ -339,8 +339,16 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 		return
 	}
 
+	// Check if GitHub installations exist
+	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx)
+	if err != nil {
+		log.Error(ctx, "Failed to check GitHub installations for App Home", "error", err)
+		// Continue with false to show warning in case of error
+		hasInstallations = false
+	}
+
 	// Build and publish home view
-	view := sh.slackService.BuildHomeView(user)
+	view := sh.slackService.BuildHomeView(user, hasInstallations)
 	err = sh.slackService.PublishHomeView(ctx, teamID, userID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to publish App Home view", "error", err)
@@ -587,7 +595,15 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 		return
 	}
 
-	view := sh.slackService.BuildHomeView(user)
+	// Check if GitHub installations exist
+	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx)
+	if err != nil {
+		log.Error(ctx, "Failed to check GitHub installations for refresh", "error", err)
+		// Continue with false to show warning in case of error
+		hasInstallations = false
+	}
+
+	view := sh.slackService.BuildHomeView(user, hasInstallations)
 	err = sh.slackService.PublishHomeView(ctx, user.SlackTeamID, userID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to refresh App Home view", "error", err)

@@ -18,11 +18,16 @@ func NewHomeViewBuilder() *HomeViewBuilder {
 }
 
 // BuildHomeView constructs the home tab view based on user data.
-func (b *HomeViewBuilder) BuildHomeView(user *models.User) slack.HomeTabViewRequest {
+func (b *HomeViewBuilder) BuildHomeView(user *models.User, hasGitHubInstallations bool) slack.HomeTabViewRequest {
 	blocks := []slack.Block{}
 
 	// Introduction section
 	blocks = append(blocks, b.buildIntroductionSection()...)
+
+	// GitHub App installation warning (only shown if no installations exist)
+	if !hasGitHubInstallations {
+		blocks = append(blocks, b.buildGitHubInstallationWarning()...)
+	}
 
 	// My Options section
 	blocks = append(blocks,
@@ -478,6 +483,29 @@ func (b *HomeViewBuilder) buildIntroductionSection() []slack.Block {
 					"• *PR status reactions*: Adds emoji reactions to show review status (includes manually-posted links)",
 				false, false),
 			nil, nil,
+		),
+		slack.NewDividerBlock(),
+	}
+}
+
+// buildGitHubInstallationWarning builds the GitHub App installation warning section.
+func (b *HomeViewBuilder) buildGitHubInstallationWarning() []slack.Block {
+	return []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				":warning: *GitHub App Installation Required*\n"+
+					"PR Bot needs to be installed on your GitHub organization or repositories to receive webhook events.\n\n"+
+					"Without this installation, the bot cannot detect new PRs, reviews, or status changes.\n\n"+
+					"<https://github.com/settings/installations|:point_right: View GitHub App Installations>\n"+
+					"Look for 'PR Bot (dev)' and install it on your repositories.",
+				false, false),
+			nil, nil,
+		),
+		slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"_This installation is separate from connecting your personal GitHub account. You need both for full functionality._",
+				false, false),
 		),
 		slack.NewDividerBlock(),
 	}

@@ -335,7 +335,7 @@ func (m *MockSlackService) OpenView(
 }
 
 // BuildHomeView mocks building home view.
-func (m *MockSlackService) BuildHomeView(user *models.User) slack.HomeTabViewRequest {
+func (m *MockSlackService) BuildHomeView(user *models.User, hasGitHubInstallations bool) slack.HomeTabViewRequest {
 	return slack.HomeTabViewRequest{}
 }
 
