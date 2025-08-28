@@ -21,6 +21,7 @@ var (
 	ErrUserNotFound               = errors.New("user not found")
 	ErrTrackedMessageNotFound     = errors.New("tracked message not found")
 	ErrRepoNotFound               = errors.New("repository not found")
+	ErrRepoAlreadyExists          = errors.New("repository already exists")
 	ErrOAuthStateNotFound         = errors.New("OAuth state not found")
 	ErrGitHubInstallationNotFound = errors.New("GitHub installation not found")
 )
@@ -122,6 +123,36 @@ func (fs *FirestoreService) GetUserByGitHubUsername(ctx context.Context, githubU
 	return &user, nil
 }
 
+// GetUserByGitHubUserID retrieves a user by their GitHub numeric user ID.
+func (fs *FirestoreService) GetUserByGitHubUserID(ctx context.Context, githubUserID int64) (*models.User, error) {
+	iter := fs.client.Collection("users").Where("github_user_id", "==", githubUserID).Documents(ctx)
+	doc, err := iter.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
+			return nil, nil
+		}
+		log.Error(ctx, "Failed to get user by GitHub user ID",
+			"error", err,
+			"github_user_id", githubUserID,
+			"operation", "query_user_by_github_user_id",
+		)
+		return nil, fmt.Errorf("failed to get user by github user ID %d: %w", githubUserID, err)
+	}
+
+	var user models.User
+	err = doc.DataTo(&user)
+	if err != nil {
+		log.Error(ctx, "Failed to unmarshal user data by GitHub user ID",
+			"error", err,
+			"github_user_id", githubUserID,
+			"operation", "unmarshal_user_data",
+		)
+		return nil, fmt.Errorf("failed to unmarshal user data for github user ID %d: %w", githubUserID, err)
+	}
+
+	return &user, nil
+}
+
 func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models.User) error {
 	user.UpdatedAt = time.Now()
 	if user.CreatedAt.IsZero() {
@@ -190,6 +221,57 @@ func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) e
 		"workspace_id", repo.WorkspaceID,
 	)
 	return nil
+}
+
+// CreateRepoIfNotExists atomically creates a repository only if it doesn't already exist.
+// This prevents race conditions during concurrent auto-registration attempts.
+func (fs *FirestoreService) CreateRepoIfNotExists(ctx context.Context, repo *models.Repo) error {
+	repo.CreatedAt = time.Now()
+	// RepoFullName and WorkspaceID should already be set by caller
+
+	docID := fs.encodeRepoDocID(repo.WorkspaceID, repo.RepoFullName)
+	docRef := fs.client.Collection("repos").Doc(docID)
+
+	return fs.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		// Check if repository already exists
+		doc, err := tx.Get(docRef)
+		if err != nil && status.Code(err) != codes.NotFound {
+			log.Error(ctx, "Failed to check existing repository in transaction",
+				"error", err,
+				"repo", repo.RepoFullName,
+				"workspace_id", repo.WorkspaceID,
+			)
+			return fmt.Errorf("failed to check existing repo %s for team %s: %w",
+				repo.RepoFullName, repo.WorkspaceID, err)
+		}
+
+		// If repository already exists, return error
+		if doc.Exists() {
+			log.Info(ctx, "Repository already exists, skipping creation",
+				"repo", repo.RepoFullName,
+				"workspace_id", repo.WorkspaceID,
+			)
+			return fmt.Errorf("%w for %s in workspace %s", ErrRepoAlreadyExists, repo.RepoFullName, repo.WorkspaceID)
+		}
+
+		// Repository doesn't exist, create it atomically
+		err = tx.Set(docRef, repo)
+		if err != nil {
+			log.Error(ctx, "Failed to create repository in transaction",
+				"error", err,
+				"repo", repo.RepoFullName,
+				"workspace_id", repo.WorkspaceID,
+			)
+			return fmt.Errorf("failed to create repo %s for team %s: %w",
+				repo.RepoFullName, repo.WorkspaceID, err)
+		}
+
+		log.Info(ctx, "Repository created atomically",
+			"repo", repo.RepoFullName,
+			"workspace_id", repo.WorkspaceID,
+		)
+		return nil
+	})
 }
 
 // TrackedMessage operations for the new manual PR link tracking system.

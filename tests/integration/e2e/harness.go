@@ -366,9 +366,22 @@ func (h *TestHarness) ResetForNextStep() {
 
 // SetupUser creates a test user in Firestore.
 func (h *TestHarness) SetupUser(ctx context.Context, githubUsername, slackUserID, defaultChannel string) error {
+	// Map GitHub usernames to consistent numeric IDs for testing
+	githubUserIDMap := map[string]int64{
+		"test-user":    100001,
+		"draft-user":   100002,
+		"draft-author": 100003,
+	}
+
+	githubUserID, exists := githubUserIDMap[githubUsername]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
 	user := map[string]interface{}{
 		"id":                    githubUsername, // Use github username as ID for simplicity
 		"github_username":       githubUsername,
+		"github_user_id":        githubUserID, // Add numeric GitHub user ID
 		"slack_user_id":         slackUserID,
 		"default_channel":       defaultChannel,
 		"verified":              true,         // Mark test users as verified
@@ -387,7 +400,12 @@ func (h *TestHarness) SetupRepo(ctx context.Context, repoFullName, channelID, te
 	docID := teamID + "#" + encodedRepoName
 
 	repo := map[string]interface{}{
-		"id":             repoFullName, // The real repo stores the unencoded name as 'id'
+		"id":             teamID + "#" + repoFullName, // {workspace_id}#{repo_full_name} format
+		"repo_full_name": repoFullName,                // Denormalized field for queries
+		"workspace_id":   teamID,                      // Denormalized field for queries
+		"enabled":        true,                        // Used in GetReposForAllWorkspaces() query
+		"created_at":     time.Now(),
+		// Legacy fields for backward compatibility
 		"full_name":      repoFullName,
 		"slack_channels": []string{channelID},
 		"slack_team_id":  teamID,

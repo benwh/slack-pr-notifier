@@ -650,6 +650,18 @@ func buildDraftPROpenedPayload(repoFullName string, prNumber int, title, author 
 }
 
 func buildPRPayload(repoFullName string, prNumber int, title, author, action string, draft bool) []byte {
+	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
+	githubUserIDMap := map[string]int64{
+		"test-user":    100001,
+		"draft-user":   100002,
+		"draft-author": 100003,
+	}
+
+	githubUserID, exists := githubUserIDMap[author]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
 	payload := map[string]interface{}{
 		"action": action,
 		"pull_request": map[string]interface{}{
@@ -662,6 +674,7 @@ func buildPRPayload(repoFullName string, prNumber int, title, author, action str
 			"additions": 50,
 			"deletions": 30,
 			"user": map[string]interface{}{
+				"id":    githubUserID, // Add numeric GitHub user ID
 				"login": author,
 			},
 		},
@@ -708,6 +721,18 @@ func buildPRReadyForReviewPayload(repoFullName string, prNumber int, title, auth
 }
 
 func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, action string, draft bool, additions, deletions int) []byte {
+	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
+	githubUserIDMap := map[string]int64{
+		"test-user":    100001,
+		"draft-user":   100002,
+		"draft-author": 100003,
+	}
+
+	githubUserID, exists := githubUserIDMap[author]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
 	payload := map[string]interface{}{
 		"action": action,
 		"pull_request": map[string]interface{}{
@@ -720,6 +745,7 @@ func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, ac
 			"additions": additions,
 			"deletions": deletions,
 			"user": map[string]interface{}{
+				"id":    githubUserID, // Add numeric GitHub user ID
 				"login": author,
 			},
 		},
@@ -737,6 +763,18 @@ func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, ac
 
 // buildPRPayloadWithDirective creates a PR payload with a specific directive in the body.
 func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
+	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
+	githubUserIDMap := map[string]int64{
+		"test-user":    100001,
+		"draft-user":   100002,
+		"draft-author": 100003,
+	}
+
+	githubUserID, exists := githubUserIDMap[author]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
 	payload := map[string]interface{}{
 		"action": "opened",
 		"pull_request": map[string]interface{}{
@@ -749,6 +787,7 @@ func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, autho
 			"additions": 50,
 			"deletions": 30,
 			"user": map[string]interface{}{
+				"id":    githubUserID, // Add numeric GitHub user ID
 				"login": author,
 			},
 		},
@@ -766,6 +805,18 @@ func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, autho
 
 // buildPREditedPayloadWithDirective creates a PR edited payload with a specific directive in the body.
 func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
+	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
+	githubUserIDMap := map[string]int64{
+		"test-user":    100001,
+		"draft-user":   100002,
+		"draft-author": 100003,
+	}
+
+	githubUserID, exists := githubUserIDMap[author]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
 	payload := map[string]interface{}{
 		"action": "edited",
 		"pull_request": map[string]interface{}{
@@ -778,6 +829,7 @@ func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title,
 			"additions": 50,
 			"deletions": 30,
 			"user": map[string]interface{}{
+				"id":    githubUserID, // Add numeric GitHub user ID
 				"login": author,
 			},
 		},

@@ -377,12 +377,16 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 // postPRToAllWorkspaces handles the core logic of posting a PR to all configured workspaces.
 // This function is shared between handlePROpened and handlePREdited for re-posting.
 func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitHubWebhookPayload) error {
+	authorUserID := int64(payload.PullRequest.User.ID)
 	authorUsername := payload.PullRequest.User.Login
-	log.Debug(ctx, "Looking up user by GitHub username", "github_username", authorUsername)
-	user, err := h.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
+	log.Debug(ctx, "Looking up user by GitHub user ID",
+		"github_user_id", authorUserID,
+		"github_username", authorUsername)
+	user, err := h.firestoreService.GetUserByGitHubUserID(ctx, authorUserID)
 	if err != nil {
-		log.Error(ctx, "Failed to lookup user by GitHub username",
+		log.Error(ctx, "Failed to lookup user by GitHub user ID",
 			"error", err,
+			"github_user_id", authorUserID,
 			"github_username", authorUsername,
 		)
 		return err
@@ -791,13 +795,17 @@ func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *Git
 		"title", payload.PullRequest.Title,
 	)
 
+	authorUserID := int64(payload.PullRequest.User.ID)
 	authorUsername := payload.PullRequest.User.Login
-	log.Debug(ctx, "Looking up user by GitHub username", "github_username", authorUsername)
+	log.Debug(ctx, "Looking up user by GitHub user ID",
+		"github_user_id", authorUserID,
+		"github_username", authorUsername)
 
-	user, err := h.firestoreService.GetUserByGitHubUsername(ctx, authorUsername)
+	user, err := h.firestoreService.GetUserByGitHubUserID(ctx, authorUserID)
 	if err != nil {
-		log.Error(ctx, "Failed to lookup user by GitHub username",
+		log.Error(ctx, "Failed to lookup user by GitHub user ID",
 			"error", err,
+			"github_user_id", authorUserID,
 			"github_username", authorUsername,
 		)
 		return err
@@ -894,8 +902,19 @@ func (h *GitHubHandler) attemptAutoRegistration(
 	if user != nil && user.Verified && user.NotificationsEnabled {
 		log.Info(ctx, "Attempting auto-registration for verified user's workspace",
 			"github_username", user.GitHubUsername,
+			"github_user_id", user.GitHubUserID,
 			"slack_team_id", user.SlackTeamID,
 			"repo", payload.Repository.FullName)
+
+		// Verify workspace membership: ensure PR author belongs to the workspace being registered to
+		if !h.verifyWorkspaceMembership(ctx, user, payload) {
+			log.Warn(ctx, "Cannot auto-register repository - PR author not member of target workspace",
+				"github_user_id", user.GitHubUserID,
+				"github_username", user.GitHubUsername,
+				"user_workspace", user.SlackTeamID,
+				"repo", payload.Repository.FullName)
+			return nil, nil // Not an error, just means auto-registration is not possible
+		}
 
 		// Validate that the workspace has a GitHub installation for this repository
 		_, err := h.githubService.ValidateWorkspaceInstallationAccess(ctx, payload.Repository.FullName, user.SlackTeamID)
@@ -913,14 +932,22 @@ func (h *GitHubHandler) attemptAutoRegistration(
 			"repo", payload.Repository.FullName)
 
 		repo := &models.Repo{
-			ID:           payload.Repository.FullName,
+			ID:           user.SlackTeamID + "#" + payload.Repository.FullName, // Correct format: {workspace_id}#{repo_full_name}
 			RepoFullName: payload.Repository.FullName,
 			WorkspaceID:  user.SlackTeamID,
 			Enabled:      true,
 		}
 
-		err = h.firestoreService.CreateRepo(ctx, repo)
+		err = h.firestoreService.CreateRepoIfNotExists(ctx, repo)
 		if err != nil {
+			// Check if error is due to repository already existing
+			if errors.Is(err, services.ErrRepoAlreadyExists) {
+				log.Info(ctx, "Repository already registered during concurrent auto-registration attempt",
+					"repo", repo.ID,
+					"slack_team_id", repo.WorkspaceID)
+				// Return the repo struct even though we didn't create it, so notification can proceed
+				return repo, nil
+			}
 			log.Error(ctx, "Failed to auto-register repository", "error", err)
 			return nil, fmt.Errorf("failed to auto-register repository: %w", err)
 		}
@@ -951,6 +978,43 @@ func (h *GitHubHandler) attemptAutoRegistration(
 		"notifications_enabled", user != nil && user.NotificationsEnabled)
 
 	return nil, nil // No auto-registration possible
+}
+
+// verifyWorkspaceMembership ensures the PR author belongs to the target workspace.
+// This prevents unauthorized repository registration across workspace boundaries.
+func (h *GitHubHandler) verifyWorkspaceMembership(
+	ctx context.Context, user *models.User, payload *GitHubWebhookPayload,
+) bool {
+	// Extract PR author's numeric GitHub user ID from webhook payload
+	prAuthorUserID := int64(payload.PullRequest.User.ID)
+
+	// Verify the user record's GitHub ID matches the PR author's ID
+	if user.GitHubUserID != prAuthorUserID {
+		log.Warn(ctx, "User record GitHub ID mismatch with PR author",
+			"user_github_id", user.GitHubUserID,
+			"pr_author_github_id", prAuthorUserID,
+			"user_slack_team", user.SlackTeamID,
+		)
+		return false
+	}
+
+	// Additional defensive check: user should belong to the workspace being registered to
+	// (This is somewhat redundant since auto-registration uses user.SlackTeamID as target workspace,
+	//  but it's good defensive programming)
+	if user.SlackTeamID == "" {
+		log.Warn(ctx, "User has no associated Slack workspace",
+			"github_user_id", user.GitHubUserID,
+			"github_username", user.GitHubUsername,
+		)
+		return false
+	}
+
+	log.Debug(ctx, "Workspace membership verified",
+		"github_user_id", user.GitHubUserID,
+		"slack_team_id", user.SlackTeamID,
+	)
+
+	return true
 }
 
 func (h *GitHubHandler) validateInstallationPayload(payload []byte) error {
