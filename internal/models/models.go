@@ -26,6 +26,9 @@ var (
 	ErrAccountTypeRequired         = errors.New("account type is required")
 	ErrRepositorySelectionRequired = errors.New("repository selection is required")
 	ErrInvalidRepositorySelection  = errors.New("repository selection must be 'all' or 'selected'")
+	ErrUserInstallationAccess      = errors.New("user does not have access to installation")
+	ErrWorkspaceNoInstallation     = errors.New("workspace has no GitHub installation")
+	ErrRepositoryNotIncluded       = errors.New("repository not included in installation")
 )
 
 type User struct {
@@ -92,6 +95,12 @@ type GitHubInstallation struct {
 	Repositories        []string  `firestore:"repositories,omitempty"` // List of selected repos (if "selected")
 	InstalledAt         time.Time `firestore:"installed_at"`
 	UpdatedAt           time.Time `firestore:"updated_at"`
+
+	// Workspace association fields
+	SlackWorkspaceID      string `firestore:"slack_workspace_id,omitempty"`       // Slack workspace that owns this installation
+	InstalledBySlackUser  string `firestore:"installed_by_slack_user,omitempty"`  // Slack user ID who installed it
+	InstalledByGitHubUser int64  `firestore:"installed_by_github_user,omitempty"` // GitHub user ID who installed it
+
 	// Fields below reserved for future implementation
 	SuspendedAt *time.Time `firestore:"suspended_at,omitempty"`
 	SuspendedBy string     `firestore:"suspended_by,omitempty"`

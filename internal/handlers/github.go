@@ -38,6 +38,7 @@ const (
 	EventTypePullRequest       = "pull_request"
 	EventTypePullRequestReview = "pull_request_review"
 	EventTypeInstallation      = "installation"
+	EventTypeGitHubAppAuth     = "github_app_authorization"
 )
 
 // GitHubWebhookPayload represents the structure of GitHub webhook events.
@@ -208,6 +209,9 @@ func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte)
 		return h.validateGitHubPayload(payload)
 	case "installation":
 		return h.validateInstallationPayload(payload)
+	case "github_app_authorization":
+		// GitHub app authorization events don't need special validation
+		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedEventType, eventType)
 	}
@@ -252,6 +256,8 @@ func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) 
 		return h.processPullRequestReviewEvent(ctx, webhookJob.Payload, webhookJob.TraceID)
 	case EventTypeInstallation:
 		return h.processInstallationEvent(ctx, webhookJob.Payload)
+	case EventTypeGitHubAppAuth:
+		return h.processGitHubAppAuthEvent(ctx, webhookJob.Payload)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedEventType, webhookJob.EventType)
 	}
@@ -886,9 +892,25 @@ func (h *GitHubHandler) attemptAutoRegistration(
 	ctx context.Context, payload *GitHubWebhookPayload, user *models.User,
 ) (*models.Repo, error) {
 	if user != nil && user.Verified && user.NotificationsEnabled {
+		log.Info(ctx, "Attempting auto-registration for verified user's workspace",
+			"github_username", user.GitHubUsername,
+			"slack_team_id", user.SlackTeamID,
+			"repo", payload.Repository.FullName)
+
+		// Validate that the workspace has a GitHub installation for this repository
+		_, err := h.githubService.ValidateWorkspaceInstallationAccess(ctx, payload.Repository.FullName, user.SlackTeamID)
+		if err != nil {
+			log.Warn(ctx, "Cannot auto-register repository - workspace lacks GitHub installation",
+				"error", err,
+				"repo", payload.Repository.FullName,
+				"workspace_id", user.SlackTeamID)
+			return nil, nil // Not an error, just means auto-registration is not possible
+		}
+
 		log.Info(ctx, "Auto-registering repository for verified user's workspace",
 			"github_username", user.GitHubUsername,
-			"slack_team_id", user.SlackTeamID)
+			"slack_team_id", user.SlackTeamID,
+			"repo", payload.Repository.FullName)
 
 		repo := &models.Repo{
 			ID:           payload.Repository.FullName,
@@ -897,7 +919,7 @@ func (h *GitHubHandler) attemptAutoRegistration(
 			Enabled:      true,
 		}
 
-		err := h.firestoreService.CreateRepo(ctx, repo)
+		err = h.firestoreService.CreateRepo(ctx, repo)
 		if err != nil {
 			log.Error(ctx, "Failed to auto-register repository", "error", err)
 			return nil, fmt.Errorf("failed to auto-register repository: %w", err)
@@ -980,6 +1002,23 @@ func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []
 func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation created event")
 
+	// Check if installation already exists and has workspace association
+	existingInstallation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	if err != nil && !errors.Is(err, services.ErrGitHubInstallationNotFound) {
+		log.Error(ctx, "Failed to check existing installation", "error", err)
+		return fmt.Errorf("failed to check existing installation: %w", err)
+	}
+
+	// If installation exists and has workspace association, we're done
+	// This happens when the installation was created via the combined OAuth + installation flow
+	if existingInstallation != nil && existingInstallation.SlackWorkspaceID != "" {
+		log.Info(ctx, "Installation already exists with workspace association, skipping webhook processing",
+			"installation_id", existingInstallation.ID,
+			"workspace_id", existingInstallation.SlackWorkspaceID,
+			"account_login", existingInstallation.AccountLogin)
+		return nil
+	}
+
 	// Extract repository list for selected repositories
 	var repositories []string
 	if payload.Installation.RepositorySelection == "selected" {
@@ -988,7 +1027,8 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 		}
 	}
 
-	// Create GitHubInstallation record
+	// Create or update GitHubInstallation record without workspace association
+	// These are orphaned installations that came from direct GitHub installs
 	installation := &models.GitHubInstallation{
 		ID:                  payload.Installation.ID,
 		AccountLogin:        payload.Installation.Account.Login,
@@ -1000,11 +1040,10 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 		UpdatedAt:           time.Now(),
 	}
 
-	// Delete existing installation record if it exists (handles reinstalls)
+	// Delete existing installation record if it exists (handles reinstalls from orphaned installations)
 	// This prevents duplicates since we don't listen to installation.deleted events
-	existingInstallation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
-	if err == nil && existingInstallation != nil {
-		log.Info(ctx, "Deleting existing installation record before creating new one",
+	if existingInstallation != nil {
+		log.Info(ctx, "Deleting orphaned installation record before creating new one",
 			"installation_id", payload.Installation.ID,
 			"account_login", existingInstallation.AccountLogin)
 
@@ -1036,11 +1075,24 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 		return fmt.Errorf("failed to save GitHub installation: %w", err)
 	}
 
-	log.Info(ctx, "Successfully processed installation created event",
+	log.Warn(ctx, "Created orphaned GitHub installation without workspace association",
+		"installation_id", installation.ID,
+		"account_login", installation.AccountLogin,
 		"repository_selection", installation.RepositorySelection,
 		"repository_count", len(repositories),
 		"repository_list", strings.Join(repositories, ","),
-	)
+		"note", "Installation will not be usable until associated with a Slack workspace via the Install GitHub App flow")
+
+	return nil
+}
+
+// processGitHubAppAuthEvent processes GitHub App authorization webhook events.
+func (h *GitHubHandler) processGitHubAppAuthEvent(ctx context.Context, payload []byte) error {
+	log.Info(ctx, "Processing GitHub App authorization event")
+
+	// For now, we just log the event. The actual OAuth flow is handled
+	// via the OAuth callback endpoint, not through webhooks.
+	// This webhook confirms that the authorization happened.
 
 	return nil
 }

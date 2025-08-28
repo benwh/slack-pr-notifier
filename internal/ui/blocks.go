@@ -319,6 +319,30 @@ func (b *HomeViewBuilder) BuildOAuthModal(oauthURL string) slack.ModalViewReques
 	}
 }
 
+// BuildGitHubInstallationModal builds the GitHub App installation modal.
+func (b *HomeViewBuilder) BuildGitHubInstallationModal(oauthURL string) slack.ModalViewRequest {
+	return slack.ModalViewRequest{
+		Type:  slack.VTModal,
+		Title: slack.NewTextBlockObject(slack.PlainTextType, "Install GitHub App", false, false),
+		Blocks: slack.Blocks{
+			BlockSet: []slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(slack.MarkdownType,
+						"🚀 *Ready to install PR Bot on GitHub!*\n\n"+
+							fmt.Sprintf("<%s|:point_right: Install GitHub App>\n\n", oauthURL)+
+							"During installation, you can:\n"+
+							"• Select specific repositories or all repositories\n"+
+							"• Choose which organization to install on\n"+
+							"• Link your GitHub account automatically\n\n"+
+							"_This link expires in 15 minutes._",
+						false, false),
+					nil, nil,
+				),
+			},
+		},
+	}
+}
+
 // BuildChannelSelectorModal builds the channel selector modal.
 func (b *HomeViewBuilder) BuildChannelSelectorModal() slack.ModalViewRequest {
 	return slack.ModalViewRequest{
@@ -493,13 +517,18 @@ func (b *HomeViewBuilder) buildGitHubInstallationWarning() []slack.Block {
 	return []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				":warning: *GitHub App Installation Required*\n"+
-					"PR Bot needs to be installed on your GitHub organization or repositories to receive webhook events.\n\n"+
-					"Without this installation, the bot cannot detect new PRs, reviews, or status changes.\n\n"+
-					"<https://github.com/settings/installations|:point_right: View GitHub App Installations>\n"+
-					"Look for 'PR Bot (dev)' and install it on your repositories.",
+				":warning: *GitHub app installation required*\n"+
+					"PR Bot needs to be installed on your GitHub repositories to receive webhook events.\n\n"+
+					"Without this installation, the bot cannot detect new PRs, reviews, or status changes.",
 				false, false),
-			nil, nil,
+			nil,
+			slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"install_github_app",
+					"install_app",
+					slack.NewTextBlockObject(slack.PlainTextType, "Install GitHub App", false, false),
+				).WithStyle(slack.StylePrimary),
+			),
 		),
 		slack.NewContextBlock(
 			"",

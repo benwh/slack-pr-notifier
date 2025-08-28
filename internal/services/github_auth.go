@@ -108,6 +108,18 @@ func (s *GitHubAuthService) GetOAuthURL(stateID string) string {
 	return fmt.Sprintf("%s?%s", baseURL, params.Encode())
 }
 
+// GetAppInstallationURL generates a GitHub App installation URL that supports combined OAuth + installation.
+func (s *GitHubAuthService) GetAppInstallationURL(stateID string) string {
+	// Use the GitHub App's direct installation URL
+	// Format: https://github.com/apps/{app-name}/installations/new?state={state}
+	baseURL := fmt.Sprintf("https://github.com/apps/%s/installations/new", s.config.GitHubAppSlug)
+	params := url.Values{
+		"state": {stateID},
+	}
+
+	return fmt.Sprintf("%s?%s", baseURL, params.Encode())
+}
+
 // ValidateAndConsumeState validates OAuth state and returns associated user info.
 // The state is deleted after successful validation to prevent reuse.
 func (s *GitHubAuthService) ValidateAndConsumeState(ctx context.Context, stateID string) (*models.OAuthState, error) {
@@ -235,4 +247,30 @@ func (s *GitHubAuthService) fetchGitHubUser(ctx context.Context, accessToken str
 	}
 
 	return &user, nil
+}
+
+// ExchangeCodeForUserAndToken exchanges OAuth code for both GitHub user information and access token.
+func (s *GitHubAuthService) ExchangeCodeForUserAndToken(ctx context.Context, code string) (*GitHubUser, string, error) {
+	if code == "" {
+		return nil, "", ErrCodeRequired
+	}
+
+	// Exchange code for access token
+	accessToken, err := s.exchangeCodeForToken(ctx, code)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to exchange code for token: %w", err)
+	}
+
+	// Fetch user information using access token
+	user, err := s.fetchGitHubUser(ctx, accessToken)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch GitHub user: %w", err)
+	}
+
+	return user, accessToken, nil
+}
+
+// ExchangeCodeForToken exchanges authorization code for access token (public wrapper).
+func (s *GitHubAuthService) ExchangeCodeForToken(ctx context.Context, code string) (string, error) {
+	return s.exchangeCodeForToken(ctx, code)
 }

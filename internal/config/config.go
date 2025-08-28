@@ -36,6 +36,7 @@ type Config struct {
 
 	// GitHub App settings for API access
 	GitHubAppID            int64  // GitHub App ID
+	GitHubAppSlug          string // GitHub App slug/name for installation URLs
 	GitHubPrivateKeyBase64 string // GitHub App private key (base64 encoded)
 
 	// Cloud Tasks settings
@@ -126,6 +127,7 @@ func Load() *Config {
 
 	// Parse GitHub App configuration
 	cfg.GitHubAppID = getEnvInt64Required("GITHUB_APP_ID")
+	cfg.GitHubAppSlug = getEnvRequired("GITHUB_APP_SLUG")
 	cfg.GitHubPrivateKeyBase64 = getEnvRequired("GITHUB_PRIVATE_KEY_BASE64")
 
 	// Parse emoji configuration
@@ -181,6 +183,9 @@ func (c *Config) validateRequiredFields() {
 	// Validate GitHub App configuration
 	if c.GitHubAppID <= 0 {
 		panic("GITHUB_APP_ID must be a positive integer")
+	}
+	if c.GitHubAppSlug == "" {
+		panic("GITHUB_APP_SLUG is required")
 	}
 	if c.GitHubPrivateKeyBase64 == "" {
 		panic("GITHUB_PRIVATE_KEY_BASE64 is required")

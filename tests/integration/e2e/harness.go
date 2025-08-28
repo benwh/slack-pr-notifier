@@ -414,6 +414,13 @@ func (h *TestHarness) SetupTrackedMessage(
 
 // SetupGitHubInstallation creates a test GitHub installation in Firestore.
 func (h *TestHarness) SetupGitHubInstallation(ctx context.Context, installationID int64, accountLogin, accountType string) error {
+	return h.SetupGitHubInstallationWithWorkspace(ctx, installationID, accountLogin, accountType, "T123456789", "U123456789")
+}
+
+// SetupGitHubInstallationWithWorkspace creates a test GitHub installation in Firestore with workspace association.
+func (h *TestHarness) SetupGitHubInstallationWithWorkspace(
+	ctx context.Context, installationID int64, accountLogin, accountType, workspaceID, slackUserID string,
+) error {
 	testTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	installation := &models.GitHubInstallation{
 		ID:                  installationID,
@@ -424,6 +431,11 @@ func (h *TestHarness) SetupGitHubInstallation(ctx context.Context, installationI
 		Repositories:        []string{},
 		InstalledAt:         testTime,
 		UpdatedAt:           testTime,
+
+		// Workspace association fields
+		SlackWorkspaceID:      workspaceID,
+		InstalledBySlackUser:  slackUserID,
+		InstalledByGitHubUser: 123456, // Test GitHub user ID
 	}
 	docID := fmt.Sprintf("%d", installationID)
 	_, err := h.testDB.Collection("github_installations").Doc(docID).Set(ctx, installation)

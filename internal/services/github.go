@@ -10,6 +10,7 @@ import (
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
+	"github-slack-notifier/internal/models"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v73/github"
@@ -67,7 +68,9 @@ const (
 
 // ClientForRepo returns a GitHub client configured for the given repository.
 // It looks up the GitHub installation for the repository owner and creates a client.
+// Deprecated: Use ClientForRepoWithWorkspace instead for workspace-scoped access.
 func (s *GitHubService) ClientForRepo(ctx context.Context, repoFullName string) (*github.Client, error) {
+	log.Warn(ctx, "Using deprecated ClientForRepo method - workspace validation bypassed", "repo", repoFullName)
 	parts := strings.Split(repoFullName, "/")
 	if len(parts) != expectedRepoParts {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRepoFormat, repoFullName)
@@ -87,6 +90,79 @@ func (s *GitHubService) ClientForRepo(ctx context.Context, repoFullName string) 
 		return nil, fmt.Errorf("failed to lookup GitHub installation: %w", err)
 	}
 
+	return s.createAndCacheClient(ctx, installation, repoFullName)
+}
+
+// ClientForRepoWithWorkspace returns a GitHub client configured for the given repository with workspace validation.
+// It ensures that only repositories from installations owned by the specified workspace can be accessed.
+func (s *GitHubService) ClientForRepoWithWorkspace(ctx context.Context, repoFullName, workspaceID string) (*github.Client, error) {
+	installation, err := s.ValidateWorkspaceInstallationAccess(ctx, repoFullName, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.createAndCacheClient(ctx, installation, repoFullName)
+}
+
+// ValidateWorkspaceInstallationAccess validates that a workspace has access to a repository via GitHub installation.
+func (s *GitHubService) ValidateWorkspaceInstallationAccess(
+	ctx context.Context, repoFullName, workspaceID string,
+) (*models.GitHubInstallation, error) {
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != expectedRepoParts {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRepoFormat, repoFullName)
+	}
+	owner := parts[0]
+
+	// Check if workspace has installation for this repository owner
+	installation, err := s.firestoreService.GetGitHubInstallationByRepoOwner(ctx, owner, workspaceID)
+	if err != nil {
+		if errors.Is(err, ErrGitHubInstallationNotFound) {
+			log.Warn(ctx, "Workspace does not have GitHub installation for repository owner",
+				"workspace_id", workspaceID,
+				"repo_owner", owner,
+				"repo", repoFullName,
+			)
+			return nil, fmt.Errorf("%w for %s: workspace %s", models.ErrWorkspaceNoInstallation, owner, workspaceID)
+		}
+		return nil, fmt.Errorf("failed to validate workspace installation access: %w", err)
+	}
+
+	// Validate repository is included in installation (for "selected" repositories)
+	if installation.RepositorySelection == "selected" {
+		found := false
+		for _, repo := range installation.Repositories {
+			if repo == repoFullName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Warn(ctx, "Repository not included in GitHub installation",
+				"workspace_id", workspaceID,
+				"installation_id", installation.ID,
+				"repo", repoFullName,
+				"repository_selection", installation.RepositorySelection,
+			)
+			return nil, fmt.Errorf("%w: %s", models.ErrRepositoryNotIncluded, repoFullName)
+		}
+	}
+
+	log.Debug(ctx, "Workspace installation access validated",
+		"workspace_id", workspaceID,
+		"installation_id", installation.ID,
+		"repo_owner", owner,
+		"repo", repoFullName,
+		"repository_selection", installation.RepositorySelection,
+	)
+
+	return installation, nil
+}
+
+// createAndCacheClient creates and caches a GitHub client for an installation.
+func (s *GitHubService) createAndCacheClient(
+	ctx context.Context, installation *models.GitHubInstallation, repoFullName string,
+) (*github.Client, error) {
 	// Check if we have a cached client for this installation
 	if client, exists := s.clientCache[installation.ID]; exists {
 		return client, nil
@@ -103,7 +179,6 @@ func (s *GitHubService) ClientForRepo(ctx context.Context, repoFullName string) 
 
 	log.Debug(ctx, "Created GitHub client for repository",
 		"repo", repoFullName,
-		"owner", owner,
 		"installation_id", installation.ID,
 	)
 

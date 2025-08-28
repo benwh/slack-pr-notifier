@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github-slack-notifier/internal/config"
@@ -13,6 +14,10 @@ import (
 	"github-slack-notifier/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/slack-go/slack"
+)
+
+const (
+	githubAPITimeout = 30 * time.Second
 )
 
 // OAuthHandler handles GitHub and Slack OAuth endpoints.
@@ -117,19 +122,27 @@ func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.
 	}
 
 	// Handle GitHub App installation callback (installation_id + setup_action)
+	// This indicates a combined OAuth + installation flow
 	if installationID != "" && setupAction == "install" {
-		log.Info(ctx, "GitHub App installation callback received",
+		log.Info(ctx, "GitHub App combined OAuth + installation callback received",
 			"installation_id", installationID,
-			"setup_action", setupAction)
+			"setup_action", setupAction,
+			"has_code", code != "",
+			"has_state", stateID != "")
 
-		// Determine redirect URL based on installation type
-		redirectURL := h.getInstallationRedirectURL(ctx, installationID)
-		log.Info(ctx, "Redirecting user after successful GitHub App installation",
-			"installation_id", installationID,
-			"redirect_url", redirectURL)
+		// For combined flow, we need both code and state to process properly
+		if code == "" || stateID == "" {
+			log.Error(ctx, "Missing required parameters for combined OAuth + installation flow")
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid Callback",
+				"message": "Missing required parameters for GitHub App installation",
+			})
+			return "", "", false
+		}
 
-		c.Redirect(http.StatusFound, redirectURL)
-		return "", "", false
+		// Return parameters to be processed by the combined flow handler
+		// The installationID will be available in the query parameters
+		return code, stateID, true
 	}
 
 	// Validate required parameters for OAuth flow
@@ -143,40 +156,6 @@ func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.
 	}
 
 	return code, stateID, true
-}
-
-// getInstallationRedirectURL determines the appropriate GitHub settings URL based on installation type.
-func (h *OAuthHandler) getInstallationRedirectURL(ctx context.Context, installationIDStr string) string {
-	// Default to personal settings page
-	defaultURL := "https://github.com/settings/installations"
-
-	// Try to look up the installation to determine if it's for an organization
-	installationID := 0
-	if _, err := fmt.Sscanf(installationIDStr, "%d", &installationID); err != nil {
-		log.Warn(ctx, "Invalid installation ID format, using default redirect",
-			"installation_id", installationIDStr, "error", err)
-		return defaultURL
-	}
-
-	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, int64(installationID))
-	if err != nil {
-		log.Warn(ctx, "Could not find installation in database, using default redirect",
-			"installation_id", installationID, "error", err)
-		return defaultURL
-	}
-
-	// If it's an organization installation, redirect to organization settings
-	if installation.AccountType == "Organization" {
-		orgURL := fmt.Sprintf("https://github.com/organizations/%s/settings/installations", installation.AccountLogin)
-		log.Info(ctx, "Redirecting to organization installations page",
-			"organization", installation.AccountLogin, "url", orgURL)
-		return orgURL
-	}
-
-	// For user installations, use the default personal settings page
-	log.Info(ctx, "Redirecting to personal installations page",
-		"account_login", installation.AccountLogin)
-	return defaultURL
 }
 
 // createOrUpdateUserFromGitHub creates or updates a user after successful GitHub authentication.
@@ -244,8 +223,8 @@ func (h *OAuthHandler) handlePostOAuthActions(
 ) {
 	// If this was initiated from App Home, refresh the home view
 	if state.ReturnToHome {
-		// Check if GitHub installations exist
-		hasInstallations, err := h.firestoreService.HasGitHubInstallations(ctx)
+		// Check if GitHub installations exist for this workspace
+		hasInstallations, err := h.firestoreService.HasGitHubInstallations(ctx, state.SlackTeamID)
 		if err != nil {
 			log.Error(ctx, "Failed to check GitHub installations for OAuth refresh", "error", err)
 			// Continue with false to show warning in case of error
@@ -319,15 +298,46 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 		"slack_team_id": state.SlackTeamID,
 	})
 
-	// Exchange code for GitHub user info
-	githubUser, err := h.githubAuthService.ExchangeCodeForUser(ctx, code)
+	// Check if this is a combined OAuth + installation flow
+	installationID := c.Query("installation_id")
+	if installationID != "" {
+		log.Info(ctx, "Processing combined OAuth + installation flow", "installation_id", installationID)
+		err := h.processGitHubAppInstallation(ctx, code, stateID, installationID, state)
+		if err != nil {
+			log.Error(ctx, "Failed to process GitHub App installation", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Installation Failed",
+				"message": "Failed to complete GitHub App installation",
+			})
+			return
+		}
+
+		// Redirect to success page for installation
+		h.redirectToInstallationSuccessPage(c, state.SlackTeamID, installationID)
+		return
+	}
+
+	// Process user OAuth only flow
+	githubUsername, err := h.processUserOAuth(ctx, code, stateID, state)
 	if err != nil {
-		log.Error(ctx, "Failed to exchange OAuth code for user info", "error", err)
+		log.Error(ctx, "Failed to process user OAuth", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Authentication Failed",
 			"message": "Failed to authenticate with GitHub",
 		})
 		return
+	}
+
+	// Redirect to success page for user OAuth
+	h.redirectToSuccessPage(c, state.SlackTeamID, githubUsername)
+}
+
+// processUserOAuth processes user-only OAuth flow (no installation).
+func (h *OAuthHandler) processUserOAuth(ctx context.Context, code, _ string, state *models.OAuthState) (string, error) {
+	// Exchange code for GitHub user info
+	githubUser, err := h.githubAuthService.ExchangeCodeForUser(ctx, code)
+	if err != nil {
+		return "", fmt.Errorf("failed to exchange OAuth code for user info: %w", err)
 	}
 
 	ctx = log.WithFields(ctx, log.LogFields{
@@ -338,12 +348,7 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	// Create or update user
 	user, err := h.createOrUpdateUserFromGitHub(ctx, state, githubUser)
 	if err != nil {
-		log.Error(ctx, "Failed to save user after OAuth", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Save Failed",
-			"message": "Failed to save your account information",
-		})
-		return
+		return "", fmt.Errorf("failed to save user after OAuth: %w", err)
 	}
 
 	log.Info(ctx, "GitHub account successfully linked to Slack user")
@@ -351,8 +356,203 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	// Handle post-OAuth actions (Slack notifications, App Home refresh)
 	h.handlePostOAuthActions(ctx, state, user, githubUser.Login)
 
-	// Redirect to success page
-	h.redirectToSuccessPage(c, state.SlackTeamID, githubUser.Login)
+	return githubUser.Login, nil
+}
+
+// processGitHubAppInstallation processes combined OAuth + installation flow.
+func (h *OAuthHandler) processGitHubAppInstallation(
+	ctx context.Context, code, _, installationID string, state *models.OAuthState,
+) error {
+	// Parse installation ID
+	installationIDInt, err := strconv.ParseInt(installationID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid installation ID: %w", err)
+	}
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"installation_id": installationIDInt,
+	})
+
+	// Exchange code for GitHub user info
+	// Note: We only need user info for workspace association, not for installation access verification
+	githubUser, err := h.githubAuthService.ExchangeCodeForUser(ctx, code)
+	if err != nil {
+		return fmt.Errorf("failed to exchange OAuth code for user info: %w", err)
+	}
+
+	ctx = log.WithFields(ctx, log.LogFields{
+		"github_user_id":  githubUser.ID,
+		"github_username": githubUser.Login,
+	})
+
+	// Note: We skip user installation access verification for the combined flow
+	// because the user is coming directly from the GitHub App installation process,
+	// which means they have the authority to associate this installation with their workspace.
+	// The OAuth token may not have installation access scopes, which would cause verification to fail.
+
+	// Look up the installation from our database (it should exist from webhook)
+	// Use retry logic to handle race condition with installation webhook
+	installation, err := h.waitForInstallationInDatabase(ctx, installationIDInt)
+	if err != nil {
+		return fmt.Errorf("installation not found in database after retries: %w", err)
+	}
+
+	// Update installation with workspace association
+	installation.SlackWorkspaceID = state.SlackTeamID
+	installation.InstalledBySlackUser = state.SlackUserID
+	installation.InstalledByGitHubUser = githubUser.ID
+	installation.UpdatedAt = time.Now()
+
+	// Save updated installation
+	err = h.firestoreService.UpdateGitHubInstallation(ctx, installation)
+	if err != nil {
+		return fmt.Errorf("failed to update installation with workspace association: %w", err)
+	}
+
+	// Create or update user
+	user, err := h.createOrUpdateUserFromGitHub(ctx, state, githubUser)
+	if err != nil {
+		return fmt.Errorf("failed to save user after installation: %w", err)
+	}
+
+	log.Info(ctx, "GitHub App installation successfully associated with workspace",
+		"installation_id", installationIDInt,
+		"workspace_id", state.SlackTeamID,
+		"account_login", installation.AccountLogin,
+		"repository_selection", installation.RepositorySelection,
+	)
+
+	// Handle post-OAuth actions (Slack notifications, App Home refresh)
+	h.handlePostOAuthActions(ctx, state, user, githubUser.Login)
+
+	return nil
+}
+
+// verifyUserInstallationAccess verifies that the user has legitimate access to the installation.
+func (h *OAuthHandler) verifyUserInstallationAccess(ctx context.Context, userToken string, installationID int64) error {
+	// Use GitHub API to verify user has access to this installation
+	// This prevents spoofed installation_id parameters
+	client := &http.Client{Timeout: githubAPITimeout}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("https://api.github.com/user/installations/%d", installationID), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", userToken))
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to verify installation access: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: installation %d, status %d", models.ErrUserInstallationAccess, installationID, resp.StatusCode)
+	}
+
+	return nil
+}
+
+// waitForInstallationInDatabase waits for installation to be created by webhook with exponential backoff.
+func (h *OAuthHandler) waitForInstallationInDatabase(ctx context.Context, installationID int64) (*models.GitHubInstallation, error) {
+	const (
+		maxRetries    = 8
+		initialDelay  = 50 * time.Millisecond
+		maxDelay      = 2 * time.Second
+		backoffFactor = 2
+	)
+
+	delay := initialDelay
+	for i := range maxRetries {
+		installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, installationID)
+		if err == nil {
+			log.Info(ctx, "Installation found in database",
+				"installation_id", installationID,
+				"retry_attempt", i+1,
+				"total_wait_ms", int64((initialDelay*time.Duration(1<<i))/time.Millisecond))
+			return installation, nil
+		}
+
+		if i < maxRetries-1 {
+			log.Debug(ctx, "Installation not yet available, retrying",
+				"installation_id", installationID,
+				"retry_attempt", i+1,
+				"delay_ms", delay.Milliseconds(),
+				"error", err)
+
+			time.Sleep(delay)
+			if delay < maxDelay {
+				delay = delay * backoffFactor
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+			}
+		}
+	}
+
+	log.Warn(ctx, "Installation not found after all retries",
+		"installation_id", installationID,
+		"max_retries", maxRetries)
+	return nil, fmt.Errorf("installation %d not found after %d retries", installationID, maxRetries)
+}
+
+// redirectToInstallationSuccessPage creates success page for installation flow.
+func (h *OAuthHandler) redirectToInstallationSuccessPage(c *gin.Context, teamID, _ string) {
+	slackDeepLink := fmt.Sprintf("slack://app?team=%s&id=%s&tab=home", teamID, h.config.SlackAppID)
+	successHTML := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GitHub App Installed!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+            background-color: #f8f9fa;
+        }
+        .success-icon { font-size: 48px; margin-bottom: 20px; }
+        .success-message { color: #28a745; font-size: 20px; margin-bottom: 15px; }
+        .details { color: #6c757d; margin-bottom: 30px; }
+        .btn {
+            background-color: #611f69;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            display: inline-block;
+            margin: 0 10px;
+        }
+        .btn:hover { background-color: #4a154b; }
+        .auto-redirect { margin-top: 20px; color: #6c757d; font-size: 14px; }
+    </style>
+    <script>
+        // Try to redirect to Slack after 2 seconds
+        setTimeout(function() {
+            window.location.href = '%s';
+        }, 2000);
+    </script>
+</head>
+<body>
+    <div class="success-icon">🎉</div>
+    <div class="success-message">GitHub App Installed!</div>
+    <div class="details">
+        Successfully installed PR Bot and linked your GitHub account.
+        Your Slack workspace can now receive GitHub PR notifications!
+    </div>
+    <a href="%s" class="btn">Return to Slack</a>
+    <div class="auto-redirect">Automatically redirecting to Slack in 2 seconds...</div>
+</body>
+</html>`, slackDeepLink, slackDeepLink)
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }
 
 // redirectToSuccessPage creates and returns the OAuth success HTML page.

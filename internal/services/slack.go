@@ -764,6 +764,11 @@ func (s *SlackService) BuildOAuthModal(oauthURL string) slack.ModalViewRequest {
 	return s.uiBuilder.BuildOAuthModal(oauthURL)
 }
 
+// BuildGitHubInstallationModal builds the GitHub App installation modal.
+func (s *SlackService) BuildGitHubInstallationModal(oauthURL string) slack.ModalViewRequest {
+	return s.uiBuilder.BuildGitHubInstallationModal(oauthURL)
+}
+
 // BuildChannelSelectorModal builds the channel selector modal.
 func (s *SlackService) BuildChannelSelectorModal() slack.ModalViewRequest {
 	return s.uiBuilder.BuildChannelSelectorModal()

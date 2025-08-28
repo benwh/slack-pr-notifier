@@ -692,23 +692,106 @@ func (fs *FirestoreService) DeleteGitHubInstallation(ctx context.Context, instal
 	return nil
 }
 
-// HasGitHubInstallations checks if any GitHub installations exist in the database.
-func (fs *FirestoreService) HasGitHubInstallations(ctx context.Context) (bool, error) {
-	iter := fs.client.Collection("github_installations").Limit(1).Documents(ctx)
+// HasGitHubInstallations checks if any GitHub installations exist for a specific workspace.
+func (fs *FirestoreService) HasGitHubInstallations(ctx context.Context, workspaceID string) (bool, error) {
+	iter := fs.client.Collection("github_installations").
+		Where("slack_workspace_id", "==", workspaceID).
+		Limit(1).Documents(ctx)
 	defer iter.Stop()
 
 	doc, err := iter.Next()
 	if errors.Is(err, iterator.Done) {
-		// No installations found
+		// No installations found for this workspace
 		return false, nil
 	}
 	if err != nil {
 		log.Error(ctx, "Failed to check for GitHub installations",
 			"error", err,
+			"workspace_id", workspaceID,
 		)
 		return false, fmt.Errorf("failed to check for GitHub installations: %w", err)
 	}
 
-	// At least one installation exists
+	// At least one installation exists for this workspace
 	return doc.Exists(), nil
+}
+
+// GetGitHubInstallationsByWorkspace retrieves all GitHub installations for a specific workspace.
+func (fs *FirestoreService) GetGitHubInstallationsByWorkspace(
+	ctx context.Context, workspaceID string,
+) ([]*models.GitHubInstallation, error) {
+	iter := fs.client.Collection("github_installations").
+		Where("slack_workspace_id", "==", workspaceID).
+		Documents(ctx)
+	defer iter.Stop()
+
+	var installations []*models.GitHubInstallation
+	for {
+		doc, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			log.Error(ctx, "Error iterating GitHub installations",
+				"error", err,
+				"workspace_id", workspaceID,
+			)
+			return nil, fmt.Errorf("failed to retrieve GitHub installations: %w", err)
+		}
+
+		var installation models.GitHubInstallation
+		if err := doc.DataTo(&installation); err != nil {
+			log.Error(ctx, "Failed to unmarshal GitHub installation",
+				"error", err,
+				"doc_id", doc.Ref.ID,
+				"workspace_id", workspaceID,
+			)
+			return nil, fmt.Errorf("failed to unmarshal GitHub installation: %w", err)
+		}
+
+		installations = append(installations, &installation)
+	}
+
+	return installations, nil
+}
+
+// GetGitHubInstallationByRepoOwner finds a GitHub installation for a specific repository owner within a workspace.
+func (fs *FirestoreService) GetGitHubInstallationByRepoOwner(
+	ctx context.Context, repoOwner, workspaceID string,
+) (*models.GitHubInstallation, error) {
+	iter := fs.client.Collection("github_installations").
+		Where("account_login", "==", repoOwner).
+		Where("slack_workspace_id", "==", workspaceID).
+		Documents(ctx)
+	defer iter.Stop()
+
+	doc, err := iter.Next()
+	if errors.Is(err, iterator.Done) {
+		log.Warn(ctx, "GitHub installation not found for repository owner",
+			"repo_owner", repoOwner,
+			"workspace_id", workspaceID,
+		)
+		return nil, ErrGitHubInstallationNotFound
+	}
+	if err != nil {
+		log.Error(ctx, "Failed to query GitHub installation",
+			"error", err,
+			"repo_owner", repoOwner,
+			"workspace_id", workspaceID,
+		)
+		return nil, fmt.Errorf("failed to query GitHub installation: %w", err)
+	}
+
+	var installation models.GitHubInstallation
+	if err := doc.DataTo(&installation); err != nil {
+		log.Error(ctx, "Failed to unmarshal GitHub installation",
+			"error", err,
+			"doc_id", doc.Ref.ID,
+			"repo_owner", repoOwner,
+			"workspace_id", workspaceID,
+		)
+		return nil, fmt.Errorf("failed to unmarshal GitHub installation: %w", err)
+	}
+
+	return &installation, nil
 }

@@ -288,6 +288,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleConnectGitHubAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "disconnect_github":
 		sh.handleDisconnectGitHubAction(ctx, userID, c)
+	case "install_github_app":
+		sh.handleInstallGitHubAppAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "select_channel":
 		sh.handleSelectChannelAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "refresh_view":
@@ -339,8 +341,8 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 		return
 	}
 
-	// Check if GitHub installations exist
-	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx)
+	// Check if GitHub installations exist for this workspace
+	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx, teamID)
 	if err != nil {
 		log.Error(ctx, "Failed to check GitHub installations for App Home", "error", err)
 		// Continue with false to show warning in case of error
@@ -391,6 +393,65 @@ func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, t
 	if err != nil {
 		log.Error(ctx, "Failed to open OAuth modal", "error", err)
 		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{})
+}
+
+// handleInstallGitHubAppAction handles the "Install GitHub App" button.
+func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+		"team_id": teamID,
+	})
+
+	log.Info(ctx, "User initiated GitHub App installation from Slack")
+
+	// Create OAuth state for combined OAuth + installation flow
+	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID, "")
+	if err != nil {
+		log.Error(ctx, "Failed to create OAuth state for GitHub App installation", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"install_github_app": "Failed to initiate GitHub App installation. Please try again.",
+			},
+		})
+		return
+	}
+
+	// Set return to home for App Home refresh after installation
+	state.ReturnToHome = true
+	err = sh.githubAuthService.SaveOAuthState(ctx, state)
+	if err != nil {
+		log.Error(ctx, "Failed to update OAuth state for GitHub App installation", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"install_github_app": "Failed to initiate GitHub App installation. Please try again.",
+			},
+		})
+		return
+	}
+
+	// Generate GitHub App installation URL (will trigger combined OAuth + installation flow)
+	oauthURL := sh.githubAuthService.GetAppInstallationURL(state.ID)
+
+	log.Info(ctx, "Generated GitHub OAuth URL for App installation", "state_id", state.ID)
+
+	// Open a modal with the GitHub installation link
+	modalView := sh.slackService.BuildGitHubInstallationModal(oauthURL)
+
+	_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
+	if err != nil {
+		log.Error(ctx, "Failed to open GitHub installation modal", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"install_github_app": "Failed to open installation modal. Please try again.",
+			},
+		})
 		return
 	}
 
@@ -595,8 +656,8 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 		return
 	}
 
-	// Check if GitHub installations exist
-	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx)
+	// Check if GitHub installations exist for this workspace
+	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx, user.SlackTeamID)
 	if err != nil {
 		log.Error(ctx, "Failed to check GitHub installations for refresh", "error", err)
 		// Continue with false to show warning in case of error
