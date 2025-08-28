@@ -16,8 +16,8 @@ import (
 	"github.com/slack-go/slack"
 )
 
-const (
-	githubAPITimeout = 30 * time.Second
+var (
+	ErrInstallationNotFoundAfterRetries = fmt.Errorf("installation not found after retries")
 )
 
 // OAuthHandler handles GitHub and Slack OAuth endpoints.
@@ -428,34 +428,6 @@ func (h *OAuthHandler) processGitHubAppInstallation(
 	return nil
 }
 
-// verifyUserInstallationAccess verifies that the user has legitimate access to the installation.
-func (h *OAuthHandler) verifyUserInstallationAccess(ctx context.Context, userToken string, installationID int64) error {
-	// Use GitHub API to verify user has access to this installation
-	// This prevents spoofed installation_id parameters
-	client := &http.Client{Timeout: githubAPITimeout}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("https://api.github.com/user/installations/%d", installationID), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", userToken))
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to verify installation access: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: installation %d, status %d", models.ErrUserInstallationAccess, installationID, resp.StatusCode)
-	}
-
-	return nil
-}
-
 // waitForInstallationInDatabase waits for installation to be created by webhook with exponential backoff.
 func (h *OAuthHandler) waitForInstallationInDatabase(ctx context.Context, installationID int64) (*models.GitHubInstallation, error) {
 	const (
@@ -485,7 +457,7 @@ func (h *OAuthHandler) waitForInstallationInDatabase(ctx context.Context, instal
 
 			time.Sleep(delay)
 			if delay < maxDelay {
-				delay = delay * backoffFactor
+				delay *= backoffFactor
 				if delay > maxDelay {
 					delay = maxDelay
 				}
@@ -496,7 +468,7 @@ func (h *OAuthHandler) waitForInstallationInDatabase(ctx context.Context, instal
 	log.Warn(ctx, "Installation not found after all retries",
 		"installation_id", installationID,
 		"max_retries", maxRetries)
-	return nil, fmt.Errorf("installation %d not found after %d retries", installationID, maxRetries)
+	return nil, fmt.Errorf("%w: installation %d not found after %d retries", ErrInstallationNotFoundAfterRetries, installationID, maxRetries)
 }
 
 // redirectToInstallationSuccessPage creates success page for installation flow.
