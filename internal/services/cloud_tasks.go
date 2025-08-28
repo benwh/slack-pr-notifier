@@ -113,7 +113,18 @@ func (cts *CloudTasksService) EnqueueJob(ctx context.Context, job *models.Job) e
 		Task:   task,
 	}
 
-	createdTask, err := cts.client.CreateTask(ctx, req)
+	// Create a fresh context for Cloud Tasks API call to avoid deadline issues.
+	// Cloud Tasks API rejects any gRPC request with deadline > 30s, but job processing
+	// uses contexts with longer timeouts (default 5 minutes). We preserve trace ID
+	// for logging while using a fresh context without deadline constraints.
+	// See: https://github.com/googleapis/google-cloud-go/issues/1577
+	apiCtx := context.Background()
+	if traceID, ok := ctx.Value(log.TraceIDKey).(string); ok && traceID != "" {
+		apiCtx = context.WithValue(apiCtx, log.TraceIDKey, traceID)
+	}
+
+	//nolint:contextcheck // Intentionally using fresh context to avoid Cloud Tasks 30s deadline limit
+	createdTask, err := cts.client.CreateTask(apiCtx, req)
 	if err != nil {
 		log.Error(ctx, "Failed to create job processing task",
 			"error", err,
