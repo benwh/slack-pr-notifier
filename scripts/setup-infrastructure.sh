@@ -174,6 +174,29 @@ for role in "${REQUIRED_ROLES[@]}"; do
     echo "   ✅ $role granted"
 done
 
+# Define which variables should be stored as secrets in Secret Manager
+SECRET_VARS=(
+    "GITHUB_WEBHOOK_SECRET"
+    "SLACK_SIGNING_SECRET"
+    "SLACK_CLIENT_SECRET"
+    "GITHUB_CLIENT_SECRET"
+    "CLOUD_TASKS_SECRET"
+)
+
+# Grant secretAccessor role for each secret that exists
+echo "🔑 Granting secret access permissions..."
+for secret_var in "${SECRET_VARS[@]}"; do
+    # Check if the secret variable has a value
+    secret_value="${!secret_var:-}"
+    if [ -n "$secret_value" ]; then
+        echo "   Granting access to secret: ${secret_var}"
+        gcloud secrets add-iam-policy-binding "${secret_var}" \
+            --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
+            --role="roles/secretmanager.secretAccessor" \
+            --project="${PROJECT_ID}" >/dev/null
+    fi
+done
+
 # Create Cloud Tasks queue (for async processing)
 echo "📤 Creating Cloud Tasks queue..."
 
