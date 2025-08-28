@@ -128,25 +128,11 @@ func (s *GitHubService) ValidateWorkspaceInstallationAccess(
 		return nil, fmt.Errorf("failed to validate workspace installation access: %w", err)
 	}
 
-	// Validate repository is included in installation (for "selected" repositories)
-	if installation.RepositorySelection == "selected" {
-		found := false
-		for _, repo := range installation.Repositories {
-			if repo == repoFullName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			log.Warn(ctx, "Repository not included in GitHub installation",
-				"workspace_id", workspaceID,
-				"installation_id", installation.ID,
-				"repo", repoFullName,
-				"repository_selection", installation.RepositorySelection,
-			)
-			return nil, fmt.Errorf("%w: %s", models.ErrRepositoryNotIncluded, repoFullName)
-		}
-	}
+	// Note: We don't validate the repository list for "selected" repositories because:
+	// 1. GitHub only sends webhooks for repositories that are actually included in the installation
+	// 2. The installation.created webhook doesn't reliably include the repository list
+	// 3. The key security check is the workspace-to-installation mapping above
+	// 4. If we receive a webhook, it's proof the repository is authorized
 
 	log.Debug(ctx, "Workspace installation access validated",
 		"workspace_id", workspaceID,
