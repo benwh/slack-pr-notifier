@@ -512,9 +512,9 @@ func (b *HomeViewBuilder) buildIntroductionSection() []slack.Block {
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*PR Bot provides seamless integration between GitHub and Slack with two key features:*\n\n"+
-					"• *PR mirroring*: Automatically posts your PRs to Slack when opened\n"+
-					"• *PR status reactions*: Adds emoji reactions to show review status (includes manually-posted links)",
+				"*PR Bot provides integration between GitHub and Slack with two main features:*\n\n"+
+					"• *PR mirroring*: Automatically posts your PRs to Slack when opened.\n"+
+					"• *PR status reactions*: Adds emoji reactions to show review status (on automatic and manually-posted links).",
 				false, false),
 			nil, nil,
 		),
