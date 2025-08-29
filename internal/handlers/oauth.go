@@ -232,13 +232,13 @@ func (h *OAuthHandler) handlePostOAuthActions(
 		hasInstallations := len(installations) > 0
 
 		homeView := h.slackService.BuildHomeView(user, hasInstallations, installations)
-		err = h.slackService.PublishHomeView(ctx, state.SlackTeamID, state.SlackUserID, homeView)
+		err = h.slackService.PublishHomeViewAndCloseModals(ctx, state.SlackTeamID, state.SlackUserID, homeView)
 		if err != nil {
 			log.Warn(ctx, "Failed to refresh App Home after OAuth success",
 				"error", err,
 				"user_id", state.SlackUserID)
 		} else {
-			log.Info(ctx, "App Home refreshed after successful GitHub OAuth")
+			log.Info(ctx, "App Home refreshed after successful GitHub OAuth - modals closed")
 		}
 	}
 

@@ -447,9 +447,10 @@ func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID
 	// Open a modal with the GitHub installation link
 	modalView := sh.slackService.BuildGitHubInstallationModal(oauthURL)
 
-	_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
+	// When called from within a modal, we need to push a new view
+	_, err = sh.slackService.PushView(ctx, teamID, triggerID, modalView)
 	if err != nil {
-		log.Error(ctx, "Failed to open GitHub installation modal", "error", err)
+		log.Error(ctx, "Failed to push GitHub installation modal", "error", err)
 		c.JSON(http.StatusOK, gin.H{
 			"response_action": "errors",
 			"errors": map[string]string{

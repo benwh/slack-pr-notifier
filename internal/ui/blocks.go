@@ -330,17 +330,20 @@ func (b *HomeViewBuilder) BuildOAuthModal(oauthURL string) slack.ModalViewReques
 func (b *HomeViewBuilder) BuildGitHubInstallationModal(oauthURL string) slack.ModalViewRequest {
 	return slack.ModalViewRequest{
 		Type:  slack.VTModal,
-		Title: slack.NewTextBlockObject(slack.PlainTextType, "Install GitHub App", false, false),
+		Title: slack.NewTextBlockObject(slack.PlainTextType, "Install GitHub app", false, false),
 		Blocks: slack.Blocks{
 			BlockSet: []slack.Block{
 				slack.NewSectionBlock(
 					slack.NewTextBlockObject(slack.MarkdownType,
 						"🚀 *Ready to install PR Bot on GitHub!*\n\n"+
-							fmt.Sprintf("<%s|:point_right: Install GitHub App>\n\n", oauthURL)+
+							fmt.Sprintf("<%s|:point_right: Install GitHub app>\n\n", oauthURL)+
 							"During installation, you can:\n"+
 							"• Select specific repositories or all repositories\n"+
 							"• Choose which organization to install on\n"+
 							"• Link your GitHub account automatically\n\n"+
+							"*After installation:*\n"+
+							"• Return to Slack - your App Home will automatically refresh\n"+
+							"• You can close this modal and return to the installations list\n\n"+
 							"_This link expires in 15 minutes._",
 						false, false),
 					nil, nil,
@@ -552,7 +555,7 @@ func (b *HomeViewBuilder) buildGitHubInstallationsSection(installations []*model
 	blocks := []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*GitHub App installations*\nManage GitHub installations and add new ones",
+				"*GitHub app installations*\nManage GitHub installations and add new ones",
 				false, false),
 			nil,
 			slack.NewAccessory(
@@ -592,7 +595,7 @@ func (b *HomeViewBuilder) BuildGitHubInstallationsModal(
 	blocks := []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*Current GitHub App Installations*",
+				"*Current GitHub app installations*",
 				false, false),
 			nil, nil,
 		),
@@ -647,7 +650,7 @@ func (b *HomeViewBuilder) BuildGitHubInstallationsModal(
 		slack.NewDividerBlock(),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*Add New Installation*\nInstall the GitHub App on additional organizations or repositories",
+				"*Add new installation*\nInstall the GitHub app on additional organizations or repositories",
 				false, false),
 			nil,
 			slack.NewAccessory(
@@ -660,9 +663,20 @@ func (b *HomeViewBuilder) BuildGitHubInstallationsModal(
 		),
 	)
 
+	// Add refresh instructions at the bottom
+	blocks = append(blocks,
+		slack.NewDividerBlock(),
+		slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"_After completing a GitHub installation, close this modal to see updated installations on your App Home._",
+				false, false),
+		),
+	)
+
 	return slack.ModalViewRequest{
 		Type:       slack.VTModal,
-		Title:      slack.NewTextBlockObject(slack.PlainTextType, "GitHub Installations", false, false),
+		Title:      slack.NewTextBlockObject(slack.PlainTextType, "GitHub installations", false, false),
 		CallbackID: "github_installations_modal",
 		Blocks:     slack.Blocks{BlockSet: blocks},
 	}

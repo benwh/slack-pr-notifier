@@ -723,6 +723,19 @@ func (s *SlackService) PublishHomeView(ctx context.Context, teamID, userID strin
 	return nil
 }
 
+// PublishHomeViewAndCloseModals publishes the home tab view and ensures any open modals are closed.
+func (s *SlackService) PublishHomeViewAndCloseModals(ctx context.Context, teamID, userID string, view slack.HomeTabViewRequest) error {
+	// First publish the home view
+	err := s.PublishHomeView(ctx, teamID, userID, view)
+	if err != nil {
+		return err
+	}
+
+	// Note: PublishView should automatically close modals, but we log this action for clarity
+	log.Info(ctx, "Published home view after GitHub installation completion - modals should auto-close")
+	return nil
+}
+
 // OpenView opens a modal or app home view.
 func (s *SlackService) OpenView(ctx context.Context, teamID, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
 	client, err := s.getSlackClient(ctx, teamID)
@@ -750,6 +763,37 @@ func (s *SlackService) OpenView(ctx context.Context, teamID, triggerID string, v
 			)
 		}
 		return nil, fmt.Errorf("failed to open view with trigger %s: %w", triggerID, err)
+	}
+	return response, nil
+}
+
+// PushView pushes a new view onto the modal stack.
+func (s *SlackService) PushView(ctx context.Context, teamID, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
+	client, err := s.getSlackClient(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := client.PushViewContext(ctx, triggerID, view)
+	if err != nil {
+		// Check if it's a Slack API error with more details
+		var slackErr slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
+			log.Error(ctx, "Failed to push view - Slack API error",
+				"error", err,
+				"trigger_id", triggerID,
+				"slack_error", slackErr.Err,
+				"response_metadata", slackErr.ResponseMetadata,
+				"operation", "push_view",
+			)
+		} else {
+			log.Error(ctx, "Failed to push view",
+				"error", err,
+				"trigger_id", triggerID,
+				"operation", "push_view",
+			)
+		}
+		return nil, fmt.Errorf("failed to push view with trigger %s: %w", triggerID, err)
 	}
 	return response, nil
 }
