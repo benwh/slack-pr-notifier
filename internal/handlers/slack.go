@@ -289,7 +289,7 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 	case "disconnect_github":
 		sh.handleDisconnectGitHubAction(ctx, userID, c)
 	case "install_github_app":
-		sh.handleInstallGitHubAppAction(ctx, userID, teamID, interaction.TriggerID, c)
+		sh.handleInstallGitHubAppFromHomeAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "select_channel":
 		sh.handleSelectChannelAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "refresh_view":
@@ -303,7 +303,7 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 	case "manage_github_installations":
 		sh.handleManageGitHubInstallationsAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "add_github_installation":
-		sh.handleInstallGitHubAppAction(ctx, userID, teamID, interaction.TriggerID, c)
+		sh.handleAddGitHubInstallationFromModalAction(ctx, userID, teamID, interaction.TriggerID, c)
 	default:
 		c.JSON(http.StatusOK, gin.H{})
 	}
@@ -403,14 +403,30 @@ func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, t
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleInstallGitHubAppAction handles the "Install GitHub App" button.
-func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+// handleInstallGitHubAppFromHomeAction handles the "Install GitHub App" button from App Home.
+func (sh *SlackHandler) handleInstallGitHubAppFromHomeAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	sh.handleGitHubAppInstallation(ctx, userID, teamID, triggerID, false, "install_github_app", c)
+}
+
+// handleAddGitHubInstallationFromModalAction handles the "Add new installation" button from within a modal.
+func (sh *SlackHandler) handleAddGitHubInstallationFromModalAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	sh.handleGitHubAppInstallation(ctx, userID, teamID, triggerID, true, "add_github_installation", c)
+}
+
+// handleGitHubAppInstallation is the shared implementation for GitHub App installation.
+func (sh *SlackHandler) handleGitHubAppInstallation(
+	ctx context.Context, userID, teamID, triggerID string, fromModal bool, errorKey string, c *gin.Context,
+) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
 		"team_id": teamID,
 	})
 
-	log.Info(ctx, "User initiated GitHub App installation from Slack")
+	if fromModal {
+		log.Info(ctx, "User initiated GitHub App installation from modal")
+	} else {
+		log.Info(ctx, "User initiated GitHub App installation from Slack")
+	}
 
 	// Create OAuth state for combined OAuth + installation flow
 	state, err := sh.githubAuthService.CreateOAuthState(ctx, userID, teamID, "")
@@ -419,7 +435,7 @@ func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID
 		c.JSON(http.StatusOK, gin.H{
 			"response_action": "errors",
 			"errors": map[string]string{
-				"install_github_app": "Failed to initiate GitHub App installation. Please try again.",
+				errorKey: "Failed to initiate GitHub App installation. Please try again.",
 			},
 		})
 		return
@@ -433,7 +449,7 @@ func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID
 		c.JSON(http.StatusOK, gin.H{
 			"response_action": "errors",
 			"errors": map[string]string{
-				"install_github_app": "Failed to initiate GitHub App installation. Please try again.",
+				errorKey: "Failed to initiate GitHub App installation. Please try again.",
 			},
 		})
 		return
@@ -442,19 +458,34 @@ func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID
 	// Generate GitHub App installation URL (will trigger combined OAuth + installation flow)
 	oauthURL := sh.githubAuthService.GetAppInstallationURL(state.ID)
 
-	log.Info(ctx, "Generated GitHub OAuth URL for App installation", "state_id", state.ID)
+	if fromModal {
+		log.Info(ctx, "Generated GitHub OAuth URL for App installation from modal", "state_id", state.ID)
+	} else {
+		log.Info(ctx, "Generated GitHub OAuth URL for App installation", "state_id", state.ID)
+	}
 
 	// Open a modal with the GitHub installation link
 	modalView := sh.slackService.BuildGitHubInstallationModal(oauthURL)
 
-	// When called from within a modal, we need to push a new view
-	_, err = sh.slackService.PushView(ctx, teamID, triggerID, modalView)
+	if fromModal {
+		// Push a new view onto the modal stack
+		_, err = sh.slackService.PushView(ctx, teamID, triggerID, modalView)
+		if err != nil {
+			log.Error(ctx, "Failed to push GitHub installation modal", "error", err)
+		}
+	} else {
+		// Open a modal from App Home
+		_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
+		if err != nil {
+			log.Error(ctx, "Failed to open GitHub installation modal", "error", err)
+		}
+	}
+
 	if err != nil {
-		log.Error(ctx, "Failed to push GitHub installation modal", "error", err)
 		c.JSON(http.StatusOK, gin.H{
 			"response_action": "errors",
 			"errors": map[string]string{
-				"install_github_app": "Failed to open installation modal. Please try again.",
+				errorKey: "Failed to open installation modal. Please try again.",
 			},
 		})
 		return
