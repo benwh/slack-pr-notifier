@@ -223,15 +223,15 @@ func (h *OAuthHandler) handlePostOAuthActions(
 ) {
 	// If this was initiated from App Home, refresh the home view
 	if state.ReturnToHome {
-		// Check if GitHub installations exist for this workspace
-		hasInstallations, err := h.firestoreService.HasGitHubInstallations(ctx, state.SlackTeamID)
+		// Get GitHub installations for this workspace
+		installations, err := h.firestoreService.GetGitHubInstallationsByWorkspace(ctx, state.SlackTeamID)
 		if err != nil {
-			log.Error(ctx, "Failed to check GitHub installations for OAuth refresh", "error", err)
-			// Continue with false to show warning in case of error
-			hasInstallations = false
+			log.Error(ctx, "Failed to get GitHub installations for OAuth refresh", "error", err)
+			installations = nil
 		}
+		hasInstallations := len(installations) > 0
 
-		homeView := h.slackService.BuildHomeView(user, hasInstallations)
+		homeView := h.slackService.BuildHomeView(user, hasInstallations, installations)
 		err = h.slackService.PublishHomeView(ctx, state.SlackTeamID, state.SlackUserID, homeView)
 		if err != nil {
 			log.Warn(ctx, "Failed to refresh App Home after OAuth success",

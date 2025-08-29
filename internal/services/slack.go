@@ -755,8 +755,10 @@ func (s *SlackService) OpenView(ctx context.Context, teamID, triggerID string, v
 }
 
 // BuildHomeView constructs the home tab view based on user data.
-func (s *SlackService) BuildHomeView(user *models.User, hasGitHubInstallations bool) slack.HomeTabViewRequest {
-	return s.uiBuilder.BuildHomeView(user, hasGitHubInstallations)
+func (s *SlackService) BuildHomeView(
+	user *models.User, hasGitHubInstallations bool, installations []*models.GitHubInstallation,
+) slack.HomeTabViewRequest {
+	return s.uiBuilder.BuildHomeView(user, hasGitHubInstallations, installations)
 }
 
 // BuildOAuthModal builds the OAuth connection modal.
@@ -767,6 +769,13 @@ func (s *SlackService) BuildOAuthModal(oauthURL string) slack.ModalViewRequest {
 // BuildGitHubInstallationModal builds the GitHub App installation modal.
 func (s *SlackService) BuildGitHubInstallationModal(oauthURL string) slack.ModalViewRequest {
 	return s.uiBuilder.BuildGitHubInstallationModal(oauthURL)
+}
+
+// BuildGitHubInstallationsModal builds the GitHub installations management modal.
+func (s *SlackService) BuildGitHubInstallationsModal(
+	installations []*models.GitHubInstallation, baseURL, appSlug string,
+) slack.ModalViewRequest {
+	return s.uiBuilder.BuildGitHubInstallationsModal(installations, baseURL, appSlug)
 }
 
 // BuildChannelSelectorModal builds the channel selector modal.

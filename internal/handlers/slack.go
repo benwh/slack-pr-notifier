@@ -300,6 +300,10 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleToggleNotificationsAction(ctx, userID, c)
 	case "toggle_user_tagging":
 		sh.handleToggleUserTaggingAction(ctx, userID, c)
+	case "manage_github_installations":
+		sh.handleManageGitHubInstallationsAction(ctx, userID, teamID, interaction.TriggerID, c)
+	case "add_github_installation":
+		sh.handleInstallGitHubAppAction(ctx, userID, teamID, interaction.TriggerID, c)
 	default:
 		c.JSON(http.StatusOK, gin.H{})
 	}
@@ -341,16 +345,16 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 		return
 	}
 
-	// Check if GitHub installations exist for this workspace
-	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx, teamID)
+	// Get GitHub installations for this workspace
+	installations, err := sh.firestoreService.GetGitHubInstallationsByWorkspace(ctx, teamID)
 	if err != nil {
-		log.Error(ctx, "Failed to check GitHub installations for App Home", "error", err)
-		// Continue with false to show warning in case of error
-		hasInstallations = false
+		log.Error(ctx, "Failed to get GitHub installations for App Home", "error", err)
+		installations = nil
 	}
+	hasInstallations := len(installations) > 0
 
 	// Build and publish home view
-	view := sh.slackService.BuildHomeView(user, hasInstallations)
+	view := sh.slackService.BuildHomeView(user, hasInstallations, installations)
 	err = sh.slackService.PublishHomeView(ctx, teamID, userID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to publish App Home view", "error", err)
@@ -450,6 +454,46 @@ func (sh *SlackHandler) handleInstallGitHubAppAction(ctx context.Context, userID
 			"response_action": "errors",
 			"errors": map[string]string{
 				"install_github_app": "Failed to open installation modal. Please try again.",
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{})
+}
+
+// handleManageGitHubInstallationsAction handles the "Manage GitHub Installations" button.
+func (sh *SlackHandler) handleManageGitHubInstallationsAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+		"team_id": teamID,
+	})
+
+	log.Info(ctx, "User opened GitHub installations management modal")
+
+	// Get GitHub installations for this workspace
+	installations, err := sh.firestoreService.GetGitHubInstallationsByWorkspace(ctx, teamID)
+	if err != nil {
+		log.Error(ctx, "Failed to get GitHub installations for modal", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"github_installations": "Failed to load GitHub installations. Please try again.",
+			},
+		})
+		return
+	}
+
+	// Build and open the installations management modal
+	modalView := sh.slackService.BuildGitHubInstallationsModal(installations, sh.config.BaseURL, sh.config.GitHubAppSlug)
+
+	_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
+	if err != nil {
+		log.Error(ctx, "Failed to open GitHub installations modal", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"github_installations": "Failed to open installations modal. Please try again.",
 			},
 		})
 		return
@@ -656,15 +700,15 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 		return
 	}
 
-	// Check if GitHub installations exist for this workspace
-	hasInstallations, err := sh.firestoreService.HasGitHubInstallations(ctx, user.SlackTeamID)
+	// Get GitHub installations for this workspace
+	installations, err := sh.firestoreService.GetGitHubInstallationsByWorkspace(ctx, user.SlackTeamID)
 	if err != nil {
-		log.Error(ctx, "Failed to check GitHub installations for refresh", "error", err)
-		// Continue with false to show warning in case of error
-		hasInstallations = false
+		log.Error(ctx, "Failed to get GitHub installations for refresh", "error", err)
+		installations = nil
 	}
+	hasInstallations := len(installations) > 0
 
-	view := sh.slackService.BuildHomeView(user, hasInstallations)
+	view := sh.slackService.BuildHomeView(user, hasInstallations, installations)
 	err = sh.slackService.PublishHomeView(ctx, user.SlackTeamID, userID, view)
 	if err != nil {
 		log.Error(ctx, "Failed to refresh App Home view", "error", err)

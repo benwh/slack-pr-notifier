@@ -18,7 +18,9 @@ func NewHomeViewBuilder() *HomeViewBuilder {
 }
 
 // BuildHomeView constructs the home tab view based on user data.
-func (b *HomeViewBuilder) BuildHomeView(user *models.User, hasGitHubInstallations bool) slack.HomeTabViewRequest {
+func (b *HomeViewBuilder) BuildHomeView(
+	user *models.User, hasGitHubInstallations bool, installations []*models.GitHubInstallation,
+) slack.HomeTabViewRequest {
 	blocks := []slack.Block{}
 
 	// Introduction section
@@ -64,6 +66,11 @@ func (b *HomeViewBuilder) BuildHomeView(user *models.User, hasGitHubInstallation
 
 	// Channel tracking settings section
 	blocks = append(blocks, b.buildChannelTrackingSection()...)
+
+	blocks = append(blocks, slack.NewDividerBlock())
+
+	// GitHub installations management section
+	blocks = append(blocks, b.buildGitHubInstallationsSection(installations)...)
 
 	blocks = append(blocks, slack.NewDividerBlock())
 
@@ -537,5 +544,126 @@ func (b *HomeViewBuilder) buildGitHubInstallationWarning() []slack.Block {
 				false, false),
 		),
 		slack.NewDividerBlock(),
+	}
+}
+
+// buildGitHubInstallationsSection builds the GitHub installations management section.
+func (b *HomeViewBuilder) buildGitHubInstallationsSection(installations []*models.GitHubInstallation) []slack.Block {
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"*GitHub App installations*\nManage GitHub installations and add new ones",
+				false, false),
+			nil,
+			slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"manage_github_installations",
+					"manage_installations",
+					slack.NewTextBlockObject(slack.PlainTextType, "Manage installations", false, false),
+				),
+			),
+		),
+	}
+
+	if len(installations) == 0 {
+		blocks = append(blocks, slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"_No GitHub installations found. Install the GitHub App on your repositories to enable PR mirroring._",
+				false, false),
+		))
+	} else {
+		// Show summary of installations
+		blocks = append(blocks, slack.NewContextBlock(
+			"",
+			slack.NewTextBlockObject(slack.MarkdownType,
+				fmt.Sprintf("_Currently installed on %d organization(s)/account(s)_", len(installations)),
+				false, false),
+		))
+	}
+
+	return blocks
+}
+
+// BuildGitHubInstallationsModal builds the GitHub installations management modal.
+func (b *HomeViewBuilder) BuildGitHubInstallationsModal(
+	installations []*models.GitHubInstallation, baseURL, appSlug string,
+) slack.ModalViewRequest {
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"*Current GitHub App Installations*",
+				false, false),
+			nil, nil,
+		),
+	}
+
+	if len(installations) == 0 {
+		blocks = append(blocks,
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType,
+					"_No GitHub installations found._",
+					false, false),
+				nil, nil,
+			),
+		)
+	} else {
+		for _, installation := range installations {
+			// Build the management URL for this installation
+			var managementURL string
+			if installation.AccountType == "Organization" {
+				managementURL = fmt.Sprintf("https://github.com/organizations/%s/settings/installations/%d",
+					installation.AccountLogin, installation.ID)
+			} else {
+				managementURL = fmt.Sprintf("https://github.com/settings/installations/%d", installation.ID)
+			}
+
+			// Build repository info
+			repoInfo := "All repositories"
+			if installation.RepositorySelection == "selected" && len(installation.Repositories) > 0 {
+				repoInfo = fmt.Sprintf("%d selected repositories", len(installation.Repositories))
+			} else if installation.RepositorySelection == "selected" {
+				repoInfo = "Selected repositories (none configured)"
+			}
+
+			blocks = append(blocks,
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(slack.MarkdownType,
+						fmt.Sprintf("*%s* (%s)\n%s • Installed %s\n<%s|:point_right: Manage on GitHub>",
+							installation.AccountLogin,
+							installation.AccountType,
+							repoInfo,
+							installation.InstalledAt.Format("Jan 2, 2006"),
+							managementURL),
+						false, false),
+					nil, nil,
+				),
+			)
+		}
+	}
+
+	// Add divider and new installation section
+	blocks = append(blocks,
+		slack.NewDividerBlock(),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"*Add New Installation*\nInstall the GitHub App on additional organizations or repositories",
+				false, false),
+			nil,
+			slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"add_github_installation",
+					"add_installation",
+					slack.NewTextBlockObject(slack.PlainTextType, "Add new installation", false, false),
+				).WithStyle(slack.StylePrimary),
+			),
+		),
+	)
+
+	return slack.ModalViewRequest{
+		Type:       slack.VTModal,
+		Title:      slack.NewTextBlockObject(slack.PlainTextType, "GitHub Installations", false, false),
+		CallbackID: "github_installations_modal",
+		Blocks:     slack.Blocks{BlockSet: blocks},
 	}
 }
