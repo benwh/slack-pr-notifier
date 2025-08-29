@@ -28,17 +28,25 @@ var (
 )
 
 const (
-	PRActionOpened             = "opened"
-	PRActionEdited             = "edited"
-	PRActionClosed             = "closed"
-	PRActionReadyForReview     = "ready_for_review"
-	PRReviewActionSubmitted    = "submitted"
-	PRReviewActionDismissed    = "dismissed"
-	InstallationActionCreated  = "created"
-	EventTypePullRequest       = "pull_request"
-	EventTypePullRequestReview = "pull_request_review"
-	EventTypeInstallation      = "installation"
-	EventTypeGitHubAppAuth     = "github_app_authorization"
+	PRActionOpened                        = "opened"
+	PRActionEdited                        = "edited"
+	PRActionClosed                        = "closed"
+	PRActionReadyForReview                = "ready_for_review"
+	PRReviewActionSubmitted               = "submitted"
+	PRReviewActionDismissed               = "dismissed"
+	InstallationActionCreated             = "created"
+	InstallationActionDeleted             = "deleted"
+	InstallationActionSuspend             = "suspend"
+	InstallationActionUnsuspend           = "unsuspend"
+	InstallationActionNewPermissions      = "new_permissions_accepted"
+	InstallationRepositoriesActionAdded   = "added"
+	InstallationRepositoriesActionRemoved = "removed"
+	EventTypePullRequest                  = "pull_request"
+	EventTypePullRequestReview            = "pull_request_review"
+	EventTypeInstallation                 = "installation"
+	EventTypeInstallationRepositories     = "installation_repositories"
+	EventTypeGitHubAppAuth                = "github_app_authorization"
+	RepositorySelectionSelected           = "selected"
 )
 
 // GitHubWebhookPayload represents the structure of GitHub webhook events.
@@ -209,6 +217,8 @@ func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte)
 		return h.validateGitHubPayload(payload)
 	case "installation":
 		return h.validateInstallationPayload(payload)
+	case "installation_repositories":
+		return h.validateInstallationRepositoriesPayload(payload)
 	case "github_app_authorization":
 		// GitHub app authorization events don't need special validation
 		return nil
@@ -256,6 +266,8 @@ func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) 
 		return h.processPullRequestReviewEvent(ctx, webhookJob.Payload, webhookJob.TraceID)
 	case EventTypeInstallation:
 		return h.processInstallationEvent(ctx, webhookJob.Payload)
+	case EventTypeInstallationRepositories:
+		return h.processInstallationRepositoriesEvent(ctx, webhookJob.Payload)
 	case EventTypeGitHubAppAuth:
 		return h.processGitHubAppAuthEvent(ctx, webhookJob.Payload)
 	default:
@@ -1034,6 +1046,23 @@ func (h *GitHubHandler) validateInstallationPayload(payload []byte) error {
 	return nil
 }
 
+func (h *GitHubHandler) validateInstallationRepositoriesPayload(payload []byte) error {
+	var installationReposPayload map[string]interface{}
+	if err := json.Unmarshal(payload, &installationReposPayload); err != nil {
+		return fmt.Errorf("invalid JSON payload: %w", err)
+	}
+
+	if _, exists := installationReposPayload["action"]; !exists {
+		return ErrMissingAction
+	}
+
+	if _, exists := installationReposPayload["installation"]; !exists {
+		return ErrMissingInstallation
+	}
+
+	return nil
+}
+
 func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []byte) error {
 	var githubPayload GitHubWebhookPayload
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
@@ -1057,6 +1086,14 @@ func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []
 	switch githubPayload.Action {
 	case InstallationActionCreated:
 		return h.handleInstallationCreated(ctx, &githubPayload)
+	case InstallationActionDeleted:
+		return h.handleInstallationDeleted(ctx, &githubPayload)
+	case InstallationActionSuspend:
+		return h.handleInstallationSuspend(ctx, &githubPayload)
+	case InstallationActionUnsuspend:
+		return h.handleInstallationUnsuspend(ctx, &githubPayload)
+	case InstallationActionNewPermissions:
+		return h.handleInstallationNewPermissions(ctx, &githubPayload)
 	default:
 		log.Warn(ctx, "Installation action not handled")
 		return nil
@@ -1085,7 +1122,7 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 
 	// Extract repository list for selected repositories
 	var repositories []string
-	if payload.Installation.RepositorySelection == "selected" {
+	if payload.Installation.RepositorySelection == RepositorySelectionSelected {
 		for _, repo := range payload.Installation.Repositories {
 			repositories = append(repositories, repo.FullName)
 		}
@@ -1146,6 +1183,259 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 		"repository_count", len(repositories),
 		"repository_list", strings.Join(repositories, ","),
 		"note", "Installation will not be usable until associated with a Slack workspace via the Install GitHub App flow")
+
+	return nil
+}
+
+func (h *GitHubHandler) handleInstallationDeleted(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation deleted event")
+
+	// Delete the installation record from Firestore
+	err := h.firestoreService.DeleteGitHubInstallation(ctx, payload.Installation.ID)
+	if err != nil {
+		// Check if the error is "not found" - this might happen if the installation
+		// was already cleaned up or never existed in our database
+		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
+			log.Warn(ctx, "Installation record not found during deletion - may have been already cleaned up",
+				"installation_id", payload.Installation.ID)
+			return nil
+		}
+		log.Error(ctx, "Failed to delete GitHub installation record",
+			"error", err,
+			"installation_id", payload.Installation.ID)
+		return fmt.Errorf("failed to delete GitHub installation: %w", err)
+	}
+
+	log.Info(ctx, "Successfully processed installation deletion",
+		"installation_id", payload.Installation.ID,
+		"account_login", payload.Installation.Account.Login)
+
+	return nil
+}
+
+func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation suspend event")
+
+	// Get existing installation to update it
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	if err != nil {
+		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
+			log.Warn(ctx, "Installation not found for suspend event - creating suspended installation record",
+				"installation_id", payload.Installation.ID)
+			// Create a new installation record in suspended state
+			installation = &models.GitHubInstallation{
+				ID:                  payload.Installation.ID,
+				AccountLogin:        payload.Installation.Account.Login,
+				AccountType:         payload.Installation.Account.Type,
+				AccountID:           payload.Installation.Account.ID,
+				RepositorySelection: payload.Installation.RepositorySelection,
+				InstalledAt:         time.Now(), // We don't have the original install time
+				UpdatedAt:           time.Now(),
+			}
+		} else {
+			log.Error(ctx, "Failed to get installation for suspend", "error", err)
+			return fmt.Errorf("failed to get installation for suspend: %w", err)
+		}
+	}
+
+	// Set suspended status
+	suspendedAt := time.Now()
+	installation.SuspendedAt = &suspendedAt
+	installation.UpdatedAt = time.Now()
+
+	// Update or create the installation record
+	if err = h.firestoreService.UpdateGitHubInstallation(ctx, installation); err != nil {
+		// If update fails, try to create (in case it's a new record)
+		if err = h.firestoreService.CreateGitHubInstallation(ctx, installation); err != nil {
+			log.Error(ctx, "Failed to update/create suspended installation", "error", err)
+			return fmt.Errorf("failed to save suspended installation: %w", err)
+		}
+	}
+
+	log.Info(ctx, "Successfully processed installation suspension",
+		"installation_id", payload.Installation.ID,
+		"account_login", payload.Installation.Account.Login,
+		"suspended_at", suspendedAt)
+
+	return nil
+}
+
+func (h *GitHubHandler) handleInstallationUnsuspend(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation unsuspend event")
+
+	// Get existing installation to update it
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	if err != nil {
+		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
+			log.Warn(ctx, "Installation not found for unsuspend event - this shouldn't normally happen",
+				"installation_id", payload.Installation.ID)
+			return nil
+		}
+		log.Error(ctx, "Failed to get installation for unsuspend", "error", err)
+		return fmt.Errorf("failed to get installation for unsuspend: %w", err)
+	}
+
+	// Clear suspended status
+	installation.SuspendedAt = nil
+	installation.UpdatedAt = time.Now()
+
+	err = h.firestoreService.UpdateGitHubInstallation(ctx, installation)
+	if err != nil {
+		log.Error(ctx, "Failed to update unsuspended installation", "error", err)
+		return fmt.Errorf("failed to save unsuspended installation: %w", err)
+	}
+
+	log.Info(ctx, "Successfully processed installation unsuspension",
+		"installation_id", payload.Installation.ID,
+		"account_login", payload.Installation.Account.Login)
+
+	return nil
+}
+
+func (h *GitHubHandler) handleInstallationNewPermissions(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation new permissions accepted event",
+		"installation_id", payload.Installation.ID,
+		"account_login", payload.Installation.Account.Login)
+
+	// For now, we just log this event for audit purposes
+	// In the future, we could track permission changes or update stored scopes
+
+	return nil
+}
+
+func (h *GitHubHandler) processInstallationRepositoriesEvent(ctx context.Context, payload []byte) error {
+	var githubPayload GitHubWebhookPayload
+	if err := json.Unmarshal(payload, &githubPayload); err != nil {
+		log.Error(ctx, "Failed to unmarshal installation_repositories payload",
+			"error", err,
+			"payload_size", len(payload),
+		)
+		return fmt.Errorf("failed to unmarshal installation_repositories payload: %w", err)
+	}
+
+	// Add installation metadata to context for all subsequent log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"installation_id":     githubPayload.Installation.ID,
+		"account_login":       githubPayload.Installation.Account.Login,
+		"account_type":        githubPayload.Installation.Account.Type,
+		"repositories_action": githubPayload.Action,
+	})
+
+	log.Info(ctx, "Handling installation_repositories event")
+
+	switch githubPayload.Action {
+	case InstallationRepositoriesActionAdded:
+		return h.handleInstallationRepositoriesAdded(ctx, &githubPayload)
+	case InstallationRepositoriesActionRemoved:
+		return h.handleInstallationRepositoriesRemoved(ctx, &githubPayload)
+	default:
+		log.Warn(ctx, "Installation repositories action not handled")
+		return nil
+	}
+}
+
+func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation repositories added event")
+
+	// Get existing installation to update repository list
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	if err != nil {
+		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
+			log.Warn(ctx, "Installation not found for repositories added event",
+				"installation_id", payload.Installation.ID)
+			return nil
+		}
+		log.Error(ctx, "Failed to get installation for repositories update", "error", err)
+		return fmt.Errorf("failed to get installation for repositories update: %w", err)
+	}
+
+	// Extract added repositories from payload
+	addedRepos := make([]string, 0, len(payload.Installation.Repositories))
+	for _, repo := range payload.Installation.Repositories {
+		addedRepos = append(addedRepos, repo.FullName)
+	}
+
+	// Update installation's repository list (add new repos to existing list)
+	if installation.RepositorySelection == RepositorySelectionSelected {
+		existingRepos := make(map[string]bool)
+		for _, repo := range installation.Repositories {
+			existingRepos[repo] = true
+		}
+
+		// Add new repositories to the list
+		for _, repo := range addedRepos {
+			if !existingRepos[repo] {
+				installation.Repositories = append(installation.Repositories, repo)
+			}
+		}
+	}
+
+	installation.UpdatedAt = time.Now()
+
+	err = h.firestoreService.UpdateGitHubInstallation(ctx, installation)
+	if err != nil {
+		log.Error(ctx, "Failed to update installation with added repositories", "error", err)
+		return fmt.Errorf("failed to update installation repositories: %w", err)
+	}
+
+	log.Info(ctx, "Successfully processed installation repositories added event",
+		"installation_id", payload.Installation.ID,
+		"added_repositories", addedRepos,
+		"total_repositories", len(installation.Repositories))
+
+	return nil
+}
+
+func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Context, payload *GitHubWebhookPayload) error {
+	log.Info(ctx, "Processing installation repositories removed event")
+
+	// Get existing installation to update repository list
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	if err != nil {
+		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
+			log.Warn(ctx, "Installation not found for repositories removed event",
+				"installation_id", payload.Installation.ID)
+			return nil
+		}
+		log.Error(ctx, "Failed to get installation for repositories update", "error", err)
+		return fmt.Errorf("failed to get installation for repositories update: %w", err)
+	}
+
+	// Extract removed repositories from payload
+	removedRepos := make([]string, 0, len(payload.Installation.Repositories))
+	for _, repo := range payload.Installation.Repositories {
+		removedRepos = append(removedRepos, repo.FullName)
+	}
+
+	// Update installation's repository list (remove repos from existing list)
+	if installation.RepositorySelection == RepositorySelectionSelected {
+		removedReposMap := make(map[string]bool)
+		for _, repo := range removedRepos {
+			removedReposMap[repo] = true
+		}
+
+		// Filter out removed repositories
+		var updatedRepos []string
+		for _, repo := range installation.Repositories {
+			if !removedReposMap[repo] {
+				updatedRepos = append(updatedRepos, repo)
+			}
+		}
+		installation.Repositories = updatedRepos
+	}
+
+	installation.UpdatedAt = time.Now()
+
+	err = h.firestoreService.UpdateGitHubInstallation(ctx, installation)
+	if err != nil {
+		log.Error(ctx, "Failed to update installation with removed repositories", "error", err)
+		return fmt.Errorf("failed to update installation repositories: %w", err)
+	}
+
+	log.Info(ctx, "Successfully processed installation repositories removed event",
+		"installation_id", payload.Installation.ID,
+		"removed_repositories", removedRepos,
+		"remaining_repositories", len(installation.Repositories))
 
 	return nil
 }
