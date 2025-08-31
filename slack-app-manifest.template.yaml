@@ -31,6 +31,7 @@ oauth_config:
       - channels:join           # Join public channels when needed
       - groups:read             # View basic information about private channels that the app has been added to
       - chat:write              # Post messages in approved channels
+      - chat:write.customize    # Post messages that appear to be from other users
       - reactions:write         # Add and remove emoji reactions to messages
       - links:read              # Read information about links shared in channels
       - channels:history        # Required by message.channels event subscription
