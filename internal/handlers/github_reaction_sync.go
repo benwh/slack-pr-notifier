@@ -65,7 +65,7 @@ func (h *GitHubHandler) ProcessReactionSyncJob(ctx context.Context, job *models.
 }
 
 // groupMessagesByTeam groups tracked messages by team ID.
-// TODO: could be replaced by `lo.GroupBy` or similar
+// TODO: could be replaced by `lo.GroupBy` or similar.
 func (h *GitHubHandler) groupMessagesByTeam(trackedMessages []*models.TrackedMessage) map[string][]services.MessageRef {
 	messageRefs := make([]services.MessageRef, len(trackedMessages))
 	for i, msg := range trackedMessages {

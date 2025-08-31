@@ -77,96 +77,104 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled bool,
+	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
 ) (string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
 		return "", err
 	}
 
-	// Use custom emoji if provided, otherwise fall back to size-based emoji
-	emoji := customEmoji
-	if emoji == "" {
-		emoji = utils.GetPRSizeEmoji(prSize)
-	} else if !strings.HasPrefix(emoji, ":") {
-		// Format custom emoji for Slack (add colons if not present)
-		emoji = ":" + emoji + ":"
-	}
+	// Build message text once - use bot mode format since it includes everything we need
+	messageText := s.buildMessageText(
+		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC,
+		authorSlackUserID, userTaggingEnabled,
+	)
 
-	var msgOptions []slack.MsgOption
-
-	// Check if we can and should impersonate the author
+	// Try impersonation first if enabled
 	if authorSlackUserID != "" && impersonationEnabled {
-		// Get user info to impersonate them
-		user, err := s.GetUserInfo(ctx, teamID, authorSlackUserID)
+		timestamp, posted, err := s.postMessageAsUser(
+			ctx, client, teamID, channel, messageText, authorSlackUserID,
+		)
 		if err != nil {
-			log.Warn(ctx, "Failed to get author user info for impersonation, falling back to bot posting",
-				"error", err,
-				"author_slack_user_id", authorSlackUserID,
-			)
-		} else {
-			// Post as the PR author
-			text := fmt.Sprintf("%s <%s|%s>", emoji, prURL, prTitle)
-
-			// Add user CC if specified
-			if userToCC != "" {
-				text += fmt.Sprintf(" (cc: @%s)", userToCC)
-			}
-
-			name := user.Profile.DisplayName
-			// A display name may not be set
-			if name == "" {
-				name = user.RealName
-			}
-
-			msgOptions = append(msgOptions,
-				slack.MsgOptionText(text, false),
-				slack.MsgOptionDisableLinkUnfurl(),
-				slack.MsgOptionUsername(name),
-				slack.MsgOptionIconURL(user.Profile.Image72),
-			)
-
-			_, timestamp, err := client.PostMessage(channel, msgOptions...)
-			if err != nil {
-				log.Error(ctx, "Failed to post PR message as user to Slack",
-					"error", err,
-					"channel", channel,
-					"team_id", teamID,
-					"repo_name", repoName,
-					"pr_title", prTitle,
-					"pr_author", prAuthor,
-					"pr_url", prURL,
-					"operation", "post_pr_message_as_user",
-				)
-				return "", fmt.Errorf("failed to post PR message as user to channel %s for team %s repo %s: %w", channel, teamID, repoName, err)
-			}
-
-			log.Info(ctx, "Posted PR message as author",
-				"channel", channel,
-				"team_id", teamID,
-				"author_slack_user_id", authorSlackUserID,
-				"display_name", name,
-			)
-
+			return "", err
+		}
+		if posted {
 			return timestamp, nil
 		}
 	}
 
-	// Fallback: Post as bot with author mention
-	authorDisplay := prAuthor
-	if authorSlackUserID != "" {
-		authorDisplay = fmt.Sprintf("<@%s>", authorSlackUserID)
+	// Fallback: Post as bot
+	return s.postMessageAsBot(
+		ctx, client, teamID, channel, repoName, prTitle, prAuthor, prURL,
+		messageText,
+	)
+}
+
+// formatEmoji formats the emoji for Slack message display.
+func (s *SlackService) formatEmoji(customEmoji string, prSize int) string {
+	if customEmoji == "" {
+		return utils.GetPRSizeEmoji(prSize)
+	}
+	if !strings.HasPrefix(customEmoji, ":") {
+		return ":" + customEmoji + ":"
+	}
+	return customEmoji
+}
+
+// postMessageAsUser attempts to post as the user via impersonation.
+// Returns (timestamp, posted, error) where posted indicates if the message was successfully posted.
+func (s *SlackService) postMessageAsUser(
+	ctx context.Context, client *slack.Client, teamID, channel, messageText, authorSlackUserID string,
+) (string, bool, error) {
+	user, err := s.GetUserInfo(ctx, teamID, authorSlackUserID)
+	if err != nil {
+		log.Warn(ctx, "Failed to get author user info for impersonation, falling back to bot posting",
+			"error", err,
+			"author_slack_user_id", authorSlackUserID,
+		)
+		return "", false, nil // Not an error, just fallback
 	}
 
-	text := fmt.Sprintf("%s <%s|%s> by %s", emoji, prURL, prTitle, authorDisplay)
-
-	// Add user CC if specified
-	if userToCC != "" {
-		text += fmt.Sprintf(" (cc: @%s)", userToCC)
+	name := user.Profile.DisplayName
+	if name == "" {
+		name = user.RealName
 	}
 
+	msgOptions := []slack.MsgOption{
+		slack.MsgOptionText(messageText, false),
+		slack.MsgOptionDisableLinkUnfurl(),
+		slack.MsgOptionUsername(name),
+		slack.MsgOptionIconURL(user.Profile.Image72),
+	}
+
+	_, timestamp, err := client.PostMessage(channel, msgOptions...)
+	if err != nil {
+		log.Error(ctx, "Failed to post PR message as user to Slack",
+			"error", err,
+			"channel", channel,
+			"team_id", teamID,
+			"author_slack_user_id", authorSlackUserID,
+			"operation", "post_pr_message_as_user",
+		)
+		return "", false, fmt.Errorf("failed to post PR message as user to channel %s for team %s: %w", channel, teamID, err)
+	}
+
+	log.Info(ctx, "Posted PR message as author",
+		"channel", channel,
+		"team_id", teamID,
+		"author_slack_user_id", authorSlackUserID,
+		"display_name", name,
+	)
+
+	return timestamp, true, nil
+}
+
+// postMessageAsBot posts the PR message as the bot.
+func (s *SlackService) postMessageAsBot(
+	ctx context.Context, client *slack.Client, teamID, channel, repoName, prTitle, prAuthor, prURL, messageText string,
+) (string, error) {
 	_, timestamp, err := client.PostMessage(channel,
-		slack.MsgOptionText(text, false),
+		slack.MsgOptionText(messageText, false),
 		slack.MsgOptionDisableLinkUnfurl(),
 	)
 	if err != nil {
@@ -184,6 +192,33 @@ func (s *SlackService) PostPRMessage(
 	}
 
 	return timestamp, nil
+}
+
+// buildMessageText constructs the message text for both impersonation and bot modes.
+func (s *SlackService) buildMessageText(
+	customEmoji string, prSize int, prURL, prTitle, prAuthor, userToCC, authorSlackUserID string,
+	userTaggingEnabled bool,
+) string {
+	emoji := s.formatEmoji(customEmoji, prSize)
+	text := fmt.Sprintf("%s <%s|%s>", emoji, prURL, prTitle)
+
+	// If we haven't been able to resolve a GH user to a Slack user (which really
+	// shouldn't happen), then always use the PR author name, regardless of tagging.
+	if authorSlackUserID == "" {
+		text += fmt.Sprintf(" by %s", prAuthor)
+	} else {
+		// Add user tag if tagging is enabled
+		if userTaggingEnabled {
+			text += fmt.Sprintf(" by <@%s>", authorSlackUserID)
+		}
+	}
+
+	// Add user CC if specified
+	if userToCC != "" {
+		text += fmt.Sprintf(" (cc: @%s)", userToCC)
+	}
+
+	return text
 }
 
 // SendEphemeralMessage sends an ephemeral message visible only to a specific user.

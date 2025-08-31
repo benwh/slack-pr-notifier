@@ -250,8 +250,8 @@ func (b *HomeViewBuilder) buildUserTaggingSection(user *models.User) []slack.Blo
 		// Notifications disabled - show pending state
 		taggingStatus = "⏳ Pending - Enable notifications first"
 	} else {
-		// Determine tagging status - default to enabled for backward compatibility
-		taggingEnabled := user == nil || user.TaggingEnabled
+		// Determine tagging status - disabled by default and null treated as disabled
+		taggingEnabled := user != nil && user.TaggingEnabled
 
 		if taggingEnabled {
 			taggingStatus = "✅ Enabled"

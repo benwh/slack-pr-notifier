@@ -525,15 +525,14 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	// Calculate PR size (additions + deletions)
 	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
 
-	// Get author's Slack user ID if they're in the same workspace and have tagging enabled
+	// Get author's Slack user ID if they're in the same workspace and verified
 	var authorSlackUserID string
 	if user != nil && user.SlackTeamID == repo.WorkspaceID && user.Verified {
-		// Check if user has tagging enabled (default to true for backward compatibility)
-		taggingEnabled := user.TaggingEnabled
-		if taggingEnabled {
-			authorSlackUserID = user.SlackUserID
-		}
+		authorSlackUserID = user.SlackUserID
 	}
+
+	// Determine user tagging preference - disabled by default and null treated as disabled
+	userTaggingEnabled := user != nil && user.TaggingEnabled
 
 	// Determine impersonation preference - default to enabled if user not found
 	impersonationEnabled := true
@@ -555,6 +554,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		directives.UserToCC,
 		directives.CustomEmoji,
 		impersonationEnabled,
+		userTaggingEnabled,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack workspace",
