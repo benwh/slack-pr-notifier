@@ -11,6 +11,7 @@ linters:
     - exhaustruct       # Too verbose for simple structs
     - forbidigo         # No forbidden identifiers
     - gochecknoglobals  # Too restrictive for this project
+    - godox             # TODO comments are acceptable during development
     - goheader          # No header requirements
     - nilnil            # nil returns are fine
     - nlreturn          # Stylistic preference
