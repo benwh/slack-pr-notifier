@@ -722,6 +722,12 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		impersonationEnabled = user.GetImpersonationEnabled()
 	}
 
+	// Resolve UserToCC GitHub username to Slack user ID if possible
+	var userToCCSlackID string
+	if directives.UserToCC != "" {
+		userToCCSlackID = h.resolveUserMention(ctx, directives.UserToCC, repo.WorkspaceID)
+	}
+
 	timestamp, resolvedChannelID, err := h.slackService.PostPRMessage(
 		ctx,
 		repo.WorkspaceID,
@@ -734,6 +740,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		prSize,
 		authorSlackUserID,
 		directives.UserToCC,
+		userToCCSlackID,
 		directives.CustomEmoji,
 		impersonationEnabled,
 		userTaggingEnabled,
@@ -1822,4 +1829,49 @@ func (h *GitHubHandler) processGitHubAppAuthEvent(ctx context.Context, payload [
 	// This webhook confirms that the authorization happened.
 
 	return nil
+}
+
+// resolveUserMention attempts to resolve a GitHub username to a Slack user ID.
+// Returns the Slack user ID if the user is found, verified, and in the target workspace.
+// Returns empty string if no mapping is found, allowing fallback to plain text mention.
+func (h *GitHubHandler) resolveUserMention(ctx context.Context, githubUsername, workspaceID string) string {
+	if githubUsername == "" || workspaceID == "" {
+		return ""
+	}
+
+	// Look up user by GitHub username and workspace ID
+	user, err := h.firestoreService.GetUserByGitHubUsernameAndWorkspace(ctx, githubUsername, workspaceID)
+	if err != nil {
+		log.Debug(ctx, "Failed to find user by GitHub username and workspace for mention",
+			"github_username", githubUsername,
+			"workspace_id", workspaceID,
+			"error", err,
+		)
+		return ""
+	}
+
+	// Ensure user is not nil and verified
+	if user == nil {
+		log.Debug(ctx, "No user found for GitHub username in workspace",
+			"github_username", githubUsername,
+			"workspace_id", workspaceID,
+		)
+		return ""
+	}
+
+	if !user.Verified {
+		log.Debug(ctx, "User found but not verified",
+			"github_username", githubUsername,
+			"workspace_id", workspaceID,
+			"verified", user.Verified,
+		)
+		return ""
+	}
+
+	log.Debug(ctx, "Resolved GitHub username to Slack user ID for mention",
+		"github_username", githubUsername,
+		"slack_user_id", user.SlackUserID,
+		"workspace_id", workspaceID,
+	)
+	return user.SlackUserID
 }

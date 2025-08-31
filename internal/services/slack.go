@@ -81,7 +81,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 // Returns the message timestamp and resolved channel ID for tracking.
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
+	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
 ) (string, string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *SlackService) PostPRMessage(
 
 	// Build message text once - use bot mode format since it includes everything we need
 	messageText := s.buildMessageText(
-		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC,
+		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC, userToCCSlackID,
 		authorSlackUserID, userTaggingEnabled,
 	)
 
@@ -213,7 +213,7 @@ func (s *SlackService) postMessageAsBot(
 
 // buildMessageText constructs the message text for both impersonation and bot modes.
 func (s *SlackService) buildMessageText(
-	customEmoji string, prSize int, prURL, prTitle, prAuthor, userToCC, authorSlackUserID string,
+	customEmoji string, prSize int, prURL, prTitle, prAuthor, userToCC, userToCCSlackID, authorSlackUserID string,
 	userTaggingEnabled bool,
 ) string {
 	emoji := s.formatEmoji(customEmoji, prSize)
@@ -228,9 +228,13 @@ func (s *SlackService) buildMessageText(
 		text += fmt.Sprintf(" by <@%s>", authorSlackUserID)
 	}
 
-	// Add user CC if specified
+	// Add user CC if specified - use Slack user ID if available, otherwise fallback to plain text
 	if userToCC != "" {
-		text += fmt.Sprintf(" (cc: @%s)", userToCC)
+		if userToCCSlackID != "" {
+			text += fmt.Sprintf(" (cc: <@%s>)", userToCCSlackID)
+		} else {
+			text += fmt.Sprintf(" (cc: @%s)", userToCC)
+		}
 	}
 
 	return text

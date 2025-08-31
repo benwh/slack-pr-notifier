@@ -25,7 +25,7 @@ This directive works both proactively (prevents initial posting) and retroactive
 - **Magic string**: `!review` or `!reviews` (both forms work identically)
 - **Skip directive**: `skip` or `no` - prevents the PR from being posted to Slack AND deletes existing messages (same as `!review-skip`)
 - **Channel override**: `#channel_name` - overrides the default channel for posting
-- **User CC**: `@user_to_cc` - tags additional users in the Slack message  
+- **User CC**: `@user_to_cc` - mentions additional users in the Slack message (triggers real Slack notifications for registered users)  
 - **Custom emoji**: `:emoji_name:` - overrides the default size-based emoji with a custom one
 
 ### Order and Combinations
@@ -98,11 +98,24 @@ This will prevent the PR from being posted to Slack AND delete all existing Slac
 
 If multiple `!review` or `!reviews` directives are present in the same PR description, the **last one wins** for each component (channel, user CC, emoji, skip).
 
+## User Mentions
+
+The `@user_to_cc` directive supports intelligent user mention resolution:
+
+- **For registered users**: If the GitHub username matches a user who has connected their GitHub account to the bot and is verified in the same Slack workspace, the mention will use the proper Slack format `<@slackUserID>` which triggers a real Slack notification.
+
+- **For unregistered users**: If no matching user is found in the database, the mention falls back to plain text format `@username` which appears as text but doesn't trigger Slack notifications.
+
+This ensures that:
+- Team members who have set up their GitHub integration will receive proper Slack notifications
+- External contributors or users who haven't set up integration will still be mentioned visually in the message
+- The directive works consistently regardless of user registration status
+
 ## Implementation Notes
 
 - Directives are case-insensitive for the magic string (`!REVIEW`, `!Review`, `!REVIEW-SKIP`, etc. all work)
 - Channel names must start with `#` and contain only alphanumeric characters, hyphens, and underscores
-- User mentions must start with `@` and follow Slack username conventions
+- User mentions must start with `@` and should use GitHub usernames
 - Custom emojis must be in the format `:emoji_name:` and override the default size-based emoji
 - Both `!review: skip` and `!review-skip` now work identically - they prevent posting AND delete existing messages
 - Invalid directives are ignored with warnings logged

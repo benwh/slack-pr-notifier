@@ -89,6 +89,7 @@ func (h *TestGitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.J
 			testPRSize,
 			"",    // No Slack user ID in test
 			"",    // No user CC in test
+			"",    // No user CC Slack ID in test
 			"",    // No custom emoji in test
 			true,  // Default to impersonation enabled in test
 			false, // Default to user tagging disabled in test

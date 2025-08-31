@@ -95,31 +95,38 @@ func (fs *FirestoreService) GetUserByGitHubID(ctx context.Context, githubUserID 
 	return &user, nil
 }
 
-// GetUserByGitHubUsername retrieves a user by their GitHub username.
-func (fs *FirestoreService) GetUserByGitHubUsername(ctx context.Context, githubUsername string) (*models.User, error) {
-	iter := fs.client.Collection("users").Where("github_username", "==", githubUsername).Documents(ctx)
+// GetUserByGitHubUsernameAndWorkspace retrieves a user by their GitHub username and Slack workspace ID.
+func (fs *FirestoreService) GetUserByGitHubUsernameAndWorkspace(
+	ctx context.Context, githubUsername, workspaceID string,
+) (*models.User, error) {
+	iter := fs.client.Collection("users").
+		Where("github_username", "==", githubUsername).
+		Where("slack_team_id", "==", workspaceID).
+		Documents(ctx)
 	doc, err := iter.Next()
 	if err != nil {
 		if errors.Is(err, iterator.Done) {
 			return nil, nil
 		}
-		log.Error(ctx, "Failed to get user by GitHub username",
+		log.Error(ctx, "Failed to get user by GitHub username and workspace",
 			"error", err,
 			"github_username", githubUsername,
-			"operation", "query_user_by_github_username",
+			"workspace_id", workspaceID,
+			"operation", "query_user_by_github_username_and_workspace",
 		)
-		return nil, fmt.Errorf("failed to get user by github username %s: %w", githubUsername, err)
+		return nil, fmt.Errorf("failed to get user by github username %s and workspace %s: %w", githubUsername, workspaceID, err)
 	}
 
 	var user models.User
 	err = doc.DataTo(&user)
 	if err != nil {
-		log.Error(ctx, "Failed to unmarshal user data by GitHub username",
+		log.Error(ctx, "Failed to unmarshal user data by GitHub username and workspace",
 			"error", err,
 			"github_username", githubUsername,
+			"workspace_id", workspaceID,
 			"operation", "unmarshal_user_data",
 		)
-		return nil, fmt.Errorf("failed to unmarshal user data for github username %s: %w", githubUsername, err)
+		return nil, fmt.Errorf("failed to unmarshal user data for github username %s and workspace %s: %w", githubUsername, workspaceID, err)
 	}
 
 	return &user, nil

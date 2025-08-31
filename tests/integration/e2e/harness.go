@@ -476,6 +476,8 @@ func (h *TestHarness) SlackRequestCapture() *SlackRequestCapture {
 }
 
 // SetupMockResponses sets up mock responses for this test harness's HTTP client.
+//
+//nolint:funlen,maintidx // Test setup function with many mock responses
 func (h *TestHarness) SetupMockResponses() {
 	// Mock Slack API responses with per-test request capture
 	httpmock.RegisterResponder("POST", "https://slack.com/api/chat.postMessage",
