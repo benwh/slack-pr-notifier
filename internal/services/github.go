@@ -205,6 +205,8 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		PerPage: maxReviewsPerPage,
 	})
 	if err != nil {
+		// TODO: Should probably bubble-up an error, so that we retry the job in case of a
+		// transient failure? Need to check error handling in caller!
 		log.Error(ctx, "Failed to fetch PR reviews", "error", err)
 		// Continue without review state - PR details are still useful
 		return pr, "", nil
@@ -220,6 +222,7 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		state := review.GetState()
 
 		// Only track meaningful review states
+		// TODO: enum
 		if state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "COMMENTED" {
 			// Keep the latest review state for each user
 			userReviewStates[userID] = strings.ToLower(state)
@@ -251,6 +254,7 @@ func determineOverallReviewState(userReviewStates map[string]string) string {
 	hasApproved := false
 	hasCommented := false
 
+	// TODO: Should define these states as an enum, then use them in GetEmojiForReviewState
 	for _, state := range userReviewStates {
 		switch state {
 		case "changes_requested":

@@ -32,6 +32,7 @@ func GetPRSizeEmoji(linesChanged int) string {
 
 // GetEmojiForReviewState returns the appropriate emoji for a given review state.
 func GetEmojiForReviewState(state string, emojiConfig config.EmojiConfig) string {
+	// TODO: state should be an enum type, the same as in our GitHub service.
 	switch state {
 	case "approved":
 		return emojiConfig.Approved
