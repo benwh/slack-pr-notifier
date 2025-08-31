@@ -34,7 +34,7 @@ func (b *HomeViewBuilder) BuildHomeView(
 	// My Options section
 	blocks = append(blocks,
 		slack.NewHeaderBlock(
-			slack.NewTextBlockObject(slack.PlainTextType, "🔧 Setup your account", false, false),
+			slack.NewTextBlockObject(slack.PlainTextType, "🔧 App setup", false, false),
 		),
 		slack.NewContextBlock(
 			"",
@@ -85,37 +85,40 @@ func (b *HomeViewBuilder) BuildHomeView(
 
 // buildGitHubConnectionSection builds the GitHub connection status section.
 func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slack.Block {
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, "*Setup*", false, false),
+			nil, nil,
+		),
+	}
+
 	if user != nil && user.GitHubUsername != "" && user.Verified {
 		// Connected state
-		return []slack.Block{
-			slack.NewSectionBlock(
-				slack.NewTextBlockObject(slack.MarkdownType,
-					fmt.Sprintf("*Step 1: Connect your GitHub account*\n✅ Connected as @%s (Verified via OAuth)", user.GitHubUsername),
-					false, false),
-				nil,
-				slack.NewAccessory(
-					slack.NewButtonBlockElement(
-						"disconnect_github",
-						"disconnect",
-						slack.NewTextBlockObject(slack.PlainTextType, "Disconnect", false, false),
-					).WithStyle(slack.StyleDanger).WithConfirm(
-						slack.NewConfirmationBlockObject(
-							slack.NewTextBlockObject(slack.PlainTextType, "Disconnect GitHub?", false, false),
-							slack.NewTextBlockObject(slack.MarkdownType, "Are you sure you want to disconnect your GitHub account?", false, false),
-							slack.NewTextBlockObject(slack.PlainTextType, "Yes, disconnect", false, false),
-							slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
-						),
+		blocks = append(blocks, slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				fmt.Sprintf("Connect your GitHub account\n_✅ Connected as @%s (Verified via OAuth)_", user.GitHubUsername),
+				false, false),
+			nil,
+			slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"disconnect_github",
+					"disconnect",
+					slack.NewTextBlockObject(slack.PlainTextType, "Disconnect", false, false),
+				).WithStyle(slack.StyleDanger).WithConfirm(
+					slack.NewConfirmationBlockObject(
+						slack.NewTextBlockObject(slack.PlainTextType, "Disconnect GitHub?", false, false),
+						slack.NewTextBlockObject(slack.MarkdownType, "Are you sure you want to disconnect your GitHub account?", false, false),
+						slack.NewTextBlockObject(slack.PlainTextType, "Yes, disconnect", false, false),
+						slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
 					),
 				),
 			),
-		}
-	}
-
-	// Disconnected state
-	return []slack.Block{
-		slack.NewSectionBlock(
+		))
+	} else {
+		// Disconnected state
+		blocks = append(blocks, slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*Step 1: Connect your GitHub account*\n❌ Not connected - Link your GitHub account so PR Bot can identify your PRs",
+				"Connect your GitHub account\n_❌ Not connected - Link your GitHub account so PR Bot can identify your PRs_",
 				false, false),
 			nil,
 			slack.NewAccessory(
@@ -125,13 +128,20 @@ func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slac
 					slack.NewTextBlockObject(slack.PlainTextType, "Connect GitHub account", false, false),
 				).WithStyle(slack.StylePrimary),
 			),
-		),
+		))
 	}
+
+	return blocks
 }
 
 // buildChannelConfigSection builds the default channel configuration section.
 func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.Block {
-	blocks := []slack.Block{}
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, "*Options*", false, false),
+			nil, nil,
+		),
+	}
 
 	// Determine notification status based on both GitHub connection and notification preference
 	var notificationStatus string
@@ -160,7 +170,7 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 
 	// Build the section block with or without the button based on GitHub connection
 	sectionText := slack.NewTextBlockObject(slack.MarkdownType,
-		fmt.Sprintf("*Step 2: Enable PR mirroring*\n%s - When enabled, your PRs will be automatically posted", notificationStatus),
+		fmt.Sprintf("Enable PR mirroring\n_%s - When enabled, your PRs will be automatically posted_", notificationStatus),
 		false, false)
 
 	var accessory *slack.Accessory
@@ -193,14 +203,14 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 
 	if !githubConnected {
 		// GitHub not connected - show pending state
-		channelSectionText = "*Step 3: Set your default channel*\n⏳ Pending - Connect GitHub first"
+		channelSectionText = "Set your default channel\n_⏳ Pending - Connect GitHub first_"
 	} else if user != nil && !user.NotificationsEnabled {
 		// GitHub connected but notifications disabled
-		channelSectionText = "*Step 3: Set your default channel*\n⏳ Pending - Enable notifications first"
+		channelSectionText = "Set your default channel\n_⏳ Pending - Enable notifications first_"
 	} else if user != nil && user.DefaultChannel != "" {
 		// Everything enabled and channel set
-		channelSectionText = fmt.Sprintf("*Step 3: Set your default channel*\n✅ Current: <#%s> - This is where your PRs will be posted, "+
-			"unless specified otherwise in the PR description", user.DefaultChannel)
+		channelSectionText = fmt.Sprintf("Set your default channel\n_✅ Current: <#%s> - This is where your PRs will be posted, "+
+			"unless specified otherwise in the PR description_", user.DefaultChannel)
 		channelAccessory = slack.NewAccessory(
 			slack.NewButtonBlockElement(
 				"select_channel",
@@ -210,7 +220,7 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 		)
 	} else {
 		// Everything enabled but no channel set
-		channelSectionText = "*Step 3: Set your default channel*\n:warning: No channel selected - Choose where your PRs should be posted"
+		channelSectionText = "Set your default channel\n_:warning: No channel selected - Choose where your PRs should be posted_"
 		channelAccessory = slack.NewAccessory(
 			slack.NewButtonBlockElement(
 				"select_channel",
@@ -266,7 +276,7 @@ func (b *HomeViewBuilder) buildUserTaggingSection(user *models.User) []slack.Blo
 	}
 
 	taggingSectionText := slack.NewTextBlockObject(slack.MarkdownType,
-		fmt.Sprintf("*Step 2b: Control user mentions*\n%s - When enabled, you will be mentioned (@username) in your PR messages", taggingStatus),
+		fmt.Sprintf("Control user mentions\n_%s - When enabled, you will be mentioned (@username) in your PR messages_", taggingStatus),
 		false, false)
 
 	return []slack.Block{
@@ -311,8 +321,8 @@ func (b *HomeViewBuilder) buildImpersonationSection(user *models.User) []slack.B
 	}
 
 	impersonationSectionText := slack.NewTextBlockObject(slack.MarkdownType,
-		fmt.Sprintf("*Step 2c: Control message appearance*\n%s - When enabled, PR notifications "+
-			"appear to be posted by you instead of the bot", impersonationStatus),
+		fmt.Sprintf("Control message appearance\n_%s - When enabled, PR notifications "+
+			"appear to be posted by you instead of the bot_", impersonationStatus),
 		false, false)
 
 	return []slack.Block{
