@@ -59,39 +59,14 @@ var (
 	ErrInvalidRepoFormat = errors.New("invalid repository name format")
 	// ErrInstallationNotFound is returned when GitHub installation is not found.
 	ErrInstallationNotFound = errors.New("GitHub installation not found for repository owner")
+	// ErrNoWorkspaceConfigurations is returned when no workspace configurations are found for a repository.
+	ErrNoWorkspaceConfigurations = errors.New("no workspace configurations found for repository")
 )
 
 const (
 	expectedRepoParts = 2
 	maxReviewsPerPage = 100
 )
-
-// ClientForRepo returns a GitHub client configured for the given repository.
-// It looks up the GitHub installation for the repository owner and creates a client.
-// Deprecated: Use ClientForRepoWithWorkspace instead for workspace-scoped access.
-func (s *GitHubService) ClientForRepo(ctx context.Context, repoFullName string) (*github.Client, error) {
-	log.Warn(ctx, "Using deprecated ClientForRepo method - workspace validation bypassed", "repo", repoFullName)
-	parts := strings.Split(repoFullName, "/")
-	if len(parts) != expectedRepoParts {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidRepoFormat, repoFullName)
-	}
-	owner := parts[0]
-
-	// Look up GitHub installation for this repository owner
-	installation, err := s.firestoreService.GetGitHubInstallationByAccountLogin(ctx, owner)
-	if err != nil {
-		if errors.Is(err, ErrGitHubInstallationNotFound) {
-			log.Error(ctx, "GitHub installation not found for repository owner",
-				"owner", owner,
-				"repo", repoFullName,
-			)
-			return nil, fmt.Errorf("%w for owner %s", ErrInstallationNotFound, owner)
-		}
-		return nil, fmt.Errorf("failed to lookup GitHub installation: %w", err)
-	}
-
-	return s.createAndCacheClient(ctx, installation, repoFullName)
-}
 
 // ClientForRepoWithWorkspace returns a GitHub client configured for the given repository with workspace validation.
 // It ensures that only repositories from installations owned by the specified workspace can be accessed.
@@ -199,8 +174,17 @@ func (s *GitHubService) GetPullRequestWithReviews(
 	}
 	owner, repo := parts[0], parts[1]
 
-	// Get client for this repository
-	client, err := s.ClientForRepo(ctx, repoFullName)
+	// Get any workspace that has this repository configured
+	repos, err := s.firestoreService.GetReposForAllWorkspaces(ctx, repoFullName)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get repository configurations: %w", err)
+	}
+	if len(repos) == 0 {
+		return nil, "", fmt.Errorf("%w: %s", ErrNoWorkspaceConfigurations, repoFullName)
+	}
+
+	// Use the first workspace's installation (any valid one will work for reading PR data)
+	client, err := s.ClientForRepoWithWorkspace(ctx, repoFullName, repos[0].WorkspaceID)
 	if err != nil {
 		return nil, "", err
 	}
