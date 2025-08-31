@@ -244,6 +244,7 @@ func (s *GitHubService) GetPullRequestWithReviews(
 }
 
 // determineOverallReviewState determines the overall review state from individual user reviews.
+// Priority order: changes_requested > approved > commented.
 func determineOverallReviewState(userReviewStates map[string]string) string {
 	if len(userReviewStates) == 0 {
 		return ""

@@ -66,6 +66,7 @@ func (fs *FirestoreService) GetUserBySlackID(ctx context.Context, slackUserID st
 	return &user, nil
 }
 
+// GetUserByGitHubID retrieves a user by their GitHub document ID.
 func (fs *FirestoreService) GetUserByGitHubID(ctx context.Context, githubUserID string) (*models.User, error) {
 	doc, err := fs.client.Collection("users").Doc(githubUserID).Get(ctx)
 	if err != nil {
@@ -94,6 +95,7 @@ func (fs *FirestoreService) GetUserByGitHubID(ctx context.Context, githubUserID 
 	return &user, nil
 }
 
+// GetUserByGitHubUsername retrieves a user by their GitHub username.
 func (fs *FirestoreService) GetUserByGitHubUsername(ctx context.Context, githubUsername string) (*models.User, error) {
 	iter := fs.client.Collection("users").Where("github_username", "==", githubUsername).Documents(ctx)
 	doc, err := iter.Next()
@@ -153,6 +155,7 @@ func (fs *FirestoreService) GetUserByGitHubUserID(ctx context.Context, githubUse
 	return &user, nil
 }
 
+// CreateOrUpdateUser creates a new user or updates an existing user, setting timestamps appropriately.
 func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models.User) error {
 	user.UpdatedAt = time.Now()
 	if user.CreatedAt.IsZero() {
@@ -172,6 +175,7 @@ func (fs *FirestoreService) CreateOrUpdateUser(ctx context.Context, user *models
 	return nil
 }
 
+// GetRepo retrieves a repository configuration for a specific workspace.
 func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName, slackTeamID string) (*models.Repo, error) {
 	docID := fs.encodeRepoDocID(slackTeamID, repoFullName)
 	doc, err := fs.client.Collection("repos").Doc(docID).Get(ctx)
@@ -203,6 +207,7 @@ func (fs *FirestoreService) GetRepo(ctx context.Context, repoFullName, slackTeam
 	return &repo, nil
 }
 
+// CreateRepo creates a new repository configuration, setting creation timestamp and denormalized fields.
 func (fs *FirestoreService) CreateRepo(ctx context.Context, repo *models.Repo) error {
 	repo.CreatedAt = time.Now()
 	repo.RepoFullName = repo.ID // Ensure denormalized field is set

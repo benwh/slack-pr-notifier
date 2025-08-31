@@ -104,6 +104,8 @@ type GitHubHandler struct {
 	emojiConfig       config.EmojiConfig
 }
 
+// NewGitHubHandler creates a new GitHubHandler with the provided services and configuration.
+// Initializes handler with dependencies for processing GitHub webhooks and managing PR notifications.
 func NewGitHubHandler(
 	cloudTasksService CloudTasksServiceInterface,
 	firestoreService *services.FirestoreService,
@@ -122,6 +124,8 @@ func NewGitHubHandler(
 	}
 }
 
+// HandleWebhook processes incoming GitHub webhook events.
+// Validates payload signature, creates webhook jobs, and enqueues them for async processing.
 func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	startTime := time.Now()
 	traceID := c.GetString("trace_id")
@@ -211,6 +215,8 @@ func (h *GitHubHandler) HandleWebhook(c *gin.Context) {
 	})
 }
 
+// validateWebhookPayload validates GitHub webhook payload structure based on event type.
+// Ensures required fields are present for each supported webhook event type.
 func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte) error {
 	switch eventType {
 	case "pull_request", "pull_request_review":
@@ -227,6 +233,8 @@ func (h *GitHubHandler) validateWebhookPayload(eventType string, payload []byte)
 	}
 }
 
+// validateGitHubPayload validates basic GitHub webhook payload structure.
+// Checks for required fields like action and repository in PR-related events.
 func (h *GitHubHandler) validateGitHubPayload(payload []byte) error {
 	var githubPayload map[string]interface{}
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
@@ -275,6 +283,8 @@ func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) 
 	}
 }
 
+// processPullRequestEvent processes pull request webhook events.
+// Handles PR opened, edited, ready_for_review, and closed actions with appropriate notifications.
 func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []byte) error {
 	var githubPayload GitHubWebhookPayload
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
@@ -312,6 +322,8 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 	}
 }
 
+// processPullRequestReviewEvent processes pull request review webhook events.
+// Handles review submitted and dismissed actions by enqueuing reaction sync jobs.
 func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, payload []byte, traceID string) error {
 	var githubPayload GitHubWebhookPayload
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
@@ -373,6 +385,8 @@ func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, paylo
 	return nil
 }
 
+// handlePROpened handles pull request opened events.
+// Skips draft PRs and delegates to postPRToAllWorkspaces for notification processing.
 func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebhookPayload) error {
 	if payload.PullRequest.Draft {
 		log.Debug(ctx, "Skipping draft PR")
@@ -386,8 +400,8 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 	return h.postPRToAllWorkspaces(ctx, payload)
 }
 
-// postPRToAllWorkspaces handles the core logic of posting a PR to all configured workspaces.
-// This function is shared between handlePROpened and handlePREdited for re-posting.
+// postPRToAllWorkspaces handles the core logic of posting PR notifications to all configured workspaces.
+// Shared between handlePROpened, handlePREdited, and handlePRReadyForReview. Supports auto-registration for verified users.
 func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitHubWebhookPayload) error {
 	authorUserID := int64(payload.PullRequest.User.ID)
 	authorUsername := payload.PullRequest.User.Login
@@ -457,8 +471,8 @@ func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitH
 	return nil
 }
 
-// determineTargetChannel determines the target Slack channel for notifications.
-// Channel priority: annotated channel -> user default (if user is in same workspace and notifications enabled).
+// determineTargetChannel determines the target Slack channel for PR notifications.
+// Priority order: annotated channel from PR description -> user's default channel (if same workspace and notifications enabled).
 func (h *GitHubHandler) determineTargetChannel(
 	ctx context.Context,
 	repo *models.Repo,
@@ -482,7 +496,8 @@ func (h *GitHubHandler) determineTargetChannel(
 	return ""
 }
 
-// checkForDuplicateBotMessage checks if a bot message already exists for this PR.
+// checkForDuplicateBotMessage checks if bot notification already exists for this PR in the target channel.
+// Prevents duplicate notifications by querying existing tracked messages with 'bot' source.
 func (h *GitHubHandler) checkForDuplicateBotMessage(
 	ctx context.Context,
 	payload *GitHubWebhookPayload,
@@ -509,7 +524,8 @@ func (h *GitHubHandler) checkForDuplicateBotMessage(
 	return false, nil
 }
 
-// postAndTrackPRMessage posts a PR message to Slack and tracks it in the database.
+// postAndTrackPRMessage posts PR notification to Slack and creates tracked message record.
+// Handles user preferences for tagging and impersonation, then saves tracking data to database.
 func (h *GitHubHandler) postAndTrackPRMessage(
 	ctx context.Context,
 	payload *GitHubWebhookPayload,
@@ -599,7 +615,8 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	return nil
 }
 
-// processWorkspaceNotification handles PR notification for a specific workspace.
+// processWorkspaceNotification handles PR notification processing for a specific workspace.
+// Determines target channel, checks for duplicates, posts message, and syncs reactions with manual messages.
 func (h *GitHubHandler) processWorkspaceNotification(
 	ctx context.Context,
 	payload *GitHubWebhookPayload,
@@ -643,6 +660,8 @@ func (h *GitHubHandler) processWorkspaceNotification(
 	return nil
 }
 
+// handlePREdited handles pull request edited events.
+// Processes skip directive changes by either deleting existing messages or re-posting PRs.
 func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebhookPayload) error {
 	// Parse directives from PR description
 	directives := h.slackService.ParsePRDirectives(payload.PullRequest.Body)
@@ -656,7 +675,8 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebho
 	return h.handleUnskipDirective(ctx, payload)
 }
 
-// processSkipDirective handles the deletion of tracked messages when skip directive is found.
+// processSkipDirective handles retroactive deletion of tracked messages when skip directive is added.
+// Removes all tracked messages for the PR from Slack and database across all workspaces.
 func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing skip directive - deleting tracked messages")
 
@@ -719,7 +739,8 @@ func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *GitHu
 	return nil
 }
 
-// handleUnskipDirective handles re-posting PRs when skip directive is removed.
+// handleUnskipDirective handles re-posting PRs when skip directive is removed from description.
+// Re-posts PR if no tracked messages exist, indicating previous skip directive removal.
 func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Debug(ctx, "No skip directive found, checking if PR needs to be re-posted")
 
@@ -751,6 +772,8 @@ func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitH
 	return nil
 }
 
+// handlePRClosed handles pull request closed events.
+// Adds appropriate emoji reactions (merged/closed) to all tracked messages across workspaces.
 func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebhookPayload) error {
 	// Get all tracked messages for this PR across all workspaces and channels
 	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
@@ -809,6 +832,8 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebho
 	return nil
 }
 
+// handlePRReadyForReview handles pull request ready_for_review events.
+// Processes draft PRs that become ready for review by posting notifications to all workspaces.
 func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Debug(ctx, "Processing PR ready for review",
 		"title", payload.PullRequest.Title,
@@ -884,7 +909,8 @@ func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *Git
 	return nil
 }
 
-// getAllTrackedMessagesForPR gets all tracked messages for a PR across all workspaces.
+// getAllTrackedMessagesForPR retrieves all tracked messages for a specific PR across all configured workspaces.
+// Queries each workspace where the repository is configured and aggregates results.
 func (h *GitHubHandler) getAllTrackedMessagesForPR(
 	ctx context.Context, repoFullName string, prNumber int,
 ) ([]*models.TrackedMessage, error) {
@@ -913,8 +939,9 @@ func (h *GitHubHandler) getAllTrackedMessagesForPR(
 	return allMessages, nil
 }
 
-// attemptAutoRegistration tries to automatically register a repository for a verified user.
-// Returns the created repository on success, nil if registration is not possible, or error if registration fails.
+// attemptAutoRegistration attempts automatic repository registration for verified users.
+// Validates workspace membership and GitHub installation access before creating repository configuration.
+// Returns created repo on success, nil if not possible, or error if registration fails.
 func (h *GitHubHandler) attemptAutoRegistration(
 	ctx context.Context, payload *GitHubWebhookPayload, user *models.User,
 ) (*models.Repo, error) {
@@ -999,8 +1026,8 @@ func (h *GitHubHandler) attemptAutoRegistration(
 	return nil, nil // No auto-registration possible
 }
 
-// verifyWorkspaceMembership ensures the PR author belongs to the target workspace.
-// This prevents unauthorized repository registration across workspace boundaries.
+// verifyWorkspaceMembership ensures PR author belongs to target workspace for auto-registration.
+// Prevents unauthorized cross-workspace repository registration by validating GitHub user ID match.
 func (h *GitHubHandler) verifyWorkspaceMembership(
 	ctx context.Context, user *models.User, payload *GitHubWebhookPayload,
 ) bool {
@@ -1036,6 +1063,8 @@ func (h *GitHubHandler) verifyWorkspaceMembership(
 	return true
 }
 
+// validateInstallationPayload validates GitHub App installation webhook payload structure.
+// Ensures required fields like action and installation are present in installation events.
 func (h *GitHubHandler) validateInstallationPayload(payload []byte) error {
 	var installationPayload map[string]interface{}
 	if err := json.Unmarshal(payload, &installationPayload); err != nil {
@@ -1053,6 +1082,8 @@ func (h *GitHubHandler) validateInstallationPayload(payload []byte) error {
 	return nil
 }
 
+// validateInstallationRepositoriesPayload validates installation_repositories webhook payload structure.
+// Ensures required fields for repository addition/removal events are present.
 func (h *GitHubHandler) validateInstallationRepositoriesPayload(payload []byte) error {
 	var installationReposPayload map[string]interface{}
 	if err := json.Unmarshal(payload, &installationReposPayload); err != nil {
@@ -1070,6 +1101,8 @@ func (h *GitHubHandler) validateInstallationRepositoriesPayload(payload []byte) 
 	return nil
 }
 
+// processInstallationEvent processes GitHub App installation webhook events.
+// Handles installation created, deleted, suspended, unsuspended, and new_permissions_accepted actions.
 func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []byte) error {
 	var githubPayload GitHubWebhookPayload
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
@@ -1107,6 +1140,8 @@ func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []
 	}
 }
 
+// handleInstallationCreated handles GitHub App installation created events.
+// Creates orphaned installation records for direct GitHub installs without workspace association.
 func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation created event")
 
@@ -1194,6 +1229,8 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 	return nil
 }
 
+// handleInstallationDeleted handles GitHub App installation deleted events.
+// Removes installation record from database when GitHub App is uninstalled.
 func (h *GitHubHandler) handleInstallationDeleted(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation deleted event")
 
@@ -1220,6 +1257,8 @@ func (h *GitHubHandler) handleInstallationDeleted(ctx context.Context, payload *
 	return nil
 }
 
+// handleInstallationSuspend handles GitHub App installation suspended events.
+// Updates installation record with suspension timestamp when access is suspended.
 func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation suspend event")
 
@@ -1267,6 +1306,8 @@ func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *
 	return nil
 }
 
+// handleInstallationUnsuspend handles GitHub App installation unsuspended events.
+// Clears suspension timestamp when installation access is restored.
 func (h *GitHubHandler) handleInstallationUnsuspend(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation unsuspend event")
 
@@ -1299,6 +1340,8 @@ func (h *GitHubHandler) handleInstallationUnsuspend(ctx context.Context, payload
 	return nil
 }
 
+// handleInstallationNewPermissions handles installation new_permissions_accepted events.
+// Logs permission changes for audit purposes when new permissions are granted to the app.
 func (h *GitHubHandler) handleInstallationNewPermissions(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation new permissions accepted event",
 		"installation_id", payload.Installation.ID,
@@ -1310,6 +1353,8 @@ func (h *GitHubHandler) handleInstallationNewPermissions(ctx context.Context, pa
 	return nil
 }
 
+// processInstallationRepositoriesEvent processes installation_repositories webhook events.
+// Handles repository additions and removals from GitHub App installations.
 func (h *GitHubHandler) processInstallationRepositoriesEvent(ctx context.Context, payload []byte) error {
 	var githubPayload GitHubWebhookPayload
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
@@ -1341,6 +1386,8 @@ func (h *GitHubHandler) processInstallationRepositoriesEvent(ctx context.Context
 	}
 }
 
+// handleInstallationRepositoriesAdded handles repositories added to GitHub App installation.
+// Updates installation record with newly added repositories for selected repository installations.
 func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation repositories added event")
 
@@ -1393,6 +1440,8 @@ func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context,
 	return nil
 }
 
+// handleInstallationRepositoriesRemoved handles repositories removed from GitHub App installation.
+// Updates installation record by removing specified repositories from the repository list.
 func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Context, payload *GitHubWebhookPayload) error {
 	log.Info(ctx, "Processing installation repositories removed event")
 
@@ -1448,6 +1497,7 @@ func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Contex
 }
 
 // processGitHubAppAuthEvent processes GitHub App authorization webhook events.
+// Currently logs events for audit purposes as OAuth flow is handled via callback endpoints.
 func (h *GitHubHandler) processGitHubAppAuthEvent(ctx context.Context, payload []byte) error {
 	log.Info(ctx, "Processing GitHub App authorization event")
 

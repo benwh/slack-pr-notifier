@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// CloudTasksService provides methods for enqueuing jobs to Google Cloud Tasks.
 type CloudTasksService struct {
 	client    *cloudtasks.Client
 	projectID string
@@ -23,6 +24,7 @@ type CloudTasksService struct {
 	config    *config.Config
 }
 
+// CloudTasksConfig contains configuration for creating a CloudTasksService.
 type CloudTasksConfig struct {
 	ProjectID  string
 	Location   string
@@ -31,6 +33,7 @@ type CloudTasksConfig struct {
 	HTTPClient *http.Client // Optional: custom HTTP client for testing
 }
 
+// NewCloudTasksService creates a new CloudTasksService with the provided configuration.
 func NewCloudTasksService(config CloudTasksConfig) (*CloudTasksService, error) {
 	ctx := context.Background()
 
@@ -61,6 +64,7 @@ func NewCloudTasksService(config CloudTasksConfig) (*CloudTasksService, error) {
 	}, nil
 }
 
+// Close closes the underlying Cloud Tasks client.
 func (cts *CloudTasksService) Close() error {
 	return cts.client.Close()
 }

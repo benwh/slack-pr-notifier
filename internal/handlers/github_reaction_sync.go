@@ -12,6 +12,7 @@ import (
 )
 
 // ProcessReactionSyncJob processes a reaction sync job from the job system.
+// Fetches PR details from GitHub, gets tracked messages, and syncs emoji reactions based on current state.
 func (h *GitHubHandler) ProcessReactionSyncJob(ctx context.Context, job *models.Job) error {
 	var reactionSyncJob models.ReactionSyncJob
 	if err := json.Unmarshal(job.Payload, &reactionSyncJob); err != nil {
@@ -64,8 +65,8 @@ func (h *GitHubHandler) ProcessReactionSyncJob(ctx context.Context, job *models.
 	return h.syncOpenPRReactions(ctx, currentReviewState, messagesByTeam, trackedMessages)
 }
 
-// groupMessagesByTeam groups tracked messages by team ID.
-// TODO: could be replaced by `lo.GroupBy` or similar.
+// groupMessagesByTeam groups tracked messages by Slack team ID for team-scoped API calls.
+// Converts tracked messages to MessageRef format and organizes by team. TODO: could use lo.GroupBy.
 func (h *GitHubHandler) groupMessagesByTeam(trackedMessages []*models.TrackedMessage) map[string][]services.MessageRef {
 	messageRefs := make([]services.MessageRef, len(trackedMessages))
 	for i, msg := range trackedMessages {
@@ -83,7 +84,8 @@ func (h *GitHubHandler) groupMessagesByTeam(trackedMessages []*models.TrackedMes
 	return messagesByTeam
 }
 
-// syncClosedPRReactions syncs reactions for closed PRs.
+// syncClosedPRReactions syncs emoji reactions for closed pull requests.
+// Adds appropriate emoji (merged/closed) to all tracked messages across teams.
 func (h *GitHubHandler) syncClosedPRReactions(
 	ctx context.Context, pr interface{ GetMerged() bool },
 	messagesByTeam map[string][]services.MessageRef, trackedMessages []*models.TrackedMessage,
@@ -113,7 +115,8 @@ func (h *GitHubHandler) syncClosedPRReactions(
 	return nil
 }
 
-// syncOpenPRReactions syncs reactions for open PRs.
+// syncOpenPRReactions syncs emoji reactions for open pull requests based on review state.
+// Uses comprehensive reaction sync that removes old reactions and adds current state reactions.
 func (h *GitHubHandler) syncOpenPRReactions(
 	ctx context.Context, currentReviewState string,
 	messagesByTeam map[string][]services.MessageRef, trackedMessages []*models.TrackedMessage,

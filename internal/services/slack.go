@@ -39,6 +39,7 @@ var (
 
 const minMatchesRequired = 2
 
+// SlackService provides methods for interacting with Slack API including message posting, reactions, and workspace management.
 type SlackService struct {
 	workspaceService *SlackWorkspaceService // Service to get workspace-specific tokens
 	emojiConfig      config.EmojiConfig
@@ -47,6 +48,7 @@ type SlackService struct {
 	httpClient       *http.Client
 }
 
+// NewSlackService creates a new SlackService with the provided dependencies.
 func NewSlackService(
 	workspaceService *SlackWorkspaceService,
 	emojiConfig config.EmojiConfig,
@@ -75,6 +77,8 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 	return slack.New(token, slack.OptionHTTPClient(s.httpClient)), nil
 }
 
+// PostPRMessage posts a pull request notification message to Slack, attempting impersonation first if enabled.
+// Returns the message timestamp for tracking.
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
@@ -246,6 +250,7 @@ func (s *SlackService) SendEphemeralMessage(ctx context.Context, teamID, channel
 	return nil
 }
 
+// AddReaction adds an emoji reaction to a Slack message, handling "already_reacted" as success.
 func (s *SlackService) AddReaction(ctx context.Context, teamID, channel, timestamp, emoji string) error {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -297,6 +302,8 @@ func (s *SlackService) AddReaction(ctx context.Context, teamID, channel, timesta
 	return nil
 }
 
+// ValidateChannel validates that a channel exists and the bot can access it, joining if necessary.
+// Returns error for private channels or channels the bot cannot join.
 func (s *SlackService) ValidateChannel(ctx context.Context, teamID, channel string) error {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -682,6 +689,8 @@ type PRDirectives struct {
 }
 
 // !review[s]: [skip|no] [#channel_name] [@user_to_cc].
+// ParsePRDirectives parses PR description for directive commands like !review: skip #channel @user :emoji:.
+// Returns parsed directives with the last occurrence of each directive type taking precedence.
 func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
 	directives := &PRDirectives{}
 

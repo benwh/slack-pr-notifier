@@ -25,6 +25,7 @@ type JobProcessor struct {
 	config        *config.Config
 }
 
+// NewJobProcessor creates a new JobProcessor with the provided handlers and configuration.
 func NewJobProcessor(
 	githubHandler *GitHubHandler,
 	slackHandler *SlackHandler,
@@ -37,6 +38,9 @@ func NewJobProcessor(
 	}
 }
 
+// ProcessJob handles incoming job processing requests from Cloud Tasks.
+// It validates the job payload, manages retry logic, routes jobs to appropriate handlers,
+// and returns proper HTTP responses based on processing results.
 func (jp *JobProcessor) ProcessJob(c *gin.Context) {
 	startTime := time.Now()
 	ctx := c.Request.Context()
@@ -152,6 +156,9 @@ func (jp *JobProcessor) RouteJob(ctx context.Context, job *models.Job) error {
 	}
 }
 
+// isJobRetryableError determines whether an error should trigger a job retry.
+// Returns true for temporary errors like timeouts, rate limits, and network issues,
+// and false for permanent errors like invalid channels or authentication failures.
 func isJobRetryableError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true

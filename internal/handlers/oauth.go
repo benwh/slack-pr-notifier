@@ -103,7 +103,8 @@ func (h *OAuthHandler) HandleGitHubLink(c *gin.Context) {
 	c.Redirect(http.StatusFound, oauthURL)
 }
 
-// validateGitHubCallbackParams validates GitHub OAuth callback parameters.
+// validateGitHubCallbackParams validates and extracts GitHub OAuth callback parameters.
+// Returns code, stateID, and success status. Handles both regular OAuth and combined OAuth + installation flows.
 func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.Context) (string, string, bool) {
 	code := c.Query("code")
 	stateID := c.Query("state")
@@ -158,7 +159,8 @@ func (h *OAuthHandler) validateGitHubCallbackParams(ctx context.Context, c *gin.
 	return code, stateID, true
 }
 
-// createOrUpdateUserFromGitHub creates or updates a user after successful GitHub authentication.
+// createOrUpdateUserFromGitHub creates or updates a user record after successful GitHub authentication.
+// Preserves existing user preferences while updating GitHub credentials and display name.
 func (h *OAuthHandler) createOrUpdateUserFromGitHub(
 	ctx context.Context,
 	state *models.OAuthState,
@@ -215,7 +217,8 @@ func (h *OAuthHandler) createOrUpdateUserFromGitHub(
 	return user, nil
 }
 
-// handlePostOAuthActions handles actions after successful OAuth (Slack notifications, App Home refresh).
+// handlePostOAuthActions handles post-OAuth actions including App Home refresh and success notifications.
+// Sends ephemeral success message to channel or refreshes App Home based on OAuth initiation context.
 func (h *OAuthHandler) handlePostOAuthActions(
 	ctx context.Context,
 	state *models.OAuthState,
@@ -333,7 +336,8 @@ func (h *OAuthHandler) HandleGitHubCallback(c *gin.Context) {
 	h.redirectToSuccessPage(c, state.SlackTeamID, githubUsername)
 }
 
-// processUserOAuth processes user-only OAuth flow (no installation).
+// processUserOAuth processes user-only OAuth flow without GitHub App installation.
+// Exchanges OAuth code for user info, creates/updates user record, and handles post-OAuth actions.
 func (h *OAuthHandler) processUserOAuth(ctx context.Context, code, _ string, state *models.OAuthState) (string, error) {
 	// Exchange code for GitHub user info
 	githubUser, err := h.githubAuthService.ExchangeCodeForUser(ctx, code)
@@ -360,7 +364,8 @@ func (h *OAuthHandler) processUserOAuth(ctx context.Context, code, _ string, sta
 	return githubUser.Login, nil
 }
 
-// processGitHubAppInstallation processes combined OAuth + installation flow.
+// processGitHubAppInstallation processes combined OAuth + GitHub App installation flow.
+// Associates GitHub installation with Slack workspace and creates/updates user record.
 func (h *OAuthHandler) processGitHubAppInstallation(
 	ctx context.Context, code, _, installationID string, state *models.OAuthState,
 ) error {
@@ -429,7 +434,8 @@ func (h *OAuthHandler) processGitHubAppInstallation(
 	return nil
 }
 
-// waitForInstallationInDatabase waits for installation to be created by webhook with exponential backoff.
+// waitForInstallationInDatabase waits for GitHub installation to be created by webhook with exponential backoff.
+// Uses retry logic to handle race condition between OAuth callback and installation webhook.
 func (h *OAuthHandler) waitForInstallationInDatabase(ctx context.Context, installationID int64) (*models.GitHubInstallation, error) {
 	const (
 		maxRetries    = 8
@@ -472,7 +478,8 @@ func (h *OAuthHandler) waitForInstallationInDatabase(ctx context.Context, instal
 	return nil, fmt.Errorf("%w: installation %d not found after %d retries", ErrInstallationNotFoundAfterRetries, installationID, maxRetries)
 }
 
-// redirectToInstallationSuccessPage creates success page for installation flow.
+// redirectToInstallationSuccessPage creates and returns HTML success page for GitHub App installation flow.
+// Includes automatic redirect to Slack App Home after 2 seconds.
 func (h *OAuthHandler) redirectToInstallationSuccessPage(c *gin.Context, teamID, _ string) {
 	slackDeepLink := fmt.Sprintf("slack://app?team=%s&id=%s&tab=home", teamID, h.config.SlackAppID)
 	successHTML := fmt.Sprintf(`
@@ -528,7 +535,8 @@ func (h *OAuthHandler) redirectToInstallationSuccessPage(c *gin.Context, teamID,
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }
 
-// redirectToSuccessPage creates and returns the OAuth success HTML page.
+// redirectToSuccessPage creates and returns HTML success page for GitHub OAuth flow.
+// Displays linked GitHub username and includes automatic redirect to Slack App Home after 2 seconds.
 func (h *OAuthHandler) redirectToSuccessPage(c *gin.Context, teamID, githubUsername string) {
 	slackDeepLink := fmt.Sprintf("slack://app?team=%s&id=%s&tab=home", teamID, h.config.SlackAppID)
 	successHTML := fmt.Sprintf(`
@@ -584,6 +592,7 @@ func (h *OAuthHandler) redirectToSuccessPage(c *gin.Context, teamID, githubUsern
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }
 
+// HandleSlackInstall initiates Slack OAuth installation flow.
 // GET /auth/slack/install.
 func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -615,6 +624,8 @@ func (h *OAuthHandler) HandleSlackInstall(c *gin.Context) {
 	c.Redirect(http.StatusFound, oauthURL)
 }
 
+// HandleSlackOAuthCallback handles Slack OAuth callback after workspace installation.
+// Exchanges authorization code for workspace access token and saves workspace configuration.
 // GET /auth/slack/callback?code=<code>&state=<state>.
 func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -748,7 +759,8 @@ func (h *OAuthHandler) HandleSlackOAuthCallback(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(successHTML))
 }
 
-// exchangeSlackOAuthCode exchanges an OAuth authorization code for an access token.
+// exchangeSlackOAuthCode exchanges Slack OAuth authorization code for workspace access token.
+// Uses slack-go library to perform the token exchange with Slack's OAuth v2 endpoint.
 func (h *OAuthHandler) exchangeSlackOAuthCode(ctx context.Context, code string) (*slack.OAuthV2Response, error) {
 	// Use slack-go library to exchange code for access token
 	resp, err := slack.GetOAuthV2ResponseContext(

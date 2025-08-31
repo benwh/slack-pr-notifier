@@ -124,7 +124,8 @@ func (sh *SlackHandler) HandleEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// handleMessageEvent processes message events to detect and track GitHub PR links.
+// handleMessageEvent processes Slack message events to detect and track GitHub PR links.
+// Skips bot messages, edited messages, and channels with disabled tracking. Queues manual PR link jobs for processing.
 func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackevents.MessageEvent, teamID string) {
 	// Skip bot messages, edited messages, and messages without text
 	if event.BotID != "" || event.SubType == "message_changed" || event.Text == "" {
@@ -206,7 +207,8 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 	}
 }
 
-// HandleInteraction processes interactive component actions from Slack App Home.
+// HandleInteraction processes interactive component actions from Slack.
+// Handles block actions, view submissions, and other interaction types from App Home and modals.
 func (sh *SlackHandler) HandleInteraction(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -272,7 +274,8 @@ func (sh *SlackHandler) HandleInteraction(c *gin.Context) {
 	}
 }
 
-// handleBlockAction processes block action interactions.
+// handleBlockAction processes block action interactions from Slack UI components.
+// Routes different action types to appropriate handler methods based on action_id.
 func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	if len(interaction.ActionCallback.BlockActions) == 0 {
 		c.JSON(http.StatusOK, gin.H{})
@@ -311,7 +314,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 	}
 }
 
-// handleViewSubmission processes view submission interactions.
+// handleViewSubmission processes view submission interactions from Slack modals.
+// Routes submissions to appropriate handlers based on callback_id.
 func (sh *SlackHandler) handleViewSubmission(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	switch interaction.View.CallbackID {
 	case "channel_selector":
@@ -327,7 +331,8 @@ func (sh *SlackHandler) handleViewSubmission(ctx context.Context, interaction *s
 	}
 }
 
-// handleAppHomeOpened processes app_home_opened events.
+// handleAppHomeOpened processes app_home_opened events when users visit the App Home tab.
+// Fetches user data and GitHub installations, then builds and publishes the home view.
 func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackevents.AppHomeOpenedEvent, teamID string) {
 	if event.Tab != "home" {
 		return
@@ -363,7 +368,8 @@ func (sh *SlackHandler) handleAppHomeOpened(ctx context.Context, event *slackeve
 	}
 }
 
-// handleConnectGitHubAction handles the "Connect GitHub Account" button.
+// handleConnectGitHubAction handles the "Connect GitHub Account" button from App Home.
+// Creates OAuth state, marks it for home return, and opens OAuth modal with GitHub link.
 func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
@@ -406,16 +412,19 @@ func (sh *SlackHandler) handleConnectGitHubAction(ctx context.Context, userID, t
 }
 
 // handleInstallGitHubAppFromHomeAction handles the "Install GitHub App" button from App Home.
+// Delegates to shared GitHub App installation handler with appropriate context.
 func (sh *SlackHandler) handleInstallGitHubAppFromHomeAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
 	sh.handleGitHubAppInstallation(ctx, userID, teamID, triggerID, false, "install_github_app", c)
 }
 
 // handleAddGitHubInstallationFromModalAction handles the "Add new installation" button from within a modal.
+// Delegates to shared GitHub App installation handler with modal context.
 func (sh *SlackHandler) handleAddGitHubInstallationFromModalAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
 	sh.handleGitHubAppInstallation(ctx, userID, teamID, triggerID, true, "add_github_installation", c)
 }
 
-// handleGitHubAppInstallation is the shared implementation for GitHub App installation.
+// handleGitHubAppInstallation provides shared implementation for GitHub App installation flows.
+// Creates OAuth state, generates installation URL, and opens appropriate modal based on context.
 func (sh *SlackHandler) handleGitHubAppInstallation(
 	ctx context.Context, userID, teamID, triggerID string, fromModal bool, errorKey string, c *gin.Context,
 ) {
@@ -497,6 +506,7 @@ func (sh *SlackHandler) handleGitHubAppInstallation(
 }
 
 // handleManageGitHubInstallationsAction handles the "Manage GitHub Installations" button.
+// Fetches workspace installations and opens management modal with installation list.
 func (sh *SlackHandler) handleManageGitHubInstallationsAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
@@ -537,6 +547,7 @@ func (sh *SlackHandler) handleManageGitHubInstallationsAction(ctx context.Contex
 }
 
 // handleDisconnectGitHubAction handles the "Disconnect GitHub Account" button.
+// Removes GitHub connection from user record and refreshes App Home view.
 func (sh *SlackHandler) handleDisconnectGitHubAction(ctx context.Context, userID string, c *gin.Context) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
@@ -573,7 +584,8 @@ func (sh *SlackHandler) handleDisconnectGitHubAction(ctx context.Context, userID
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// handleSelectChannelAction opens a modal for channel selection.
+// handleSelectChannelAction opens a modal for default channel selection.
+// Creates and displays channel selector modal for user's notification preferences.
 func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, teamID string, triggerID string, c *gin.Context) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
@@ -589,7 +601,8 @@ func (sh *SlackHandler) handleSelectChannelAction(ctx context.Context, userID, t
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// extractChannelSelection extracts the selected channel from the interaction.
+// extractChannelSelection extracts the selected channel ID from modal interaction state.
+// Returns empty string if no valid channel selection is found.
 func (sh *SlackHandler) extractChannelSelection(interaction *slack.InteractionCallback) string {
 	if values, ok := interaction.View.State.Values["channel_input"]; ok {
 		if channelSelect, ok := values["channel_select"]; ok {
@@ -599,7 +612,8 @@ func (sh *SlackHandler) extractChannelSelection(interaction *slack.InteractionCa
 	return ""
 }
 
-// validateChannelSelection validates the selected channel and returns appropriate error message.
+// validateChannelSelection validates the selected channel and returns user-friendly error message.
+// Checks channel accessibility, type restrictions, and bot permissions.
 func (sh *SlackHandler) validateChannelSelection(ctx context.Context, teamID, channelID string) (string, error) {
 	err := sh.slackService.ValidateChannel(ctx, teamID, channelID)
 	if err == nil {
@@ -624,7 +638,8 @@ func (sh *SlackHandler) validateChannelSelection(ctx context.Context, teamID, ch
 	return errorMsg, err
 }
 
-// createOrGetUserWithDisplayName creates a new user or gets existing one, fetching display name if needed.
+// createOrGetUserWithDisplayName creates new user or retrieves existing one with Slack display name.
+// Fetches display name from Slack API for new users and sets default preferences.
 func (sh *SlackHandler) createOrGetUserWithDisplayName(ctx context.Context, userID, teamID string) (*models.User, error) {
 	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
 	if err != nil {
@@ -658,7 +673,8 @@ func (sh *SlackHandler) createOrGetUserWithDisplayName(ctx context.Context, user
 	return user, nil
 }
 
-// handleChannelSelection processes channel selection from the modal.
+// handleChannelSelection processes channel selection submission from modal.
+// Validates selected channel, updates user's default channel preference, and refreshes App Home.
 func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	userID := interaction.User.ID
 	teamID := interaction.Team.ID
@@ -712,13 +728,15 @@ func (sh *SlackHandler) handleChannelSelection(ctx context.Context, interaction 
 	c.JSON(http.StatusOK, gin.H{"response_action": "clear"})
 }
 
-// handleRefreshViewAction refreshes the App Home view.
+// handleRefreshViewAction handles the refresh button action from App Home.
+// Triggers immediate refresh of the user's App Home view with current data.
 func (sh *SlackHandler) handleRefreshViewAction(ctx context.Context, userID string, c *gin.Context) {
 	sh.refreshHomeView(ctx, userID)
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// refreshHomeView refreshes the App Home view for a user.
+// refreshHomeView refreshes the App Home view for a specific user.
+// Fetches current user data and GitHub installations, then publishes updated home view.
 func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
@@ -751,6 +769,7 @@ func (sh *SlackHandler) refreshHomeView(ctx context.Context, userID string) {
 }
 
 // handleToggleNotificationsAction handles the notifications enable/disable toggle.
+// Updates user's notification preferences and refreshes App Home view.
 func (sh *SlackHandler) handleToggleNotificationsAction(ctx context.Context, userID string, c *gin.Context) {
 	sh.handleUserSettingToggle(ctx, userID, c, "notifications", func(user *models.User) {
 		user.NotificationsEnabled = !user.NotificationsEnabled
@@ -763,6 +782,7 @@ func (sh *SlackHandler) handleToggleNotificationsAction(ctx context.Context, use
 }
 
 // handleToggleUserTaggingAction handles the user tagging enable/disable toggle.
+// Updates user's tagging preferences for PR notifications and refreshes App Home view.
 func (sh *SlackHandler) handleToggleUserTaggingAction(ctx context.Context, userID string, c *gin.Context) {
 	sh.handleUserSettingToggle(ctx, userID, c, "user tagging", func(user *models.User) {
 		user.TaggingEnabled = !user.TaggingEnabled
@@ -775,6 +795,7 @@ func (sh *SlackHandler) handleToggleUserTaggingAction(ctx context.Context, userI
 }
 
 // handleToggleImpersonationAction handles the impersonation enable/disable toggle.
+// Updates user's impersonation preferences for PR notifications and refreshes App Home view.
 func (sh *SlackHandler) handleToggleImpersonationAction(ctx context.Context, userID string, c *gin.Context) {
 	sh.handleUserSettingToggle(ctx, userID, c, "impersonation", func(user *models.User) {
 		currentValue := user.GetImpersonationEnabled()
@@ -788,7 +809,8 @@ func (sh *SlackHandler) handleToggleImpersonationAction(ctx context.Context, use
 	})
 }
 
-// handleUserSettingToggle provides common logic for toggling user settings.
+// handleUserSettingToggle provides common implementation for user setting toggles.
+// Applies toggle function, saves user changes, logs update, and refreshes App Home view.
 func (sh *SlackHandler) handleUserSettingToggle(
 	ctx context.Context,
 	userID string,
@@ -834,6 +856,7 @@ func (sh *SlackHandler) handleUserSettingToggle(
 }
 
 // handleManageChannelTrackingAction opens the channel tracking management modal.
+// Fetches current channel configurations and displays tracking management interface.
 func (sh *SlackHandler) handleManageChannelTrackingAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
 	ctx = log.WithFields(ctx, log.LogFields{
 		"user_id": userID,
@@ -862,6 +885,7 @@ func (sh *SlackHandler) handleManageChannelTrackingAction(ctx context.Context, u
 }
 
 // handleChannelTrackingSelection processes channel selection from the tracking modal.
+// Extracts selected channel, gets current config, and pushes configuration modal to stack.
 func (sh *SlackHandler) handleChannelTrackingSelection(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	userID := interaction.User.ID
 	teamID := interaction.Team.ID
@@ -918,7 +942,8 @@ func (sh *SlackHandler) handleChannelTrackingSelection(ctx context.Context, inte
 	})
 }
 
-// handleSaveChannelTracking saves the channel tracking configuration.
+// handleSaveChannelTracking saves the channel tracking configuration from modal submission.
+// Creates or updates channel config with tracking preference and closes modal with success.
 func (sh *SlackHandler) handleSaveChannelTracking(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
 	userID := interaction.User.ID
 	teamID := interaction.Team.ID
@@ -982,6 +1007,8 @@ func (sh *SlackHandler) handleSaveChannelTracking(ctx context.Context, interacti
 	sh.refreshHomeView(ctx, userID)
 }
 
+// verifySignature verifies Slack request signature using HMAC-SHA256.
+// Validates X-Slack-Signature and X-Slack-Request-Timestamp headers against signing secret.
 func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {
 	if sh.signingSecret == "" {
 		log.Warn(context.Background(), "Slack signing secret is empty, skipping signature verification")
@@ -1034,6 +1061,7 @@ func (sh *SlackHandler) verifySignature(header http.Header, body []byte) error {
 }
 
 // ProcessManualPRLinkJob processes a manual PR link job from the job system.
+// Creates tracked message for manual PR link and enqueues reaction sync job for initial state.
 func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.Job) error {
 	// Parse the ManualLinkJob from the job payload
 	var manualLinkJob models.ManualLinkJob
