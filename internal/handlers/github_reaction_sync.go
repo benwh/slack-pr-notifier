@@ -66,7 +66,7 @@ func (h *GitHubHandler) ProcessReactionSyncJob(ctx context.Context, job *models.
 }
 
 // groupMessagesByTeam groups tracked messages by Slack team ID for team-scoped API calls.
-// Converts tracked messages to MessageRef format and organizes by team. TODO: could use lo.GroupBy.
+// Converts tracked messages to MessageRef format and organizes by team.
 func (h *GitHubHandler) groupMessagesByTeam(trackedMessages []*models.TrackedMessage) map[string][]services.MessageRef {
 	messageRefs := make([]services.MessageRef, len(trackedMessages))
 	for i, msg := range trackedMessages {

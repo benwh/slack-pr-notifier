@@ -95,7 +95,7 @@ func (h *TestGitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.J
 		)
 	case "pull_request_review":
 		// Simulate adding reactions for reviews (assume approved for simplicity)
-		emoji := h.mockSlackService.GetEmojiForReviewState("approved")
+		emoji := h.mockSlackService.GetEmojiForReviewState(models.ReviewStateApproved)
 		if emoji != "" {
 			_ = h.mockSlackService.AddReaction(ctx, "test-team", "test-channel", "123456789.123", emoji)
 		}

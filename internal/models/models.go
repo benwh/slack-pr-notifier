@@ -230,6 +230,17 @@ func (rsj *ReactionSyncJob) Validate() error {
 	return nil
 }
 
+// ReviewState represents the state of a GitHub pull request review.
+type ReviewState string
+
+// GitHub PR review states.
+const (
+	ReviewStateApproved         ReviewState = "approved"
+	ReviewStateChangesRequested ReviewState = "changes_requested"
+	ReviewStateCommented        ReviewState = "commented"
+	ReviewStateDismissed        ReviewState = "dismissed"
+)
+
 // Job types for the job processing system.
 const (
 	JobTypeGitHubWebhook = "github_webhook"

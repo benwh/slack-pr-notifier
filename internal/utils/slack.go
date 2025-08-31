@@ -1,6 +1,9 @@
 package utils
 
-import "github-slack-notifier/internal/config"
+import (
+	"github-slack-notifier/internal/config"
+	"github-slack-notifier/internal/models"
+)
 
 // GetPRSizeEmoji returns an animal emoji based on the number of lines changed in a PR.
 // The emoji serves as a visual indicator of PR size, with larger animals representing
@@ -34,18 +37,20 @@ func GetPRSizeEmoji(linesChanged int) string {
 }
 
 // GetEmojiForReviewState returns the appropriate emoji for a GitHub PR review state.
-// It maps review states to configured emojis: "approved" uses emojiConfig.Approved,
-// "changes_requested" uses emojiConfig.ChangesRequested, "commented" uses emojiConfig.Commented.
+// It maps review states to configured emojis: approved uses emojiConfig.Approved,
+// changes_requested uses emojiConfig.ChangesRequested, commented uses emojiConfig.Commented.
 // Returns an empty string for unknown or invalid review states.
-func GetEmojiForReviewState(state string, emojiConfig config.EmojiConfig) string {
-	// TODO: state should be an enum type, the same as in our GitHub service.
+func GetEmojiForReviewState(state models.ReviewState, emojiConfig config.EmojiConfig) string {
 	switch state {
-	case "approved":
+	case models.ReviewStateApproved:
 		return emojiConfig.Approved
-	case "changes_requested":
+	case models.ReviewStateChangesRequested:
 		return emojiConfig.ChangesRequested
-	case "commented":
+	case models.ReviewStateCommented:
 		return emojiConfig.Commented
+	case models.ReviewStateDismissed:
+		// Dismissed reviews don't have a specific emoji
+		return ""
 	default:
 		return ""
 	}

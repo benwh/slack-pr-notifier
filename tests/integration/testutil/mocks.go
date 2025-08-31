@@ -217,14 +217,17 @@ func (m *MockSlackService) ValidateChannel(ctx context.Context, teamID, channel 
 }
 
 // GetEmojiForReviewState mocks getting emoji for review state.
-func (m *MockSlackService) GetEmojiForReviewState(state string) string {
+func (m *MockSlackService) GetEmojiForReviewState(state models.ReviewState) string {
 	switch state {
-	case "approved":
+	case models.ReviewStateApproved:
 		return "white_check_mark"
-	case "changes_requested":
+	case models.ReviewStateChangesRequested:
 		return "arrows_counterclockwise"
-	case "commented":
+	case models.ReviewStateCommented:
 		return "speech_balloon"
+	case models.ReviewStateDismissed:
+		// Dismissed reviews don't have a specific emoji in tests
+		return ""
 	default:
 		return ""
 	}

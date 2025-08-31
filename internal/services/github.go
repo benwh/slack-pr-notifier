@@ -205,11 +205,8 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		PerPage: maxReviewsPerPage,
 	})
 	if err != nil {
-		// TODO: Should probably bubble-up an error, so that we retry the job in case of a
-		// transient failure? Need to check error handling in caller!
 		log.Error(ctx, "Failed to fetch PR reviews", "error", err)
-		// Continue without review state - PR details are still useful
-		return pr, "", nil
+		return nil, "", fmt.Errorf("failed to fetch PR reviews: %w", err)
 	}
 
 	// Determine the latest review state per user
@@ -222,11 +219,12 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		state := review.GetState()
 
 		// Only track meaningful review states
-		// TODO: enum
-		if state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "COMMENTED" {
-			// Keep the latest review state for each user
-			userReviewStates[userID] = strings.ToLower(state)
+		reviewState, ok := parseGitHubReviewState(state)
+		if !ok {
+			continue // Skip unknown states
 		}
+		// Keep the latest review state for each user
+		userReviewStates[userID] = string(reviewState)
 	}
 
 	// Determine overall review state based on all reviews
@@ -244,39 +242,75 @@ func (s *GitHubService) GetPullRequestWithReviews(
 }
 
 // determineOverallReviewState determines the overall review state from individual user reviews.
-// Priority order: changes_requested > approved > commented.
+//
+// This function aggregates the latest review state from each user and determines what
+// emoji reaction should be shown on the PR notification. It only considers the most
+// recent review from each user (handled by the caller).
+//
+// Review state priority (highest to lowest):
+//  1. changes_requested - At least one reviewer requested changes
+//  2. approved - At least one reviewer approved (and no changes requested)
+//  3. commented - At least one reviewer commented (and no approvals or changes requested)
+//  4. dismissed - Dismissed reviews are ignored in overall state calculation
+//
+// Dismissed reviews are intentionally excluded from the priority calculation because:
+// - When a review is dismissed, it typically means the feedback is no longer relevant
+// - The dismissed review shouldn't influence whether the PR appears as approved/rejected
+// - Other active (non-dismissed) reviews should determine the overall state
+//
+// Returns the string representation of the highest priority review state, or empty string
+// if no reviews exist or all reviews are dismissed.
 func determineOverallReviewState(userReviewStates map[string]string) string {
 	if len(userReviewStates) == 0 {
 		return ""
 	}
 
-	// Priority: changes_requested > approved > commented
+	// Track presence of each review state type (excluding dismissed)
 	hasChangesRequested := false
 	hasApproved := false
 	hasCommented := false
 
-	// TODO: Should define these states as an enum, then use them in GetEmojiForReviewState
 	for _, state := range userReviewStates {
-		switch state {
-		case "changes_requested":
+		switch models.ReviewState(state) {
+		case models.ReviewStateChangesRequested:
 			hasChangesRequested = true
-		case "approved":
+		case models.ReviewStateApproved:
 			hasApproved = true
-		case "commented":
+		case models.ReviewStateCommented:
 			hasCommented = true
+		case models.ReviewStateDismissed:
+			// Dismissed reviews are excluded from overall state calculation
+			// (see function documentation above for rationale)
 		}
 	}
 
 	// Return the highest priority state
 	if hasChangesRequested {
-		return "changes_requested"
+		return string(models.ReviewStateChangesRequested)
 	}
 	if hasApproved {
-		return "approved"
+		return string(models.ReviewStateApproved)
 	}
 	if hasCommented {
-		return "commented"
+		return string(models.ReviewStateCommented)
 	}
 
 	return ""
+}
+
+// parseGitHubReviewState converts a GitHub review state string to our ReviewState type.
+// Returns the parsed state and true if the state is recognized, false otherwise.
+func parseGitHubReviewState(state string) (models.ReviewState, bool) {
+	switch state {
+	case "APPROVED":
+		return models.ReviewStateApproved, true
+	case "CHANGES_REQUESTED":
+		return models.ReviewStateChangesRequested, true
+	case "COMMENTED":
+		return models.ReviewStateCommented, true
+	case "DISMISSED":
+		return models.ReviewStateDismissed, true
+	default:
+		return "", false
+	}
 }

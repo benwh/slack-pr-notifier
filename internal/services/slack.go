@@ -210,11 +210,9 @@ func (s *SlackService) buildMessageText(
 	// shouldn't happen), then always use the PR author name, regardless of tagging.
 	if authorSlackUserID == "" {
 		text += fmt.Sprintf(" by %s", prAuthor)
-	} else {
+	} else if userTaggingEnabled {
 		// Add user tag if tagging is enabled
-		if userTaggingEnabled {
-			text += fmt.Sprintf(" by <@%s>", authorSlackUserID)
-		}
+		text += fmt.Sprintf(" by <@%s>", authorSlackUserID)
 	}
 
 	// Add user CC if specified
@@ -540,7 +538,7 @@ func (s *SlackService) SyncAllReviewReactions(
 	}
 
 	// Add the current review state reaction if applicable
-	currentEmoji := utils.GetEmojiForReviewState(currentReviewState, s.emojiConfig)
+	currentEmoji := utils.GetEmojiForReviewState(models.ReviewState(currentReviewState), s.emojiConfig)
 	if currentEmoji != "" {
 		err := s.AddReactionToMultipleMessages(ctx, teamID, messages, currentEmoji)
 		if err != nil {
