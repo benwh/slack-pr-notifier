@@ -828,18 +828,233 @@ func (h *GitHubHandler) processWorkspaceNotification(
 }
 
 // handlePREdited handles pull request edited events.
-// Processes skip directive changes by either deleting existing messages or re-posting PRs.
+// Processes skip directive changes, channel changes, and re-posting logic.
 func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebhookPayload) error {
 	// Parse directives from PR description
 	directives := h.slackService.ParsePRDirectives(payload.PullRequest.Body)
 
+	log.Info(ctx, "Processing PR edit directives",
+		"skip", directives.Skip,
+		"channel", directives.Channel,
+		"user_to_cc", directives.UserToCC,
+		"pr_body", payload.PullRequest.Body,
+	)
+
 	// If skip directive is found, delete all tracked messages for this PR
 	if directives.Skip {
+		log.Info(ctx, "Skip directive found, processing skip")
 		return h.processSkipDirective(ctx, payload)
 	}
 
-	// No skip directive - check if we need to re-post the PR
+	// Check if channel has changed - only for bot messages, not manual ones
+	if directives.Channel != "" {
+		log.Info(ctx, "Channel directive found, checking for changes",
+			"new_channel", directives.Channel,
+		)
+		channelChanged, err := h.hasChannelChanged(ctx, payload, directives.Channel)
+		if err != nil {
+			log.Error(ctx, "Failed to check channel changes", "error", err)
+			return err
+		}
+		if channelChanged {
+			log.Info(ctx, "Channel change detected, processing migration",
+				"new_channel", directives.Channel,
+			)
+			return h.handleChannelChange(ctx, payload, directives)
+		}
+		log.Info(ctx, "No channel change detected")
+	} else {
+		log.Info(ctx, "No channel directive found")
+	}
+
+	// No skip directive and no channel change - check if we need to re-post the PR
+	log.Info(ctx, "Processing unskip directive")
 	return h.handleUnskipDirective(ctx, payload)
+}
+
+// getAllTrackedMessagesForPRDirect gets all tracked messages for a PR without retry logic.
+func (h *GitHubHandler) getAllTrackedMessagesForPRDirect(
+	ctx context.Context, repoFullName string, prNumber int,
+) ([]*models.TrackedMessage, error) {
+	return h.getAllTrackedMessagesForPR(ctx, repoFullName, prNumber)
+}
+
+// compareChannelsForChange compares bot messages with new channel to detect changes.
+func (h *GitHubHandler) compareChannelsForChange(ctx context.Context, botMessages []*models.TrackedMessage, newChannel string) bool {
+	for i, msg := range botMessages {
+		// Use SlackChannelName if it was stored (which is the original name used)
+		// Otherwise fall back to comparing channel IDs
+		storedChannelRef := msg.SlackChannelName
+		if storedChannelRef == "" {
+			storedChannelRef = msg.SlackChannel
+		}
+
+		log.Info(ctx, "Comparing channels",
+			"message_index", i,
+			"stored_channel_name", msg.SlackChannelName,
+			"stored_channel_id", msg.SlackChannel,
+			"stored_channel_ref", storedChannelRef,
+			"new_channel", newChannel,
+			"workspace_id", msg.SlackTeamID,
+		)
+
+		if storedChannelRef != newChannel {
+			log.Info(ctx, "Channel change detected",
+				"old_channel", storedChannelRef,
+				"new_channel", newChannel,
+				"workspace_id", msg.SlackTeamID,
+			)
+			return true
+		}
+	}
+
+	log.Info(ctx, "No channel change detected - messages already in target channel",
+		"channel", newChannel,
+		"message_count", len(botMessages),
+	)
+	return false
+}
+
+// hasChannelChanged checks if the channel directive has changed from where bot messages are currently posted.
+// Only considers bot messages, ignoring manual messages.
+func (h *GitHubHandler) hasChannelChanged(ctx context.Context, payload *GitHubWebhookPayload, newChannel string) (bool, error) {
+	log.Info(ctx, "Checking for channel changes",
+		"pr_number", payload.PullRequest.Number,
+		"repo", payload.Repository.FullName,
+		"new_channel", newChannel,
+	)
+
+	// Get all tracked messages for the PR
+	allMessages, err := h.getAllTrackedMessagesForPRDirect(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+
+	if err == nil {
+		log.Info(ctx, "Found ALL tracked messages for PR",
+			"total_messages", len(allMessages),
+		)
+		for i, msg := range allMessages {
+			log.Info(ctx, "Tracked message details",
+				"index", i,
+				"message_source", msg.MessageSource,
+				"channel_name", msg.SlackChannelName,
+				"channel_id", msg.SlackChannel,
+				"team_id", msg.SlackTeamID,
+			)
+		}
+	}
+
+	// Get all bot messages for this PR across all workspaces
+	// Use the already fetched messages if available, otherwise query again
+	var botMessages []*models.TrackedMessage
+	if len(allMessages) > 0 {
+		// Filter for bot messages from what we already have
+		for _, msg := range allMessages {
+			if msg.MessageSource == "bot" {
+				botMessages = append(botMessages, msg)
+			}
+		}
+	} else {
+		// Fallback to direct query (shouldn't be needed if retry worked above)
+		botMessages, err = h.firestoreService.GetTrackedMessages(ctx,
+			payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+		if err != nil {
+			log.Error(ctx, "Failed to get bot tracked messages for channel change check",
+				"error", err,
+			)
+			return false, err
+		}
+	}
+
+	log.Info(ctx, "Found bot messages for channel comparison",
+		"message_count", len(botMessages),
+	)
+
+	if len(botMessages) == 0 {
+		// No existing bot messages, so this would be posting to a new channel
+		log.Info(ctx, "No existing bot messages found, treating as new channel posting")
+		return false, nil
+	}
+
+	// Check if any bot message is in a different channel
+	return h.compareChannelsForChange(ctx, botMessages, newChannel), nil
+}
+
+// handleChannelChange handles migration of PR notifications when channel directive changes.
+// Deletes bot messages from old channels and posts new message to the specified channel.
+func (h *GitHubHandler) handleChannelChange(ctx context.Context, payload *GitHubWebhookPayload, directives *services.PRDirectives) error {
+	log.Info(ctx, "Processing channel change - migrating PR notifications",
+		"new_channel", directives.Channel,
+	)
+
+	// Get all bot messages for this PR across all workspaces
+	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+	if err != nil {
+		log.Error(ctx, "Failed to get bot tracked messages for channel change",
+			"error", err,
+		)
+		return err
+	}
+
+	if len(botMessages) == 0 {
+		log.Info(ctx, "No existing bot messages found for channel change - posting to new channel")
+		return h.postPRToAllWorkspaces(ctx, payload)
+	}
+
+	// Group messages by workspace for deletion
+	messagesByWorkspace := make(map[string][]services.MessageRef)
+	messageIDs := make([]string, 0, len(botMessages))
+
+	for _, msg := range botMessages {
+		messagesByWorkspace[msg.SlackTeamID] = append(messagesByWorkspace[msg.SlackTeamID], services.MessageRef{
+			Channel:   msg.SlackChannel,
+			Timestamp: msg.SlackMessageTS,
+		})
+		messageIDs = append(messageIDs, msg.ID)
+	}
+
+	// Delete old bot messages from Slack
+	for workspaceID, messages := range messagesByWorkspace {
+		err := h.slackService.DeleteMultipleMessages(ctx, workspaceID, messages)
+		if err != nil {
+			log.Error(ctx, "Failed to delete bot messages during channel change",
+				"error", err,
+				"workspace_id", workspaceID,
+				"message_count", len(messages),
+			)
+			// Continue with other workspaces even if one fails
+		} else {
+			log.Info(ctx, "Successfully deleted bot messages for channel change",
+				"workspace_id", workspaceID,
+				"message_count", len(messages),
+			)
+		}
+	}
+
+	// Remove old tracking records from Firestore
+	err = h.firestoreService.DeleteTrackedMessages(ctx, messageIDs)
+	if err != nil {
+		log.Error(ctx, "Failed to delete tracked messages from Firestore during channel change",
+			"error", err,
+			"message_count", len(messageIDs),
+		)
+		// Continue with posting new message even if cleanup failed
+	}
+
+	// Post new message to the specified channel across all workspaces
+	err = h.postPRToAllWorkspaces(ctx, payload)
+	if err != nil {
+		log.Error(ctx, "Failed to post PR to new channel after migration",
+			"error", err,
+			"new_channel", directives.Channel,
+		)
+		return err
+	}
+
+	log.Info(ctx, "Successfully processed channel change",
+		"deleted_messages", len(botMessages),
+		"new_channel", directives.Channel,
+	)
+	return nil
 }
 
 // processSkipDirective handles retroactive deletion of tracked messages when skip directive is added.

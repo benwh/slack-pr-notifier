@@ -328,6 +328,11 @@ func (h *TestHarness) HTTPClient() *http.Client {
 	return h.httpClient
 }
 
+// FirestoreClient returns the firestore client for database operations in tests.
+func (h *TestHarness) FirestoreClient() *firestore.Client {
+	return h.testDB.Client()
+}
+
 // ClearFirestore clears all data from the test database.
 func (h *TestHarness) ClearFirestore(ctx context.Context) error {
 	return h.testDB.Cleanup(ctx)

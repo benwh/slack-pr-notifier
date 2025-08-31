@@ -701,6 +701,96 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		t.Logf("✅ Fan-out architecture test passed: GitHub webhook successfully fanned out to workspace-specific jobs")
 	})
+
+	t.Run("PR_edited_with_channel_change_migrates_messages", func(t *testing.T) {
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "channel-test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Step 1: Create initial PR with !review directive pointing to #test-channel
+		initialPayload := buildPRPayloadWithDirective(
+			"testorg/testrepo", 789, "PR with channel change", "channel-test-user",
+			"Initial PR description\n\n!review: #test-channel",
+		)
+		resp := sendGitHubWebhook(t, harness, "pull_request", initialPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed and initial message was posted
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2) // github_webhook + workspace_pr
+
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected initial PR message to be posted")
+		initialMessage := slackRequests[0]
+		// dev-team should resolve to a channel ID - let's check it was posted
+		assert.Contains(t, initialMessage.Text, "PR with channel change")
+
+		// Wait for tracked message to be persisted to the database
+		waitForTrackedMessage(t, harness, "testorg/testrepo", 789)
+
+		// Step 2: Reset for the edit event
+		harness.ResetForNextStep()
+
+		// Edit PR to change channel to #pr-channel
+		editedPayload := buildPREditedPayloadWithDirective(
+			"testorg/testrepo", 789, "PR with channel change", "channel-test-user",
+			"Updated PR description\n\n!review: #pr-channel",
+		)
+		resp = sendGitHubWebhook(t, harness, "pull_request", editedPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify edit job was executed and channel change created additional workspace job
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2, "Expected edit webhook job + workspace PR job for new channel")
+
+		// Verify new message was posted to pr-channel
+		slackRequests = harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected new PR message to be posted to new channel")
+		newMessage := slackRequests[0]
+		assert.Contains(t, newMessage.Text, "PR with channel change")
+
+		t.Logf("✅ Channel change test passed: PR notification migrated from #dev-team to #qa-team")
+	})
+}
+
+// waitForTrackedMessage polls the database until a tracked message appears for the given PR.
+// We need to do this because we fan-out, and therefore return a success to the client before the inner
+// job is actually completed.
+func waitForTrackedMessage(t *testing.T, harness *TestHarness, repoFullName string, prNumber int) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for tracked message to appear in database")
+		case <-ticker.C:
+			iter := harness.FirestoreClient().Collection("trackedmessages").
+				Where("repo_full_name", "==", repoFullName).
+				Where("pr_number", "==", prNumber).
+				Documents(ctx)
+
+			docs, err := iter.GetAll()
+			if err != nil {
+				continue
+			}
+
+			if len(docs) > 0 {
+				// Found tracked message(s)
+				return
+			}
+		}
+	}
 }
 
 // Helper functions
@@ -716,9 +806,10 @@ func buildDraftPROpenedPayload(repoFullName string, prNumber int, title, author 
 func buildPRPayload(repoFullName string, prNumber int, title, author, action string, draft bool) []byte {
 	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
 	githubUserIDMap := map[string]int64{
-		"test-user":    100001,
-		"draft-user":   100002,
-		"draft-author": 100003,
+		"test-user":         100001,
+		"draft-user":        100002,
+		"draft-author":      100003,
+		"channel-test-user": 100004,
 	}
 
 	githubUserID, exists := githubUserIDMap[author]
@@ -787,9 +878,10 @@ func buildPRReadyForReviewPayload(repoFullName string, prNumber int, title, auth
 func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, action string, draft bool, additions, deletions int) []byte {
 	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
 	githubUserIDMap := map[string]int64{
-		"test-user":    100001,
-		"draft-user":   100002,
-		"draft-author": 100003,
+		"test-user":         100001,
+		"draft-user":        100002,
+		"draft-author":      100003,
+		"channel-test-user": 100004,
 	}
 
 	githubUserID, exists := githubUserIDMap[author]
@@ -829,9 +921,10 @@ func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, ac
 func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
 	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
 	githubUserIDMap := map[string]int64{
-		"test-user":    100001,
-		"draft-user":   100002,
-		"draft-author": 100003,
+		"test-user":         100001,
+		"draft-user":        100002,
+		"draft-author":      100003,
+		"channel-test-user": 100004,
 	}
 
 	githubUserID, exists := githubUserIDMap[author]
@@ -871,9 +964,10 @@ func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, autho
 func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
 	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
 	githubUserIDMap := map[string]int64{
-		"test-user":    100001,
-		"draft-user":   100002,
-		"draft-author": 100003,
+		"test-user":         100001,
+		"draft-user":        100002,
+		"draft-author":      100003,
+		"channel-test-user": 100004,
 	}
 
 	githubUserID, exists := githubUserIDMap[author]
