@@ -311,13 +311,17 @@ Utility functions are appropriate for:
 2. **Slack Events** → `handlers/slack.go` → detects manual PR links → creates `ManualLinkJob` wrapped in `Job` → queues to Cloud Tasks
 
 **Slow Path (reliable, retryable):**
-3. **Cloud Tasks** → `handlers/job_processor.go` → routes `Job` by type → calls appropriate domain handler → processes business logic → updates Firestore → sends Slack notifications → syncs review reactions
+3. **Cloud Tasks** → `handlers/job_processor.go` → routes `Job` by type:
+   - `github_webhook` → GitHubHandler → creates individual `workspace_pr` jobs (fan-out)
+   - `workspace_pr` → GitHubHandler → processes PR notification for single workspace
+   - `manual_pr_link` → SlackHandler → processes manual PR links
+   - `reaction_sync` → GitHubHandler → syncs review reactions
 
 **Job Processing:**
 
 - **JobProcessor** provides single entrypoint for all async work with retry/timeout/logging logic
 - **Domain Handlers** (GitHubHandler, SlackHandler) contain domain-specific business logic
-- **Job Types**: `github_webhook` (routed to GitHubHandler) and `manual_pr_link` (routed to SlackHandler)
+- **Job Types**: `github_webhook` (fan-out coordinator), `workspace_pr` (single workspace processing), `manual_pr_link` (manual links), `reaction_sync` (review reactions)
 
 ### Data Flow
 

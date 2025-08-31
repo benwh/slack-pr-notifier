@@ -70,7 +70,7 @@ The system processes these GitHub webhook events:
 - `pull_request` - PR opened/closed/merged
 - `pull_request_review` - PR reviews submitted/dismissed
 
-Events are queued via Cloud Tasks for reliable processing.
+Events are queued via Cloud Tasks for reliable processing with fan-out to individual workspaces.
 
 ### Slack Events
 

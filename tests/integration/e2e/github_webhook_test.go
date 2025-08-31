@@ -82,16 +82,21 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was queued and executed
+		// Verify jobs were queued and executed (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
-		job := jobs[0]
-		assert.Equal(t, models.JobTypeGitHubWebhook, job.Type)
+		// First job should be the original GitHub webhook job
+		githubWebhookJob := jobs[0]
+		assert.Equal(t, models.JobTypeGitHubWebhook, githubWebhookJob.Type)
+
+		// Second job should be the workspace PR job
+		workspacePRJob := jobs[1]
+		assert.Equal(t, models.JobTypeWorkspacePR, workspacePRJob.Type)
 
 		// Verify the webhook job payload
 		var webhookJob models.WebhookJob
-		require.NoError(t, json.Unmarshal(job.Payload, &webhookJob))
+		require.NoError(t, json.Unmarshal(githubWebhookJob.Payload, &webhookJob))
 		assert.Equal(t, "pull_request", webhookJob.EventType)
 
 		// Verify Slack API was called to post the notification
@@ -272,9 +277,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Additional safety: small delay to ensure any in-flight HTTP requests complete
 		time.Sleep(50 * time.Millisecond)
 
-		// Verify all jobs were executed
+		// Verify all jobs were executed (each webhook produces 2 jobs: github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		assert.Len(t, jobs, numWebhooks)
+		assert.Len(t, jobs, numWebhooks*2)
 	})
 
 	t.Run("PR size emoji is included", func(t *testing.T) {
@@ -312,9 +317,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-				// Wait for job execution
+				// Wait for job execution (github_webhook + workspace_pr)
 				jobs := harness.FakeCloudTasks().GetExecutedJobs()
-				require.Len(t, jobs, 1)
+				require.Len(t, jobs, 2)
 
 				// Verify the message contains the expected emoji
 				slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
@@ -428,9 +433,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed
+		// Verify jobs were executed (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		// Verify message was sent to override channel
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
@@ -456,9 +461,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed
+		// Verify jobs were executed (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		// Verify message was sent with CC
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
@@ -485,9 +490,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed
+		// Verify jobs were executed (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		// Verify message was sent to override channel with CC
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
@@ -515,9 +520,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed
+		// Verify jobs were executed (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		// Verify message was sent to final channel with final user (last directive wins)
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
@@ -544,9 +549,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed and message was posted
+		// Verify jobs were executed and message was posted (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1, "Expected PR message to be posted initially")
@@ -587,9 +592,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed and message was posted initially
+		// Verify jobs were executed and message was posted initially (github_webhook + workspace_pr)
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1, "Expected PR message to be posted initially")
@@ -624,9 +629,9 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		resp = sendGitHubWebhook(t, harness, "pull_request", unskipPayload)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify job was executed for the unskip edit
+		// Verify jobs were executed for the unskip edit (github_webhook + workspace_pr)
 		jobs = harness.FakeCloudTasks().GetExecutedJobs()
-		require.Len(t, jobs, 1)
+		require.Len(t, jobs, 2)
 
 		// THIS IS THE KEY ASSERTION: Verify the PR message was re-posted to Slack
 		slackRequests = harness.SlackRequestCapture().GetPostMessageRequests()
@@ -636,6 +641,60 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		assert.Equal(t, "test-channel", repostedMessage.Channel)
 		assert.Contains(t, repostedMessage.Text, "Test skip/unskip sequence")
 		assert.Contains(t, repostedMessage.Text, "https://github.com/testorg/testrepo/pull/506")
+	})
+
+	t.Run("Fan-out architecture error handling", func(t *testing.T) {
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Setup test data
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Create GitHub webhook payload
+		payload := buildPROpenedPayload("testorg/testrepo", 123, "Test fan-out error handling", "test-user")
+
+		// Send webhook to application
+		resp := sendGitHubWebhook(t, harness, "pull_request", payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify the fan-out architecture creates exactly 2 jobs
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2, "Fan-out should create github_webhook + workspace_pr jobs")
+
+		// Verify job types are correct
+		githubWebhookJob := jobs[0]
+		assert.Equal(t, models.JobTypeGitHubWebhook, githubWebhookJob.Type)
+
+		workspacePRJob := jobs[1]
+		assert.Equal(t, models.JobTypeWorkspacePR, workspacePRJob.Type)
+
+		// Verify the WorkspacePR job payload contains expected fields
+		var workspacePRJobData models.WorkspacePRJob
+		require.NoError(t, json.Unmarshal(workspacePRJob.Payload, &workspacePRJobData))
+		assert.Equal(t, 123, workspacePRJobData.PRNumber)
+		assert.Equal(t, "testorg/testrepo", workspacePRJobData.RepoFullName)
+		assert.Equal(t, "T123456789", workspacePRJobData.WorkspaceID)
+		assert.Equal(t, "opened", workspacePRJobData.PRAction)
+		assert.Equal(t, int64(100001), workspacePRJobData.GitHubUserID)
+		assert.Equal(t, "test-user", workspacePRJobData.GitHubUsername)
+		assert.NotEmpty(t, workspacePRJobData.TraceID)
+		assert.NotEmpty(t, workspacePRJobData.PRPayload, "PR payload should be embedded in workspace job")
+
+		// Verify Slack message was posted successfully
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Exactly one Slack message should be posted")
+
+		message := slackRequests[0]
+		assert.Equal(t, "test-channel", message.Channel)
+		assert.Contains(t, message.Text, "Test fan-out error handling")
+		assert.Contains(t, message.Text, "testorg/testrepo")
+
+		t.Logf("✅ Fan-out architecture test passed: GitHub webhook successfully fanned out to workspace-specific jobs")
 	})
 }
 

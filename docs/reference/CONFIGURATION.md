@@ -245,6 +245,9 @@ The `/jobs/process` endpoint is protected by a static secret to ensure only Goog
 2. Job processing endpoint validates the secret matches the configured value
 3. Requests without the correct secret are rejected with 401 Unauthorized
 
+**Fan-out Architecture Benefits:**
+The system uses a fan-out pattern where GitHub webhook events create individual workspace jobs, providing improved error isolation - if one workspace fails, others can succeed and retry independently.
+
 **Authentication Design Decision:**
 We chose static secret authentication over Google Cloud OIDC tokens for practical Cloud Run considerations:
 

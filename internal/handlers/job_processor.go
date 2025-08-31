@@ -151,6 +151,8 @@ func (jp *JobProcessor) RouteJob(ctx context.Context, job *models.Job) error {
 		return jp.slackHandler.ProcessManualPRLinkJob(ctx, job)
 	case models.JobTypeReactionSync:
 		return jp.githubHandler.ProcessReactionSyncJob(ctx, job)
+	case models.JobTypeWorkspacePR:
+		return jp.githubHandler.ProcessWorkspacePRJob(ctx, job)
 	default:
 		return models.ErrUnsupportedJobType
 	}

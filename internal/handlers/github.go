@@ -283,6 +283,75 @@ func (h *GitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.Job) 
 	}
 }
 
+// ProcessWorkspacePRJob processes a workspace-specific PR job from the job system.
+// This method handles PR notifications for a single workspace.
+func (h *GitHubHandler) ProcessWorkspacePRJob(ctx context.Context, job *models.Job) error {
+	var workspacePRJob models.WorkspacePRJob
+	if err := json.Unmarshal(job.Payload, &workspacePRJob); err != nil {
+		return fmt.Errorf("failed to unmarshal workspace PR job: %w", err)
+	}
+
+	// Add job metadata to context for all log calls
+	ctx = log.WithFields(ctx, log.LogFields{
+		"pr_number":    workspacePRJob.PRNumber,
+		"repo":         workspacePRJob.RepoFullName,
+		"workspace_id": workspacePRJob.WorkspaceID,
+		"pr_action":    workspacePRJob.PRAction,
+		"author":       workspacePRJob.GitHubUsername,
+	})
+
+	log.Debug(ctx, "Processing workspace PR job")
+
+	// Unmarshal the GitHub payload
+	var githubPayload GitHubWebhookPayload
+	if err := json.Unmarshal(workspacePRJob.PRPayload, &githubPayload); err != nil {
+		log.Error(ctx, "Failed to unmarshal GitHub payload from workspace PR job",
+			"error", err,
+			"payload_size", len(workspacePRJob.PRPayload),
+		)
+		return fmt.Errorf("failed to unmarshal GitHub payload from workspace PR job: %w", err)
+	}
+
+	// Get user information
+	var user *models.User
+	var err error
+	if workspacePRJob.GitHubUserID > 0 {
+		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, workspacePRJob.GitHubUserID)
+		if err != nil {
+			log.Error(ctx, "Failed to lookup user by GitHub user ID",
+				"error", err,
+				"github_user_id", workspacePRJob.GitHubUserID,
+			)
+			return err
+		}
+	}
+
+	// Get workspace repository configuration
+	repo, err := h.firestoreService.GetRepo(ctx, workspacePRJob.RepoFullName, workspacePRJob.WorkspaceID)
+	if err != nil {
+		log.Error(ctx, "Failed to get repository configuration",
+			"error", err,
+			"workspace_id", workspacePRJob.WorkspaceID,
+			"repo", workspacePRJob.RepoFullName,
+		)
+		return err
+	}
+
+	if repo == nil {
+		log.Warn(ctx, "Repository configuration not found for workspace",
+			"workspace_id", workspacePRJob.WorkspaceID,
+			"repo", workspacePRJob.RepoFullName,
+		)
+		return fmt.Errorf("%w for workspace %s, repo %s", models.ErrRepoConfigNotFound, workspacePRJob.WorkspaceID, workspacePRJob.RepoFullName)
+	}
+
+	// Parse directives from the original payload
+	_, directives := h.slackService.ExtractChannelAndDirectives(githubPayload.PullRequest.Body)
+
+	// Process the notification for this specific workspace
+	return h.processWorkspaceNotification(ctx, &githubPayload, repo, user, workspacePRJob.AnnotatedChannel, directives)
+}
+
 // processPullRequestEvent processes pull request webhook events.
 // Handles PR opened, edited, ready_for_review, and closed actions with appropriate notifications.
 func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []byte) error {
@@ -400,8 +469,115 @@ func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebho
 	return h.postPRToAllWorkspaces(ctx, payload)
 }
 
+// getTraceIDFromContext extracts trace ID from context or returns empty string if not found.
+func getTraceIDFromContext(ctx context.Context) string {
+	if traceID, ok := ctx.Value(log.TraceIDKey).(string); ok {
+		return traceID
+	}
+	return ""
+}
+
+// enqueueWorkspacePRJobs creates and enqueues WorkspacePR jobs for each workspace.
+// Enables proper error handling and retries by processing each workspace independently.
+func (h *GitHubHandler) enqueueWorkspacePRJobs(
+	ctx context.Context,
+	payload *GitHubWebhookPayload,
+	repos []*models.Repo,
+	annotatedChannel string,
+	prAction string,
+) error {
+	if len(repos) == 0 {
+		log.Info(ctx, "No workspaces to process")
+		return nil
+	}
+
+	log.Info(ctx, "Enqueuing workspace PR jobs",
+		"workspace_count", len(repos),
+		"pr_action", prAction)
+
+	// Marshal the GitHub payload once for all jobs
+	githubPayloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal GitHub payload: %w", err)
+	}
+
+	// Track job enqueue failures
+	var enqueueErrors []error
+	enqueuedCount := 0
+
+	// Create and enqueue a job for each workspace
+	for _, repo := range repos {
+		workspacePRJobID := uuid.New().String()
+		workspacePRJob := &models.WorkspacePRJob{
+			ID:               workspacePRJobID,
+			PRNumber:         payload.PullRequest.Number,
+			RepoFullName:     payload.Repository.FullName,
+			WorkspaceID:      repo.WorkspaceID,
+			PRAction:         prAction,
+			GitHubUserID:     int64(payload.PullRequest.User.ID),
+			GitHubUsername:   payload.PullRequest.User.Login,
+			AnnotatedChannel: annotatedChannel,
+			TraceID:          getTraceIDFromContext(ctx),
+			PRPayload:        githubPayloadBytes,
+		}
+
+		// Marshal the WorkspacePR job as the payload for the Job
+		jobPayload, err := json.Marshal(workspacePRJob)
+		if err != nil {
+			log.Error(ctx, "Failed to marshal workspace PR job",
+				"error", err,
+				"workspace_id", repo.WorkspaceID,
+				"job_id", workspacePRJobID)
+			enqueueErrors = append(enqueueErrors, fmt.Errorf("failed to marshal workspace PR job for workspace %s: %w", repo.WorkspaceID, err))
+			continue
+		}
+
+		// Create Job wrapper
+		job := &models.Job{
+			ID:      workspacePRJobID,
+			Type:    models.JobTypeWorkspacePR,
+			TraceID: workspacePRJob.TraceID,
+			Payload: jobPayload,
+		}
+
+		// Enqueue the job
+		if err := h.cloudTasksService.EnqueueJob(ctx, job); err != nil {
+			log.Error(ctx, "Failed to enqueue workspace PR job",
+				"error", err,
+				"workspace_id", repo.WorkspaceID,
+				"job_id", workspacePRJobID)
+			enqueueErrors = append(enqueueErrors, fmt.Errorf("failed to enqueue workspace PR job for workspace %s: %w", repo.WorkspaceID, err))
+		} else {
+			log.Debug(ctx, "Enqueued workspace PR job",
+				"workspace_id", repo.WorkspaceID,
+				"job_id", workspacePRJobID)
+			enqueuedCount++
+		}
+	}
+
+	// Return error only if ALL enqueue operations failed
+	if len(enqueueErrors) == len(repos) {
+		return fmt.Errorf("%w: %v", models.ErrWorkspaceJobsEnqueueFailed, enqueueErrors)
+	}
+
+	// Log partial failures but don't fail the entire operation
+	if len(enqueueErrors) > 0 {
+		log.Warn(ctx, "Some workspace PR job enqueues failed",
+			"failed_count", len(enqueueErrors),
+			"total_count", len(repos),
+			"enqueued_count", enqueuedCount)
+	}
+
+	log.Info(ctx, "Successfully enqueued workspace PR jobs",
+		"enqueued_count", enqueuedCount,
+		"total_count", len(repos))
+
+	return nil
+}
+
 // postPRToAllWorkspaces handles the core logic of posting PR notifications to all configured workspaces.
 // Shared between handlePROpened, handlePREdited, and handlePRReadyForReview. Supports auto-registration for verified users.
+// Uses fan-out approach by enqueuing individual workspace jobs.
 func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitHubWebhookPayload) error {
 	authorUserID := int64(payload.PullRequest.User.ID)
 	authorUsername := payload.PullRequest.User.Login
@@ -456,19 +632,9 @@ func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitH
 	log.Info(ctx, "Found repository configurations in workspace(s)",
 		"workspace_count", len(repos))
 
-	// Process notifications for each workspace
-	for _, repo := range repos {
-		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel, directives)
-		if err != nil {
-			log.Error(ctx, "Failed to process notification for workspace",
-				"error", err,
-				"slack_team_id", repo.WorkspaceID,
-			)
-			// Continue processing other workspaces even if one fails
-		}
-	}
-
-	return nil
+	// Fan-out approach: enqueue individual workspace PR jobs
+	// The PR action is extracted from the payload - "opened", "edited", etc.
+	return h.enqueueWorkspacePRJobs(ctx, payload, repos, annotatedChannel, payload.Action)
 }
 
 // determineTargetChannel determines the target Slack channel for PR notifications.
@@ -839,74 +1005,8 @@ func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *Git
 		"title", payload.PullRequest.Title,
 	)
 
-	authorUserID := int64(payload.PullRequest.User.ID)
-	authorUsername := payload.PullRequest.User.Login
-	log.Debug(ctx, "Looking up user by GitHub user ID",
-		"github_user_id", authorUserID,
-		"github_username", authorUsername)
-
-	user, err := h.firestoreService.GetUserByGitHubUserID(ctx, authorUserID)
-	if err != nil {
-		log.Error(ctx, "Failed to lookup user by GitHub user ID",
-			"error", err,
-			"github_user_id", authorUserID,
-			"github_username", authorUsername,
-		)
-		return err
-	}
-
-	log.Debug(ctx, "User lookup result", "user_found", user != nil)
-
-	// Parse PR directives from description
-	annotatedChannel, directives := h.slackService.ExtractChannelAndDirectives(payload.PullRequest.Body)
-	log.Debug(ctx, "Channel and directive determination",
-		"annotated_channel", annotatedChannel,
-		"skip", directives.Skip,
-		"user_to_cc", directives.UserToCC)
-
-	// Check if PR should be skipped
-	if directives.Skip {
-		log.Info(ctx, "Skipping PR notification due to skip directive")
-		return nil
-	}
-
-	// Get all workspace configurations for this repository
-	log.Debug(ctx, "Looking up repository configurations across all workspaces")
-	repos, err := h.firestoreService.GetReposForAllWorkspaces(ctx, payload.Repository.FullName)
-	if err != nil {
-		log.Error(ctx, "Failed to lookup repository configurations",
-			"error", err,
-		)
-		return err
-	}
-
-	if len(repos) == 0 {
-		autoRegisteredRepo, err := h.attemptAutoRegistration(ctx, payload, user)
-		if err != nil {
-			return err
-		}
-		if autoRegisteredRepo == nil {
-			return nil // Skip notification - no auto-registration possible
-		}
-		repos = []*models.Repo{autoRegisteredRepo}
-	}
-
-	log.Info(ctx, "Found repository configurations in workspace(s)",
-		"workspace_count", len(repos))
-
-	// Process notifications for each workspace
-	for _, repo := range repos {
-		err := h.processWorkspaceNotification(ctx, payload, repo, user, annotatedChannel, directives)
-		if err != nil {
-			log.Error(ctx, "Failed to process notification for workspace",
-				"error", err,
-				"slack_team_id", repo.WorkspaceID,
-			)
-			// Continue processing other workspaces even if one fails
-		}
-	}
-
-	return nil
+	// Delegate to shared logic using fan-out approach
+	return h.postPRToAllWorkspaces(ctx, payload)
 }
 
 // getAllTrackedMessagesForPR retrieves all tracked messages for a specific PR across all configured workspaces.

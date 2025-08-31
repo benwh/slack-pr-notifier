@@ -29,6 +29,9 @@ var (
 	ErrUserInstallationAccess      = errors.New("user does not have access to installation")
 	ErrWorkspaceNoInstallation     = errors.New("workspace has no GitHub installation")
 	ErrRepositoryNotIncluded       = errors.New("repository not included in installation")
+	ErrPRActionRequired            = errors.New("PR action is required")
+	ErrRepoConfigNotFound          = errors.New("repository configuration not found")
+	ErrWorkspaceJobsEnqueueFailed  = errors.New("failed to enqueue workspace PR jobs")
 )
 
 type User struct {
@@ -213,6 +216,21 @@ type ReactionSyncJob struct {
 	TraceID      string `json:"trace_id"`
 }
 
+// WorkspacePRJob represents a job to process PR notification for a single workspace.
+type WorkspacePRJob struct {
+	ID               string `json:"id"`
+	PRNumber         int    `json:"pr_number"`
+	RepoFullName     string `json:"repo_full_name"`
+	WorkspaceID      string `json:"workspace_id"`
+	PRAction         string `json:"pr_action"` // "opened", "edited", "ready_for_review", "closed"
+	GitHubUserID     int64  `json:"github_user_id"`
+	GitHubUsername   string `json:"github_username"`
+	AnnotatedChannel string `json:"annotated_channel"` // Channel from PR description
+	TraceID          string `json:"trace_id"`
+	// PR payload will be stored as base64-encoded JSON to avoid nested JSON issues
+	PRPayload []byte `json:"pr_payload"`
+}
+
 // Validate validates required fields for ReactionSyncJob.
 func (rsj *ReactionSyncJob) Validate() error {
 	if rsj.ID == "" {
@@ -226,6 +244,32 @@ func (rsj *ReactionSyncJob) Validate() error {
 	}
 	if rsj.TraceID == "" {
 		return ErrTraceIDRequired
+	}
+	return nil
+}
+
+// Validate validates required fields for WorkspacePRJob.
+func (wpj *WorkspacePRJob) Validate() error {
+	if wpj.ID == "" {
+		return ErrJobIDRequired
+	}
+	if wpj.PRNumber <= 0 {
+		return ErrPRNumberRequired
+	}
+	if wpj.RepoFullName == "" {
+		return ErrRepoFullNameRequired
+	}
+	if wpj.WorkspaceID == "" {
+		return ErrSlackTeamIDRequired
+	}
+	if wpj.PRAction == "" {
+		return ErrPRActionRequired
+	}
+	if wpj.TraceID == "" {
+		return ErrTraceIDRequired
+	}
+	if len(wpj.PRPayload) == 0 {
+		return ErrPayloadRequired
 	}
 	return nil
 }
@@ -246,6 +290,7 @@ const (
 	JobTypeGitHubWebhook = "github_webhook"
 	JobTypeManualPRLink  = "manual_pr_link"
 	JobTypeReactionSync  = "reaction_sync"
+	JobTypeWorkspacePR   = "workspace_pr"
 )
 
 // Job represents a job structure for all async processing.
