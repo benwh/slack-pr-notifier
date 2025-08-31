@@ -300,6 +300,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleToggleNotificationsAction(ctx, userID, c)
 	case "toggle_user_tagging":
 		sh.handleToggleUserTaggingAction(ctx, userID, c)
+	case "toggle_impersonation":
+		sh.handleToggleImpersonationAction(ctx, userID, c)
 	case "manage_github_installations":
 		sh.handleManageGitHubInstallationsAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "add_github_installation":
@@ -633,8 +635,9 @@ func (sh *SlackHandler) createOrGetUserWithDisplayName(ctx context.Context, user
 		user = &models.User{
 			ID:                   userID,
 			SlackTeamID:          teamID,
-			NotificationsEnabled: true, // Default to enabled for new users
-			TaggingEnabled:       true, // Default to enabled for new users
+			NotificationsEnabled: true,             // Default to enabled for new users
+			TaggingEnabled:       true,             // Default to enabled for new users
+			ImpersonationEnabled: &[]bool{true}[0], // Default to enabled for new users
 		}
 
 		// Try to fetch Slack display name for new user
@@ -767,6 +770,20 @@ func (sh *SlackHandler) handleToggleUserTaggingAction(ctx context.Context, userI
 		return map[string]interface{}{
 			"tagging_enabled": user.TaggingEnabled,
 			"github_username": user.GitHubUsername,
+		}
+	})
+}
+
+// handleToggleImpersonationAction handles the impersonation enable/disable toggle.
+func (sh *SlackHandler) handleToggleImpersonationAction(ctx context.Context, userID string, c *gin.Context) {
+	sh.handleUserSettingToggle(ctx, userID, c, "impersonation", func(user *models.User) {
+		currentValue := user.GetImpersonationEnabled()
+		newValue := !currentValue
+		user.ImpersonationEnabled = &newValue
+	}, func(user *models.User) map[string]interface{} {
+		return map[string]interface{}{
+			"impersonation_enabled": user.GetImpersonationEnabled(),
+			"github_username":       user.GitHubUsername,
 		}
 	})
 }

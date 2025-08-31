@@ -40,10 +40,19 @@ type User struct {
 	SlackTeamID          string    `firestore:"slack_team_id"`
 	SlackDisplayName     string    `firestore:"slack_display_name"` // Slack display name for debugging
 	DefaultChannel       string    `firestore:"default_channel"`
-	NotificationsEnabled bool      `firestore:"notifications_enabled"` // Whether to post PRs for this user
-	TaggingEnabled       bool      `firestore:"tagging_enabled"`       // Whether to tag user in PR messages
+	NotificationsEnabled bool      `firestore:"notifications_enabled"`           // Whether to post PRs for this user
+	TaggingEnabled       bool      `firestore:"tagging_enabled"`                 // Whether to tag user in PR messages
+	ImpersonationEnabled *bool     `firestore:"impersonation_enabled,omitempty"` // Whether to post PRs appearing from the user
 	CreatedAt            time.Time `firestore:"created_at"`
 	UpdatedAt            time.Time `firestore:"updated_at"`
+}
+
+// GetImpersonationEnabled returns the impersonation preference, defaulting to true if not set.
+func (u *User) GetImpersonationEnabled() bool {
+	if u.ImpersonationEnabled == nil {
+		return true // Default to enabled for backwards compatibility
+	}
+	return *u.ImpersonationEnabled
 }
 
 // OAuthState represents temporary OAuth state for CSRF protection.

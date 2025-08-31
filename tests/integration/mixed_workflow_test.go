@@ -314,6 +314,7 @@ func setupUserAndRepo(
 		DefaultChannel:       channelID,
 		Verified:             true,
 		NotificationsEnabled: true,
+		ImpersonationEnabled: &[]bool{true}[0],
 	}
 	require.NoError(t, app.FirestoreService.SaveUser(ctx, user))
 

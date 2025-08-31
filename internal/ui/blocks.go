@@ -182,6 +182,11 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 		blocks = append(blocks, b.buildUserTaggingSection(user)...)
 	}
 
+	// Impersonation toggle - only show if GitHub is connected
+	if githubConnected {
+		blocks = append(blocks, b.buildImpersonationSection(user)...)
+	}
+
 	// Channel selection - always show but with different states
 	var channelSectionText string
 	var channelAccessory *slack.Accessory
@@ -266,6 +271,52 @@ func (b *HomeViewBuilder) buildUserTaggingSection(user *models.User) []slack.Blo
 
 	return []slack.Block{
 		slack.NewSectionBlock(taggingSectionText, nil, taggingAccessory),
+	}
+}
+
+// buildImpersonationSection builds the impersonation toggle section.
+func (b *HomeViewBuilder) buildImpersonationSection(user *models.User) []slack.Block {
+	var impersonationStatus string
+	var impersonationToggleText string
+	var impersonationToggleStyle slack.Style
+	var impersonationAccessory *slack.Accessory
+
+	if user != nil && !user.NotificationsEnabled {
+		// Notifications disabled - show pending state
+		impersonationStatus = "⏳ Pending - Enable notifications first"
+	} else {
+		// Determine impersonation status - default to enabled for backward compatibility
+		impersonationEnabled := user == nil || user.GetImpersonationEnabled()
+
+		if impersonationEnabled {
+			impersonationStatus = "✅ Enabled - Your PRs appear to come from you"
+			impersonationToggleText = "Disable impersonation"
+			impersonationToggleStyle = slack.StyleDanger
+		} else {
+			impersonationStatus = "❌ Disabled - Your PRs come from the bot"
+			impersonationToggleText = "Enable impersonation"
+			impersonationToggleStyle = slack.StylePrimary
+		}
+
+		// Only show toggle if notifications are enabled
+		if user != nil && user.NotificationsEnabled {
+			impersonationAccessory = slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"toggle_impersonation",
+					"toggle_impersonation",
+					slack.NewTextBlockObject(slack.PlainTextType, impersonationToggleText, false, false),
+				).WithStyle(impersonationToggleStyle),
+			)
+		}
+	}
+
+	impersonationSectionText := slack.NewTextBlockObject(slack.MarkdownType,
+		fmt.Sprintf("*Step 2c: Control message appearance*\n%s - When enabled, PR notifications "+
+			"appear to be posted by you instead of the bot", impersonationStatus),
+		false, false)
+
+	return []slack.Block{
+		slack.NewSectionBlock(impersonationSectionText, nil, impersonationAccessory),
 	}
 }
 

@@ -535,6 +535,12 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		}
 	}
 
+	// Determine impersonation preference - default to enabled if user not found
+	impersonationEnabled := true
+	if user != nil {
+		impersonationEnabled = user.GetImpersonationEnabled()
+	}
+
 	timestamp, err := h.slackService.PostPRMessage(
 		ctx,
 		repo.WorkspaceID,
@@ -548,6 +554,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		authorSlackUserID,
 		directives.UserToCC,
 		directives.CustomEmoji,
+		impersonationEnabled,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack workspace",

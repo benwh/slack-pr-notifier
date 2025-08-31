@@ -77,7 +77,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, customEmoji string,
+	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled bool,
 ) (string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -95,8 +95,8 @@ func (s *SlackService) PostPRMessage(
 
 	var msgOptions []slack.MsgOption
 
-	// Check if we can impersonate the author
-	if authorSlackUserID != "" {
+	// Check if we can and should impersonate the author
+	if authorSlackUserID != "" && impersonationEnabled {
 		// Get user info to impersonate them
 		user, err := s.GetUserInfo(ctx, teamID, authorSlackUserID)
 		if err != nil {

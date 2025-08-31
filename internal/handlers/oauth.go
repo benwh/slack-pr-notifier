@@ -171,8 +171,9 @@ func (h *OAuthHandler) createOrUpdateUserFromGitHub(
 		GitHubUserID:         githubUser.ID,
 		Verified:             true,
 		SlackTeamID:          state.SlackTeamID,
-		NotificationsEnabled: true, // Default to enabled for new users
-		TaggingEnabled:       true, // Default to enabled for new users
+		NotificationsEnabled: true,             // Default to enabled for new users
+		TaggingEnabled:       true,             // Default to enabled for new users
+		ImpersonationEnabled: &[]bool{true}[0], // Default to enabled for new users
 		UpdatedAt:            time.Now(),
 	}
 

@@ -20,6 +20,7 @@ func SetupTestUserAndRepo(t *testing.T, app *TestApp, ctx context.Context, const
 		DefaultChannel:       constants.DefaultSlackChannel,
 		Verified:             true,
 		NotificationsEnabled: true,
+		ImpersonationEnabled: &[]bool{true}[0],
 	}
 	require.NoError(t, app.FirestoreService.SaveUser(ctx, user))
 
