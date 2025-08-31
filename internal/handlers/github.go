@@ -722,7 +722,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		impersonationEnabled = user.GetImpersonationEnabled()
 	}
 
-	timestamp, err := h.slackService.PostPRMessage(
+	timestamp, resolvedChannelID, err := h.slackService.PostPRMessage(
 		ctx,
 		repo.WorkspaceID,
 		targetChannel,
@@ -755,12 +755,13 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 
 	// Create TrackedMessage for the bot notification
 	trackedMessage := &models.TrackedMessage{
-		PRNumber:       payload.PullRequest.Number,
-		RepoFullName:   payload.Repository.FullName,
-		SlackChannel:   targetChannel,
-		SlackMessageTS: timestamp,
-		SlackTeamID:    repo.WorkspaceID,
-		MessageSource:  "bot",
+		PRNumber:         payload.PullRequest.Number,
+		RepoFullName:     payload.Repository.FullName,
+		SlackChannel:     resolvedChannelID,
+		SlackChannelName: targetChannel, // Store original for logging if it was a name
+		SlackMessageTS:   timestamp,
+		SlackTeamID:      repo.WorkspaceID,
+		MessageSource:    "bot",
 	}
 
 	log.Debug(ctx, "Saving tracked message to database",

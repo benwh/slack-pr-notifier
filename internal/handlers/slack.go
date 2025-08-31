@@ -1082,18 +1082,29 @@ func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.
 		return fmt.Errorf("invalid manual link job: %w", err)
 	}
 
+	// Resolve channel name to ID if needed (though should already be ID from Slack events)
+	channelID, err := sh.slackService.ResolveChannelID(ctx, manualLinkJob.SlackTeamID, manualLinkJob.SlackChannel)
+	if err != nil {
+		log.Error(ctx, "Failed to resolve channel for manual PR link",
+			"error", err,
+			"channel", manualLinkJob.SlackChannel,
+			"team_id", manualLinkJob.SlackTeamID)
+		return fmt.Errorf("failed to resolve channel %s: %w", manualLinkJob.SlackChannel, err)
+	}
+
 	// Create TrackedMessage for this manual PR link
 	trackedMessage := &models.TrackedMessage{
-		PRNumber:       manualLinkJob.PRNumber,
-		RepoFullName:   manualLinkJob.RepoFullName,
-		SlackChannel:   manualLinkJob.SlackChannel,
-		SlackMessageTS: manualLinkJob.SlackMessageTS,
-		SlackTeamID:    manualLinkJob.SlackTeamID,
-		MessageSource:  "manual",
+		PRNumber:         manualLinkJob.PRNumber,
+		RepoFullName:     manualLinkJob.RepoFullName,
+		SlackChannel:     channelID,
+		SlackChannelName: manualLinkJob.SlackChannel, // Store original for logging if it was a name
+		SlackMessageTS:   manualLinkJob.SlackMessageTS,
+		SlackTeamID:      manualLinkJob.SlackTeamID,
+		MessageSource:    "manual",
 	}
 
 	log.Debug(ctx, "Creating tracked message for manual PR link")
-	err := sh.firestoreService.CreateTrackedMessage(ctx, trackedMessage)
+	err = sh.firestoreService.CreateTrackedMessage(ctx, trackedMessage)
 	if err != nil {
 		log.Error(ctx, "Failed to create tracked message for manual PR link", "error", err)
 		return err

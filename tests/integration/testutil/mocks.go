@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github-slack-notifier/internal/models"
@@ -154,11 +155,11 @@ func (m *MockSlackService) recordCall(call SlackCall) {
 	m.calls = append(m.calls, call)
 }
 
-// PostPRMessage mocks posting a PR message and returns a mock timestamp.
+// PostPRMessage mocks posting a PR message and returns a mock timestamp and channel ID.
 func (m *MockSlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
-) (string, error) {
+) (string, string, error) {
 	m.recordCall(SlackCall{
 		Method:  "PostPRMessage",
 		TeamID:  teamID,
@@ -178,8 +179,13 @@ func (m *MockSlackService) PostPRMessage(
 		},
 	})
 
-	// Return a mock timestamp
-	return "1234567890.123456", nil
+	// Return mock timestamp and resolved channel ID
+	// If channel looks like a name, convert to ID format for consistency
+	resolvedChannelID := channel
+	if !strings.HasPrefix(channel, "C") {
+		resolvedChannelID = "C1234567890" // Mock channel ID
+	}
+	return "1234567890.123456", resolvedChannelID, nil
 }
 
 // SendEphemeralMessage mocks sending an ephemeral message.

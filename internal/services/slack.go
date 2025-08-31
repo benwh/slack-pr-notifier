@@ -78,14 +78,26 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 }
 
 // PostPRMessage posts a pull request notification message to Slack, attempting impersonation first if enabled.
-// Returns the message timestamp for tracking.
+// Returns the message timestamp and resolved channel ID for tracking.
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 	authorSlackUserID, userToCC, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
-) (string, error) {
+) (string, string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+
+	// Resolve channel name to channel ID if needed
+	channelID, err := s.resolveChannelID(ctx, teamID, client, channel)
+	if err != nil {
+		log.Error(ctx, "Failed to resolve Slack channel",
+			"error", err,
+			"channel", channel,
+			"team_id", teamID,
+			"operation", "post_pr_message",
+		)
+		return "", "", fmt.Errorf("failed to resolve channel %s for team %s: %w", channel, teamID, err)
 	}
 
 	// Build message text once - use bot mode format since it includes everything we need
@@ -97,21 +109,22 @@ func (s *SlackService) PostPRMessage(
 	// Try impersonation first if enabled
 	if authorSlackUserID != "" && impersonationEnabled {
 		timestamp, posted, err := s.postMessageAsUser(
-			ctx, client, teamID, channel, messageText, authorSlackUserID,
+			ctx, client, teamID, channelID, messageText, authorSlackUserID,
 		)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if posted {
-			return timestamp, nil
+			return timestamp, channelID, nil
 		}
 	}
 
 	// Fallback: Post as bot
-	return s.postMessageAsBot(
-		ctx, client, teamID, channel, repoName, prTitle, prAuthor, prURL,
+	timestamp, err := s.postMessageAsBot(
+		ctx, client, teamID, channelID, repoName, prTitle, prAuthor, prURL,
 		messageText,
 	)
+	return timestamp, channelID, err
 }
 
 // formatEmoji formats the emoji for Slack message display.
@@ -567,11 +580,23 @@ func (s *SlackService) DeleteMessage(ctx context.Context, teamID, channel, times
 		return err
 	}
 
-	_, _, err = client.DeleteMessage(channel, timestamp)
+	// Try to resolve channel name to ID for backward compatibility
+	channelID, err := s.resolveChannelID(ctx, teamID, client, channel)
+	if err != nil {
+		log.Warn(ctx, "Failed to resolve channel for delete, trying original channel value",
+			"error", err,
+			"channel", channel,
+			"team_id", teamID,
+		)
+		channelID = channel // Fallback to original value
+	}
+
+	_, _, err = client.DeleteMessage(channelID, timestamp)
 	if err != nil {
 		log.Error(ctx, "Failed to delete Slack message",
 			"error", err,
 			"channel", channel,
+			"resolved_channel", channelID,
 			"team_id", teamID,
 			"message_timestamp", timestamp,
 			"operation", "delete_message",

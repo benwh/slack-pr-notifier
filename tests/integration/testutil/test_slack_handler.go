@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
@@ -177,14 +178,21 @@ func (sh *TestSlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *mod
 		return fmt.Errorf("invalid manual link job: %w", err)
 	}
 
+	// For tests, assume channels are already IDs or resolve them via mock
+	channelID := manualLinkJob.SlackChannel
+	if !strings.HasPrefix(channelID, "C") {
+		channelID = "C1234567890" // Mock channel ID for testing
+	}
+
 	// Create TrackedMessage for this manual PR link
 	trackedMessage := &models.TrackedMessage{
-		PRNumber:       manualLinkJob.PRNumber,
-		RepoFullName:   manualLinkJob.RepoFullName,
-		SlackChannel:   manualLinkJob.SlackChannel,
-		SlackMessageTS: manualLinkJob.SlackMessageTS,
-		SlackTeamID:    manualLinkJob.SlackTeamID,
-		MessageSource:  "manual",
+		PRNumber:         manualLinkJob.PRNumber,
+		RepoFullName:     manualLinkJob.RepoFullName,
+		SlackChannel:     channelID,
+		SlackChannelName: manualLinkJob.SlackChannel, // Store original for logging
+		SlackMessageTS:   manualLinkJob.SlackMessageTS,
+		SlackTeamID:      manualLinkJob.SlackTeamID,
+		MessageSource:    "manual",
 	}
 
 	log.Debug(ctx, "Creating tracked message for manual PR link")

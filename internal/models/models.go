@@ -140,14 +140,15 @@ func (gi *GitHubInstallation) Validate() error {
 
 // TrackedMessage represents a tracked PR message in Slack (replaces old Message model).
 type TrackedMessage struct {
-	ID             string    `firestore:"id"`               // Auto-generated document ID
-	PRNumber       int       `firestore:"pr_number"`        // GitHub PR number
-	RepoFullName   string    `firestore:"repo_full_name"`   // e.g., "owner/repo"
-	SlackChannel   string    `firestore:"slack_channel"`    // Slack channel ID
-	SlackMessageTS string    `firestore:"slack_message_ts"` // Slack message timestamp
-	SlackTeamID    string    `firestore:"slack_team_id"`    // Slack workspace/team ID
-	MessageSource  string    `firestore:"message_source"`   // "bot" or "manual"
-	CreatedAt      time.Time `firestore:"created_at"`       // When we started tracking this message
+	ID               string    `firestore:"id"`                           // Auto-generated document ID
+	PRNumber         int       `firestore:"pr_number"`                    // GitHub PR number
+	RepoFullName     string    `firestore:"repo_full_name"`               // e.g., "owner/repo"
+	SlackChannel     string    `firestore:"slack_channel"`                // Slack channel ID
+	SlackChannelName string    `firestore:"slack_channel_name,omitempty"` // Channel name for logging (optional)
+	SlackMessageTS   string    `firestore:"slack_message_ts"`             // Slack message timestamp
+	SlackTeamID      string    `firestore:"slack_team_id"`                // Slack workspace/team ID
+	MessageSource    string    `firestore:"message_source"`               // "bot" or "manual"
+	CreatedAt        time.Time `firestore:"created_at"`                   // When we started tracking this message
 }
 
 type Repo struct {

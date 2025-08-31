@@ -110,7 +110,12 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		// The PR has 50 additions + 30 deletions = 80 lines, which should be a cat emoji
 		message := slackRequests[0]
-		assert.Equal(t, channel, message.Channel)
+		// Channel names are now resolved to IDs
+		expectedChannelID := "C987654321" // test-channel -> C987654321
+		if channel == "pr-channel" {
+			expectedChannelID = "C111111111"
+		}
+		assert.Equal(t, expectedChannelID, message.Channel)
 		assert.Contains(t, message.Text, "🐱") // cat emoji for 80 lines
 		assert.Contains(t, message.Text, fmt.Sprintf("https://github.com/%s/pull/%d", repoName, prNumber))
 		assert.Contains(t, message.Text, title)
@@ -440,7 +445,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Verify message was sent to override channel
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1)
-		assert.Equal(t, "override-channel", slackRequests[0].Channel)
+		assert.Equal(t, "C222222222", slackRequests[0].Channel) // override-channel -> C222222222
 		assert.Contains(t, slackRequests[0].Text, "PR with channel override")
 	})
 
@@ -497,7 +502,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Verify message was sent to override channel with CC
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1)
-		assert.Equal(t, "combined-channel", slackRequests[0].Channel)
+		assert.Equal(t, "C333333333", slackRequests[0].Channel) // combined-channel -> C333333333
 		assert.Contains(t, slackRequests[0].Text, "(cc: @tech.lead)")
 		assert.Contains(t, slackRequests[0].Text, "PR with combined directives")
 	})
@@ -527,7 +532,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		// Verify message was sent to final channel with final user (last directive wins)
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1)
-		assert.Equal(t, "final-channel", slackRequests[0].Channel)
+		assert.Equal(t, "C444444444", slackRequests[0].Channel) // final-channel -> C444444444
 		assert.Contains(t, slackRequests[0].Text, "(cc: @final.user)")
 		assert.Contains(t, slackRequests[0].Text, "PR with multiple directives")
 	})
@@ -599,7 +604,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1, "Expected PR message to be posted initially")
 		initialMessage := slackRequests[0]
-		assert.Equal(t, "test-channel", initialMessage.Channel)
+		assert.Equal(t, "C987654321", initialMessage.Channel) // test-channel -> C987654321
 		assert.Contains(t, initialMessage.Text, "Test skip/unskip sequence")
 
 		// Step 2: Edit the PR to add !review-skip directive (should delete message)
@@ -638,7 +643,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		require.Len(t, slackRequests, 1, "Expected PR message to be re-posted after removing skip directive")
 
 		repostedMessage := slackRequests[0]
-		assert.Equal(t, "test-channel", repostedMessage.Channel)
+		assert.Equal(t, "C987654321", repostedMessage.Channel) // test-channel -> C987654321
 		assert.Contains(t, repostedMessage.Text, "Test skip/unskip sequence")
 		assert.Contains(t, repostedMessage.Text, "https://github.com/testorg/testrepo/pull/506")
 	})
@@ -690,7 +695,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		require.Len(t, slackRequests, 1, "Exactly one Slack message should be posted")
 
 		message := slackRequests[0]
-		assert.Equal(t, "test-channel", message.Channel)
+		assert.Equal(t, "C987654321", message.Channel) // test-channel -> C987654321
 		assert.Contains(t, message.Text, "Test fan-out error handling")
 		assert.Contains(t, message.Text, "testorg/testrepo")
 

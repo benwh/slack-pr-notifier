@@ -77,7 +77,7 @@ func (h *TestGitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.J
 	case "pull_request":
 		// Simulate posting a PR message for opened events
 		const testPRSize = 100
-		_, _ = h.mockSlackService.PostPRMessage(
+		_, _, _ = h.mockSlackService.PostPRMessage(
 			ctx,
 			"test-team",
 			"test-channel",
