@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	batchSize       = 500
-	minArgsRequired = 2
+	batchSize         = 500
+	minArgsRequired   = 2
+	filePermReadWrite = 0600
 )
 
 var (
@@ -295,7 +296,7 @@ func handleDumpFirestore() {
 	}
 
 	if outputFile != "" {
-		err = os.WriteFile(outputFile, jsonData, 0600)
+		err = os.WriteFile(outputFile, jsonData, filePermReadWrite)
 		if err != nil {
 			log.Error(ctx, "Failed to write output file", "file", outputFile, "error", err)
 			os.Exit(1)
