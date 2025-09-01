@@ -31,8 +31,9 @@ var ErrPrivateChannelNotSupported = errors.New("private_channel_not_supported")
 var ErrCannotJoinChannel = errors.New("cannot_join_channel")
 
 var (
-	directiveRegex          = regexp.MustCompile(`(?i)!reviews?:\s*(.+)`)
+	directiveRegex          = regexp.MustCompile(`(?i)!reviews?:\s*(.*)`)
 	skipDirectiveRegex      = regexp.MustCompile(`(?i)!review-skip`)
+	bareReviewRegex         = regexp.MustCompile(`(?i)!reviews?(?:\s|$)`)
 	channelValidationRegex  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 	usernameValidationRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
@@ -725,6 +726,9 @@ func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
 	// Replace !review-skip with !review: skip to normalize all skip directives
 	normalizedDescription := skipDirectiveRegex.ReplaceAllString(description, "!review: skip")
 
+	// Replace bare !review with !review: to normalize empty directives
+	normalizedDescription = bareReviewRegex.ReplaceAllString(normalizedDescription, "!review: ")
+
 	// Find all matches - last directive wins
 	allMatches := directiveRegex.FindAllStringSubmatch(normalizedDescription, -1)
 	if len(allMatches) == 0 {
@@ -744,13 +748,13 @@ func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
 
 // processDirectiveMatch processes a single directive match and updates the directives.
 func (s *SlackService) processDirectiveMatch(content string, directives *PRDirectives) {
+	// Mark that we have a valid review directive (even if content is empty)
+	directives.HasReviewDirective = true
+
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return
 	}
-
-	// Mark that we have a valid review directive with content
-	directives.HasReviewDirective = true
 
 	// Split content by whitespace and parse each component
 	parts := strings.Fields(content)

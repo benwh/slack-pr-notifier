@@ -151,12 +151,16 @@ More details about the PR.`,
 		{
 			name:        "Empty directive content",
 			description: "!review:",
-			expected:    &PRDirectives{},
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+			},
 		},
 		{
 			name:        "Whitespace only directive content",
 			description: "!review:   \t  ",
-			expected:    &PRDirectives{},
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+			},
 		},
 		{
 			name:        "Case insensitive directive name",
@@ -267,6 +271,20 @@ More details about the PR.`,
 			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "white_check_mark",
 				Channel:     "approvals",
+			},
+		},
+		{
+			name:        "Bare review directive (no colon)",
+			description: "!review",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+			},
+		},
+		{
+			name:        "Bare review directive with text after",
+			description: "!review and some other text",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
 			},
 		},
 	}

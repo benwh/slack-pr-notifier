@@ -400,6 +400,7 @@ func (fs *FirestoreService) UpdateTrackedMessage(ctx context.Context, message *m
 		"repo", message.RepoFullName,
 		"pr_number", message.PRNumber,
 		"user_to_cc", message.UserToCC,
+		"has_review_directive", message.HasReviewDirective,
 	)
 
 	return nil
