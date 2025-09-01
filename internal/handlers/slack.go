@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
@@ -309,6 +312,8 @@ func (sh *SlackHandler) handleBlockAction(ctx context.Context, interaction *slac
 		sh.handleManageGitHubInstallationsAction(ctx, userID, teamID, interaction.TriggerID, c)
 	case "add_github_installation":
 		sh.handleAddGitHubInstallationFromModalAction(ctx, userID, teamID, interaction.TriggerID, c)
+	case "configure_pr_size_emojis":
+		sh.handleConfigurePRSizeEmojisAction(ctx, userID, teamID, interaction.TriggerID, c)
 	default:
 		c.JSON(http.StatusOK, gin.H{})
 	}
@@ -324,6 +329,8 @@ func (sh *SlackHandler) handleViewSubmission(ctx context.Context, interaction *s
 		sh.handleChannelTrackingSelection(ctx, interaction, c)
 	case "save_channel_tracking":
 		sh.handleSaveChannelTracking(ctx, interaction, c)
+	case "pr_size_config":
+		sh.handlePRSizeConfigSubmission(ctx, interaction, c)
 	default:
 		log.Warn(ctx, "Unknown view submission callback ID",
 			"callback_id", interaction.View.CallbackID)
@@ -1153,4 +1160,219 @@ func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.
 		"reaction_sync_job_id", reactionSyncJobID)
 
 	return nil
+}
+
+// handleConfigurePRSizeEmojisAction handles the "Configure PR emojis" button.
+// Opens the PR size emoji configuration modal.
+func (sh *SlackHandler) handleConfigurePRSizeEmojisAction(ctx context.Context, userID, teamID, triggerID string, c *gin.Context) {
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+		"team_id": teamID,
+	})
+
+	log.Info(ctx, "User opened PR size emoji configuration modal")
+
+	// Get user data to populate current configuration
+	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	if err != nil {
+		log.Error(ctx, "Failed to get user data for PR size config modal", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"pr_size_config": "Failed to load your settings. Please try again.",
+			},
+		})
+		return
+	}
+
+	// Build and open the PR size configuration modal
+	modalView := sh.slackService.BuildPRSizeConfigModal(user)
+
+	_, err = sh.slackService.OpenView(ctx, teamID, triggerID, modalView)
+	if err != nil {
+		log.Error(ctx, "Failed to open PR size config modal", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"pr_size_config": "Failed to open configuration modal. Please try again.",
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{})
+}
+
+// handlePRSizeConfigSubmission handles the submission of PR size emoji configuration modal.
+// Parses and validates the configuration, then saves it to the user's settings.
+func (sh *SlackHandler) handlePRSizeConfigSubmission(ctx context.Context, interaction *slack.InteractionCallback, c *gin.Context) {
+	userID := interaction.User.ID
+	ctx = log.WithFields(ctx, log.LogFields{
+		"user_id": userID,
+	})
+
+	log.Info(ctx, "Processing PR size emoji configuration submission")
+
+	// Extract the configuration text from the modal
+	configText := extractTextInput(interaction, "pr_size_config_input", "pr_size_config_text")
+	if configText == "" {
+		log.Info(ctx, "Empty configuration submitted - disabling custom emoji config")
+	}
+
+	// Parse and validate the configuration
+	prSizeConfig, errors := sh.parsePRSizeConfig(configText)
+	if len(errors) > 0 {
+		log.Warn(ctx, "Invalid PR size configuration submitted",
+			"errors", errors,
+			"config_text", configText)
+		c.JSON(http.StatusOK, map[string]interface{}{
+			"response_action": "errors",
+			"errors":          errors,
+		})
+		return
+	}
+
+	// Get user data
+	user, err := sh.firestoreService.GetUserBySlackID(ctx, userID)
+	if err != nil {
+		log.Error(ctx, "Failed to get user for PR size config save", "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	if user == nil {
+		log.Error(ctx, "User not found for PR size config save")
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	// Update user's PR size configuration
+	user.PRSizeConfig = prSizeConfig
+	err = sh.firestoreService.SaveUser(ctx, user)
+	if err != nil {
+		log.Error(ctx, "Failed to save PR size configuration", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"response_action": "errors",
+			"errors": map[string]string{
+				"pr_size_config_input": "Failed to save configuration. Please try again.",
+			},
+		})
+		return
+	}
+
+	if prSizeConfig != nil && prSizeConfig.Enabled {
+		log.Info(ctx, "Saved custom PR size emoji configuration",
+			"threshold_count", len(prSizeConfig.Thresholds))
+	} else {
+		log.Info(ctx, "Disabled custom PR size emoji configuration")
+	}
+
+	// Refresh the home view to show updated configuration
+	sh.refreshHomeView(ctx, userID)
+	c.JSON(http.StatusOK, gin.H{})
+}
+
+// parsePRSizeConfig parses and validates PR size emoji configuration from text input.
+// Returns the parsed configuration or validation errors.
+func (sh *SlackHandler) parsePRSizeConfig(configText string) (*models.PRSizeConfiguration, map[string]string) {
+	configText = strings.TrimSpace(configText)
+
+	// If empty, disable custom configuration
+	if configText == "" {
+		return &models.PRSizeConfiguration{Enabled: false}, nil
+	}
+
+	lines := strings.Split(configText, "\n")
+	const maxExpectedThresholds = 10
+	thresholds := make([]models.PRSizeThreshold, 0, maxExpectedThresholds) // Pre-allocate with reasonable capacity
+	errors := make(map[string]string)
+
+	lineNum := 0
+	lastMaxLines := 0
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue // Skip empty lines
+		}
+
+		lineNum++
+		parts := strings.Fields(line)
+		const expectedParts = 2
+		if len(parts) != expectedParts {
+			errors["pr_size_config_input"] = fmt.Sprintf("Line %d: Format must be 'emoji max_lines' (e.g., ':ant: 5')", lineNum)
+			return nil, errors
+		}
+
+		emoji := parts[0]
+		maxLinesStr := parts[1]
+
+		// Validate emoji format
+		if !sh.isValidEmoji(emoji) {
+			errors["pr_size_config_input"] = fmt.Sprintf("Line %d: Invalid emoji format. Use ':emoji_name:' or Unicode emoji", lineNum)
+			return nil, errors
+		}
+
+		// Parse and validate max lines
+		maxLines, err := strconv.Atoi(maxLinesStr)
+		if err != nil || maxLines <= 0 {
+			errors["pr_size_config_input"] = fmt.Sprintf("Line %d: Max lines must be a positive number", lineNum)
+			return nil, errors
+		}
+
+		// Validate ascending order
+		if maxLines <= lastMaxLines {
+			errors["pr_size_config_input"] = fmt.Sprintf(
+				"Line %d: Max lines (%d) must be greater than previous (%d)",
+				lineNum, maxLines, lastMaxLines,
+			)
+			return nil, errors
+		}
+
+		thresholds = append(thresholds, models.PRSizeThreshold{
+			MaxLines: maxLines,
+			Emoji:    emoji,
+		})
+
+		lastMaxLines = maxLines
+	}
+
+	if len(thresholds) == 0 {
+		return &models.PRSizeConfiguration{Enabled: false}, nil
+	}
+
+	return &models.PRSizeConfiguration{
+		Enabled:    true,
+		Thresholds: thresholds,
+	}, nil
+}
+
+// isValidEmoji checks if a string is a valid emoji (either :emoji_name: format or Unicode emoji).
+func (sh *SlackHandler) isValidEmoji(emoji string) bool {
+	// Check for :emoji_name: format
+	if strings.HasPrefix(emoji, ":") && strings.HasSuffix(emoji, ":") && len(emoji) > 2 {
+		emojiName := strings.Trim(emoji, ":")
+		if emojiName != "" {
+			return true
+		}
+	}
+
+	// Check for Unicode emoji using a simple regex
+	// This matches most common Unicode emoji ranges
+	emojiRegex := regexp.MustCompile(
+		`^[\x{1F600}-\x{1F64F}]|[\x{1F300}-\x{1F5FF}]|[\x{1F680}-\x{1F6FF}]|` +
+			`[\x{1F1E0}-\x{1F1FF}]|[\x{2600}-\x{26FF}]|[\x{2700}-\x{27BF}]$`,
+	)
+	return emojiRegex.MatchString(emoji)
+}
+
+// extractTextInput extracts text input from modal interaction state.
+// Returns empty string if no valid text input is found.
+func extractTextInput(interaction *slack.InteractionCallback, blockID, actionID string) string {
+	if values, ok := interaction.View.State.Values[blockID]; ok {
+		if textInput, ok := values[actionID]; ok {
+			return textInput.Value
+		}
+	}
+	return ""
 }

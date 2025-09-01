@@ -87,6 +87,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
+	user *models.User,
 ) (string, string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -108,7 +109,7 @@ func (s *SlackService) PostPRMessage(
 	// Build message text once - use bot mode format since it includes everything we need
 	messageText := s.buildMessageText(
 		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC, userToCCSlackID,
-		authorSlackUserID, userTaggingEnabled,
+		authorSlackUserID, userTaggingEnabled, user,
 	)
 
 	// Try impersonation first if enabled
@@ -133,9 +134,9 @@ func (s *SlackService) PostPRMessage(
 }
 
 // formatEmoji formats the emoji for Slack message display.
-func (s *SlackService) formatEmoji(customEmoji string, prSize int) string {
+func (s *SlackService) formatEmoji(customEmoji string, prSize int, user *models.User) string {
 	if customEmoji == "" {
-		return utils.GetPRSizeEmoji(prSize)
+		return utils.GetPRSizeEmojiWithConfig(prSize, user)
 	}
 	// customEmoji should only be set if it's already a valid emoji
 	// (either :emoji_name: format or Unicode emoji character)
@@ -219,9 +220,9 @@ func (s *SlackService) postMessageAsBot(
 // buildMessageText constructs the message text for both impersonation and bot modes.
 func (s *SlackService) buildMessageText(
 	customEmoji string, prSize int, prURL, prTitle, prAuthor, userToCC, userToCCSlackID, authorSlackUserID string,
-	userTaggingEnabled bool,
+	userTaggingEnabled bool, user *models.User,
 ) string {
-	emoji := s.formatEmoji(customEmoji, prSize)
+	emoji := s.formatEmoji(customEmoji, prSize, user)
 	text := fmt.Sprintf("%s <%s|%s>", emoji, prURL, prTitle)
 
 	// If we haven't been able to resolve a GH user to a Slack user (which really
@@ -975,6 +976,11 @@ func (s *SlackService) BuildChannelSelectorModal() slack.ModalViewRequest {
 	return s.uiBuilder.BuildChannelSelectorModal()
 }
 
+// BuildPRSizeConfigModal builds the PR size emoji configuration modal.
+func (s *SlackService) BuildPRSizeConfigModal(user *models.User) slack.ModalViewRequest {
+	return s.uiBuilder.BuildPRSizeConfigModal(user)
+}
+
 // BuildChannelTrackingModal builds the channel tracking configuration modal.
 func (s *SlackService) BuildChannelTrackingModal(configs []*models.ChannelConfig) slack.ModalViewRequest {
 	return s.uiBuilder.BuildChannelTrackingModal(configs)
@@ -1031,7 +1037,7 @@ func (s *SlackService) GetChannelName(ctx context.Context, teamID, channelID str
 // Used to update CC mentions when PR description directives change.
 func (s *SlackService) UpdatePRMessage(
 	ctx context.Context, teamID, channelID, messageTS, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, userTaggingEnabled bool,
+	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, userTaggingEnabled bool, user *models.User,
 ) error {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -1041,7 +1047,7 @@ func (s *SlackService) UpdatePRMessage(
 	// Build the updated message text using the same logic as PostPRMessage
 	messageText := s.buildMessageText(
 		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC, userToCCSlackID,
-		authorSlackUserID, userTaggingEnabled,
+		authorSlackUserID, userTaggingEnabled, user,
 	)
 
 	// Update the message using Slack's chat.update API

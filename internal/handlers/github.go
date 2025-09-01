@@ -760,6 +760,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		directives.CustomEmoji,
 		impersonationEnabled,
 		userTaggingEnabled,
+		user,
 	)
 	if err != nil {
 		log.Error(ctx, "Failed to post PR message to Slack workspace",
@@ -1452,6 +1453,7 @@ func (h *GitHubHandler) updateSingleMessageForPRChanges(
 		userToCCSlackID,
 		directives.CustomEmoji,
 		userTaggingEnabled,
+		user,
 	)
 }
 

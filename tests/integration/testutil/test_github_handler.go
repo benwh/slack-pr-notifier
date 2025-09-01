@@ -93,6 +93,7 @@ func (h *TestGitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.J
 			"",    // No custom emoji in test
 			true,  // Default to impersonation enabled in test
 			false, // Default to user tagging disabled in test
+			nil,   // No user in test
 		)
 	case "pull_request_review":
 		// Simulate adding reactions for reviews (assume approved for simplicity)

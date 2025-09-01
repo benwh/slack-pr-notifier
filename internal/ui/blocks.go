@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github-slack-notifier/internal/models"
+	"github-slack-notifier/internal/utils"
 
 	"github.com/slack-go/slack"
 )
@@ -50,6 +51,11 @@ func (b *HomeViewBuilder) BuildHomeView(
 
 	// Default channel configuration section
 	blocks = append(blocks, b.buildChannelConfigSection(user)...)
+
+	blocks = append(blocks, slack.NewDividerBlock())
+
+	// PR size emoji configuration section
+	blocks = append(blocks, b.buildPRSizeConfigSection(user)...)
 
 	// Global Options section
 	blocks = append(blocks,
@@ -740,5 +746,114 @@ func (b *HomeViewBuilder) BuildGitHubInstallationsModal(
 		Title:      slack.NewTextBlockObject(slack.PlainTextType, "GitHub installations", false, false),
 		CallbackID: "github_installations_modal",
 		Blocks:     slack.Blocks{BlockSet: blocks},
+	}
+}
+
+// buildPRSizeConfigSection builds the PR size emoji configuration section.
+func (b *HomeViewBuilder) buildPRSizeConfigSection(user *models.User) []slack.Block {
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, "*Emoji settings*", false, false),
+			nil, nil,
+		),
+	}
+
+	// Determine configuration status
+	var configStatus string
+	var buttonText string
+	var buttonStyle slack.Style
+
+	if user != nil && user.PRSizeConfig != nil && user.PRSizeConfig.Enabled {
+		configStatus = fmt.Sprintf("✅ Custom emojis enabled (%d thresholds)", len(user.PRSizeConfig.Thresholds))
+		buttonText = "Configure PR emojis"
+		buttonStyle = slack.StyleDefault
+	} else {
+		configStatus = ":no_good: Using default animal emojis"
+		buttonText = "Configure PR emojis"
+		buttonStyle = slack.StylePrimary
+	}
+
+	blocks = append(blocks,
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				fmt.Sprintf("Configure PR size emojis based on line count\n_%s_", configStatus),
+				false, false),
+			nil,
+			slack.NewAccessory(
+				slack.NewButtonBlockElement(
+					"configure_pr_size_emojis",
+					"configure_emojis",
+					slack.NewTextBlockObject(slack.PlainTextType, buttonText, false, false),
+				).WithStyle(buttonStyle),
+			),
+		),
+	)
+
+	return blocks
+}
+
+// BuildPRSizeConfigModal builds the PR size emoji configuration modal.
+func (b *HomeViewBuilder) BuildPRSizeConfigModal(user *models.User) slack.ModalViewRequest {
+	// Prepare current configuration as text for the input
+	var currentConfig string
+	if user != nil && user.PRSizeConfig != nil && user.PRSizeConfig.Enabled && len(user.PRSizeConfig.Thresholds) > 0 {
+		// Use user's custom configuration
+		currentConfig = utils.FormatPRSizeThresholds(user.PRSizeConfig.Thresholds)
+	} else {
+		// Show default config as an example
+		defaultThresholds := utils.GetDefaultPRSizeThresholds()
+		currentConfig = utils.FormatPRSizeThresholds(defaultThresholds)
+	}
+
+	return slack.ModalViewRequest{
+		Type:       slack.VTModal,
+		Title:      slack.NewTextBlockObject(slack.PlainTextType, "Configure PR Emojis", false, false),
+		CallbackID: "pr_size_config",
+		Submit:     slack.NewTextBlockObject(slack.PlainTextType, "Save", false, false),
+		Close:      slack.NewTextBlockObject(slack.PlainTextType, "Cancel", false, false),
+		Blocks: slack.Blocks{
+			BlockSet: []slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(slack.MarkdownType,
+						"*Customize PR size emojis and thresholds*\n\n"+
+							"Configure which emoji appears based on number of lines changed in a PR. "+
+							"Each line must contain an emoji and a *maximum* line count.\n\n"+
+							"*Format:* `:emoji_name: max_lines`\n"+
+							"*Examples:*\n"+
+							"• `:ant: 5` — PRs with ≤5 lines get 🐜\n"+
+							"• `🐭 20` — PRs with ≤20 lines get 🐭\n"+
+							"• `:custom_small: 50` — Use workspace custom emojis\n\n"+
+							"*Common emoji names:*\n"+
+							"`:ant:` `:mouse2:` `:rabbit2:` `:badger:` `:dog2:` `:racing_horse:` `:gorilla:` `:elephant:` `:t-rex:` `:whale2:`\n\n"+
+							"*Tips:*\n"+
+							"• Numbers must be in ascending order\n"+
+							"• The last line catches all larger PRs, regardless of size\n"+
+							"• Copy/paste Unicode emojis or use `:name:` format",
+						false, false),
+					nil, nil,
+				),
+				&slack.InputBlock{
+					Type:     slack.MBTInput,
+					BlockID:  "pr_size_config_input",
+					Label:    slack.NewTextBlockObject(slack.PlainTextType, "Emoji configuration", false, false),
+					Hint:     slack.NewTextBlockObject(slack.PlainTextType, "One emoji and threshold per line", false, false),
+					Optional: true,
+					Element: &slack.PlainTextInputBlockElement{
+						Type:         slack.METPlainTextInput,
+						ActionID:     "pr_size_config_text",
+						Placeholder:  slack.NewTextBlockObject(slack.PlainTextType, "Enter emoji configurations...", false, false),
+						Multiline:    true,
+						InitialValue: currentConfig,
+					},
+				},
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject(slack.MarkdownType,
+						"*Reset to defaults*\nTo go back to the default animal emojis: "+
+							"*delete all text in the box*, and then save.",
+						false, false),
+					nil, nil,
+				),
+			},
+		},
 	}
 }

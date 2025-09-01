@@ -35,19 +35,20 @@ var (
 )
 
 type User struct {
-	ID                   string    `firestore:"id"`
-	GitHubUsername       string    `firestore:"github_username"`
-	GitHubUserID         int64     `firestore:"github_user_id"` // GitHub numeric ID
-	Verified             bool      `firestore:"verified"`       // OAuth verification status
-	SlackUserID          string    `firestore:"slack_user_id"`  // Slack user ID
-	SlackTeamID          string    `firestore:"slack_team_id"`
-	SlackDisplayName     string    `firestore:"slack_display_name"` // Slack display name for debugging
-	DefaultChannel       string    `firestore:"default_channel"`
-	NotificationsEnabled bool      `firestore:"notifications_enabled"`           // Whether to post PRs for this user
-	TaggingEnabled       bool      `firestore:"tagging_enabled"`                 // Whether to tag user in PR messages
-	ImpersonationEnabled *bool     `firestore:"impersonation_enabled,omitempty"` // Whether to post PRs appearing from the user
-	CreatedAt            time.Time `firestore:"created_at"`
-	UpdatedAt            time.Time `firestore:"updated_at"`
+	ID                   string               `firestore:"id"`
+	GitHubUsername       string               `firestore:"github_username"`
+	GitHubUserID         int64                `firestore:"github_user_id"` // GitHub numeric ID
+	Verified             bool                 `firestore:"verified"`       // OAuth verification status
+	SlackUserID          string               `firestore:"slack_user_id"`  // Slack user ID
+	SlackTeamID          string               `firestore:"slack_team_id"`
+	SlackDisplayName     string               `firestore:"slack_display_name"` // Slack display name for debugging
+	DefaultChannel       string               `firestore:"default_channel"`
+	NotificationsEnabled bool                 `firestore:"notifications_enabled"`           // Whether to post PRs for this user
+	TaggingEnabled       bool                 `firestore:"tagging_enabled"`                 // Whether to tag user in PR messages
+	ImpersonationEnabled *bool                `firestore:"impersonation_enabled,omitempty"` // Whether to post PRs appearing from the user
+	PRSizeConfig         *PRSizeConfiguration `firestore:"pr_size_config,omitempty"`        // Custom PR size emoji configuration
+	CreatedAt            time.Time            `firestore:"created_at"`
+	UpdatedAt            time.Time            `firestore:"updated_at"`
 }
 
 // GetImpersonationEnabled returns the impersonation preference, defaulting to true if not set.
@@ -56,6 +57,40 @@ func (u *User) GetImpersonationEnabled() bool {
 		return true // Default to enabled for backwards compatibility
 	}
 	return *u.ImpersonationEnabled
+}
+
+// PRSizeConfiguration represents a user's custom PR size emoji configuration.
+type PRSizeConfiguration struct {
+	Enabled    bool              `firestore:"enabled"`    // Whether to use custom configuration
+	Thresholds []PRSizeThreshold `firestore:"thresholds"` // Custom size thresholds and emojis
+}
+
+// PRSizeThreshold represents a single size threshold with its corresponding emoji.
+type PRSizeThreshold struct {
+	MaxLines int    `firestore:"max_lines"` // Maximum lines for this size category
+	Emoji    string `firestore:"emoji"`     // Emoji in :name: format or Unicode
+}
+
+// GetCustomPRSizeEmoji returns the appropriate emoji for the given line count using custom thresholds.
+// Returns empty string if no threshold matches (caller should use default logic).
+func (config *PRSizeConfiguration) GetCustomPRSizeEmoji(linesChanged int) string {
+	if config == nil || !config.Enabled || len(config.Thresholds) == 0 {
+		return ""
+	}
+
+	// Find the first threshold where linesChanged <= MaxLines
+	for _, threshold := range config.Thresholds {
+		if linesChanged <= threshold.MaxLines {
+			return threshold.Emoji
+		}
+	}
+
+	// If no threshold matched, use the last (largest) emoji
+	if len(config.Thresholds) > 0 {
+		return config.Thresholds[len(config.Thresholds)-1].Emoji
+	}
+
+	return ""
 }
 
 // OAuthState represents temporary OAuth state for CSRF protection.

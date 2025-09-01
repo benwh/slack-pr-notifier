@@ -17,6 +17,7 @@ linters:
     - nlreturn          # Stylistic preference
     - paralleltest      # Not always applicable
     - perfsprint        # Temporarily disabled for string concatenation
+    - prealloc          # Pre-allocation optimization not always necessary
     - revive            # We can live without comments
     - tagliatelle       # Not needed for our use case
     - testpackage       # Not always necessary
@@ -51,6 +52,7 @@ linters:
         - config.go$
         - tests/
         - internal/testing/
+        - internal/utils/emoji.go$
       # List of function patterns to exclude from analysis.
       # Following functions are always ignored: `time.Date`,
       # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
@@ -100,6 +102,8 @@ linters:
       - linters:
           - bodyclose    # Helper functions handle closing
           - contextcheck  # Integration tests create their own contexts
+          - cyclop       # E2E tests can be complex
+          - gocognit     # E2E tests can have complex logic
         path: tests/integration/e2e/
       - linters:
           - funlen

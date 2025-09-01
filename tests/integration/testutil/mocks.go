@@ -159,6 +159,7 @@ func (m *MockSlackService) recordCall(call SlackCall) {
 func (m *MockSlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
 	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
+	user *models.User,
 ) (string, string, error) {
 	m.recordCall(SlackCall{
 		Method:  "PostPRMessage",

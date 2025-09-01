@@ -109,7 +109,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
 		require.Len(t, slackRequests, 1)
 
-		// The PR has 50 additions + 30 deletions = 80 lines, which should be a cat emoji
+		// The PR has 50 additions + 30 deletions = 80 lines, which should be a dog emoji
 		message := slackRequests[0]
 		// Channel names are now resolved to IDs
 		expectedChannelID := "C987654321" // test-channel -> C987654321
@@ -117,7 +117,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 			expectedChannelID = "C111111111"
 		}
 		assert.Equal(t, expectedChannelID, message.Channel)
-		assert.Contains(t, message.Text, "🐱") // cat emoji for 80 lines
+		assert.Contains(t, message.Text, ":dog2:") // dog emoji for 80 lines
 		assert.Contains(t, message.Text, fmt.Sprintf("https://github.com/%s/pull/%d", repoName, prNumber))
 		assert.Contains(t, message.Text, title)
 
@@ -296,10 +296,10 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 			deletions int
 			wantEmoji string
 		}{
-			{"tiny PR", 2, 1, "🐜"},        // ant for very small
-			{"medium PR", 30, 15, "🐰"},    // rabbit for medium
-			{"large PR", 500, 200, "🐻"},   // bear for large
-			{"whale PR", 1500, 1000, "🐋"}, // whale for huge
+			{"tiny PR", 1, 1, ":ant:"},           // ant for 2 lines (≤2)
+			{"medium PR", 30, 15, ":raccoon:"},   // raccoon for 45 lines (≤50)
+			{"large PR", 500, 200, ":gorilla:"},  // gorilla for 700 lines (≤1000)
+			{"whale PR", 1500, 1000, ":whale2:"}, // whale for 2500 lines (>2000)
 		}
 
 		for _, tc := range testCases {
