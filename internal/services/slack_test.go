@@ -287,6 +287,84 @@ More details about the PR.`,
 				HasReviewDirective: true,
 			},
 		},
+		{
+			name:        "Bare directive with channel",
+			description: "!review #dev-team",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				Channel:            "dev-team",
+			},
+		},
+		{
+			name:        "Bare directive with user CC",
+			description: "!review @john.doe",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				UserToCC:           "john.doe",
+			},
+		},
+		{
+			name:        "Bare directive with skip",
+			description: "!review skip",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				Skip:               true,
+			},
+		},
+		{
+			name:        "Bare directive with custom emoji",
+			description: "!review :rocket:",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				CustomEmoji:        "rocket",
+			},
+		},
+		{
+			name:        "Bare directive with channel and user",
+			description: "!review #backend-team @reviewer",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				Channel:            "backend-team",
+				UserToCC:           "reviewer",
+			},
+		},
+		{
+			name:        "Bare directive with all components",
+			description: "!review :fire: #dev-team @lead skip",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				CustomEmoji:        "fire",
+				Channel:            "dev-team",
+				UserToCC:           "lead",
+				Skip:               true,
+			},
+		},
+		{
+			name:        "Bare plural form with channel",
+			description: "!reviews #engineering",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				Channel:            "engineering",
+			},
+		},
+		{
+			name:        "Mixed formats - bare and colon",
+			description: "!review: #first\n!review #second @user",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				Channel:            "second",
+				UserToCC:           "user",
+			},
+		},
+		{
+			name:        "Bare directive case insensitive",
+			description: "!REVIEW #DEV-TEAM @USER",
+			expected: &PRDirectives{
+				HasReviewDirective: true,
+				Channel:            "DEV-TEAM",
+				UserToCC:           "USER",
+			},
+		},
 	}
 
 	// Create a minimal SlackService just for testing the parsing function

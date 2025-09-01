@@ -7,8 +7,12 @@ This document describes the special directives that can be included in GitHub PR
 PR directives use the following format:
 
 ```
-!review[s]: [skip|no] [#channel_name] [@user_to_cc] [:emoji_name:]
+!review[s][:] [skip|no] [#channel_name] [@user_to_cc] [:emoji_name:]
 ```
+
+**Note**: The colon after `!review` or `!reviews` is optional. Both formats work identically:
+- `!review: #channel @user` (with colon)
+- `!review #channel @user` (without colon)
 
 ### Universal Skip Directive
 
@@ -45,41 +49,61 @@ or
 ```
 !reviews: no
 ```
+or
+```
+!review skip
+```
 
 ### Channel Override
 ```
 !review: #dev-team
+```
+or
+```
+!review #dev-team
 ```
 
 ### User CC
 ```
 !review: @john.doe
 ```
+or
+```
+!review @john.doe
+```
 
 ### Custom Emoji
 ```
 !review: :rocket:
 ```
-
+or
 ```
-!review: :sparkles:
+!review :sparkles:
 ```
 
 ### Combined Usage
 ```
 !review: #dev-team @jane.smith
 ```
+or
+```
+!review #dev-team @jane.smith
+```
 
 ```
 !reviews: @team-lead #engineering
+```
+or
+```
+!reviews @team-lead #engineering
 ```
 
 ```
 !review: :fire: #dev-team @reviewer
 ```
-
+or
 ```
-!review: :boom: @lead
+!review :fire: #dev-team @reviewer
 ```
 
 ### Skip with Other Components (Skip Takes Precedence)
@@ -114,6 +138,7 @@ This ensures that:
 ## Implementation Notes
 
 - Directives are case-insensitive for the magic string (`!REVIEW`, `!Review`, `!REVIEW-SKIP`, etc. all work)
+- The colon after `!review` or `!reviews` is optional - both `!review:` and `!review` work identically
 - Channel names must start with `#` and contain only alphanumeric characters, hyphens, and underscores
 - User mentions must start with `@` and should use GitHub usernames
 - Custom emojis must be in the format `:emoji_name:` and override the default size-based emoji
@@ -150,4 +175,14 @@ This is a work-in-progress PR, don't notify yet.
 ```markdown
 Some text here. !review: #dev-team @lead
 More text after.
+```
+
+```markdown
+## Description
+This PR adds new feature Y.
+
+!review #team-beta @reviewer2
+
+## Testing
+- [x] Integration tests pass
 ```
