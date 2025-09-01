@@ -1341,7 +1341,8 @@ func buildPRPayloadWithDirective(repoFullName string, prNumber int, title, autho
 }
 
 // buildPREditedPayloadWithDirective creates a PR edited payload with a specific directive in the body.
-func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
+// buildPREditedPayload builds a GitHub PR edited payload with optional title change information.
+func buildPREditedPayload(repoFullName string, prNumber int, title, author, body string, oldTitle *string) []byte {
 	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
 	githubUserIDMap := map[string]int64{
 		"test-user":         100001,
@@ -1376,6 +1377,15 @@ func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title,
 		},
 	}
 
+	// Add changes section if oldTitle is provided
+	if oldTitle != nil {
+		payload["changes"] = map[string]interface{}{
+			"title": map[string]interface{}{
+				"from": *oldTitle,
+			},
+		}
+	}
+
 	data, err := json.Marshal(payload)
 	if err != nil {
 		panic(err) // Test helper, panic is acceptable
@@ -1383,52 +1393,13 @@ func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title,
 	return data
 }
 
+func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title, author, body string) []byte {
+	return buildPREditedPayload(repoFullName, prNumber, title, author, body, nil)
+}
+
 // buildPREditedPayloadWithTitleChange builds a GitHub PR edited payload with title change information.
 func buildPREditedPayloadWithTitleChange(repoFullName string, prNumber int, newTitle, author, body, oldTitle string) []byte {
-	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
-	githubUserIDMap := map[string]int64{
-		"test-user":         100001,
-		"draft-user":        100002,
-		"draft-author":      100003,
-		"channel-test-user": 100004,
-	}
-
-	githubUserID, exists := githubUserIDMap[author]
-	if !exists {
-		githubUserID = 999999 // Default fallback ID for unmapped users
-	}
-
-	payload := map[string]interface{}{
-		"action": "edited",
-		"pull_request": map[string]interface{}{
-			"number":    prNumber,
-			"title":     newTitle,
-			"body":      body,
-			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
-			"state":     "open",
-			"draft":     false,
-			"additions": 50,
-			"deletions": 30,
-			"user": map[string]interface{}{
-				"id":    githubUserID, // Add numeric GitHub user ID
-				"login": author,
-			},
-		},
-		"repository": map[string]interface{}{
-			"full_name": repoFullName,
-		},
-		"changes": map[string]interface{}{
-			"title": map[string]interface{}{
-				"from": oldTitle,
-			},
-		},
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		panic(err) // Test helper, panic is acceptable
-	}
-	return data
+	return buildPREditedPayload(repoFullName, prNumber, newTitle, author, body, &oldTitle)
 }
 
 func sendGitHubWebhook(t *testing.T, harness *TestHarness, eventType string, payload []byte) *http.Response {
@@ -1469,50 +1440,7 @@ func buildWebhookRequest(t *testing.T, url, eventType string, payload []byte, si
 
 // buildPREditedPayloadWithTitleAndCC builds a GitHub PR edited payload with both title and CC changes.
 func buildPREditedPayloadWithTitleAndCC(repoFullName string, prNumber int, newTitle, author, newBody, oldTitle string) []byte {
-	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
-	githubUserIDMap := map[string]int64{
-		"test-user":         100001,
-		"draft-user":        100002,
-		"draft-author":      100003,
-		"channel-test-user": 100004,
-	}
-
-	githubUserID, exists := githubUserIDMap[author]
-	if !exists {
-		githubUserID = 999999 // Default fallback ID for unmapped users
-	}
-
-	payload := map[string]interface{}{
-		"action": "edited",
-		"pull_request": map[string]interface{}{
-			"number":    prNumber,
-			"title":     newTitle,
-			"body":      newBody,
-			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
-			"state":     "open",
-			"draft":     false,
-			"additions": 50,
-			"deletions": 30,
-			"user": map[string]interface{}{
-				"id":    githubUserID, // Add numeric GitHub user ID
-				"login": author,
-			},
-		},
-		"repository": map[string]interface{}{
-			"full_name": repoFullName,
-		},
-		"changes": map[string]interface{}{
-			"title": map[string]interface{}{
-				"from": oldTitle,
-			},
-		},
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		panic(err) // Test helper, panic is acceptable
-	}
-	return data
+	return buildPREditedPayload(repoFullName, prNumber, newTitle, author, newBody, &oldTitle)
 }
 
 func generateWebhookSignature(payload []byte, secret string) string {
