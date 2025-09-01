@@ -383,8 +383,12 @@ func (fs *FirestoreService) UpdateTrackedMessage(ctx context.Context, message *m
 	}
 
 	docRef := fs.client.Collection("trackedmessages").Doc(message.ID)
-	// Use regular Set() instead of MergeAll - Firestore MergeAll only works with map data, not structs
-	_, err := docRef.Set(ctx, message)
+	// Update only the CC-related fields instead of overwriting the entire document
+	updates := []firestore.Update{
+		{Path: "user_to_cc", Value: message.UserToCC},
+		{Path: "has_review_directive", Value: message.HasReviewDirective},
+	}
+	_, err := docRef.Update(ctx, updates)
 	if err != nil {
 		log.Error(ctx, "Failed to update tracked message",
 			"error", err,
