@@ -30,7 +30,7 @@ This directive works both proactively (prevents initial posting) and retroactive
 - **Skip directive**: `skip` or `no` - prevents the PR from being posted to Slack AND deletes existing messages (same as `!review-skip`)
 - **Channel override**: `#channel_name` - overrides the default channel for posting
 - **User CC**: `@user_to_cc` - mentions additional users in the Slack message (triggers real Slack notifications for registered users)  
-- **Custom emoji**: `:emoji_name:` - overrides the default size-based emoji with a custom one
+- **Custom emoji**: `:emoji_name:` or actual emoji character (🔥, 🚀, ✨) - overrides the default size-based emoji with a custom one
 
 ### Order and Combinations
 
@@ -80,6 +80,14 @@ or
 ```
 !review :sparkles:
 ```
+or
+```
+!review 🔥
+```
+or  
+```
+!review: 🚀 #team-alpha
+```
 
 ### Combined Usage
 ```
@@ -104,6 +112,10 @@ or
 or
 ```
 !review :fire: #dev-team @reviewer
+```
+or
+```
+!review 🔥 #dev-team @reviewer
 ```
 
 ### Skip with Other Components (Skip Takes Precedence)
@@ -141,7 +153,7 @@ This ensures that:
 - The colon after `!review` or `!reviews` is optional - both `!review:` and `!review` work identically
 - Channel names must start with `#` and contain only alphanumeric characters, hyphens, and underscores
 - User mentions must start with `@` and should use GitHub usernames
-- Custom emojis must be in the format `:emoji_name:` and override the default size-based emoji
+- Custom emojis can be in the format `:emoji_name:` or actual emoji characters (🔥, 🚀, ✨) and override the default size-based emoji
 - Both `!review: skip` and `!review-skip` now work identically - they prevent posting AND delete existing messages
 - Invalid directives are ignored with warnings logged
 - `!review-skip` takes precedence over all other directives and only triggers message deletion (no parsing of other components)

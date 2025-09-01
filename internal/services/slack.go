@@ -35,6 +35,11 @@ var (
 	skipDirectiveRegex      = regexp.MustCompile(`(?i)!review-skip`)
 	channelValidationRegex  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 	usernameValidationRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	emojiRegex              = regexp.MustCompile(
+		`[\x{1F300}-\x{1F9FF}]|[\x{2600}-\x{27BF}]|[\x{1F000}-\x{1F02F}]|` +
+			`[\x{1F900}-\x{1F9FF}]|[\x{2190}-\x{21FF}]|[\x{2300}-\x{23FF}]|` +
+			`[\x{25A0}-\x{25FF}]|[\x{2B00}-\x{2BFF}]`,
+	)
 )
 
 const minMatchesRequired = 2
@@ -132,9 +137,9 @@ func (s *SlackService) formatEmoji(customEmoji string, prSize int) string {
 	if customEmoji == "" {
 		return utils.GetPRSizeEmoji(prSize)
 	}
-	if !strings.HasPrefix(customEmoji, ":") {
-		return ":" + customEmoji + ":"
-	}
+	// customEmoji should only be set if it's already a valid emoji
+	// (either :emoji_name: format or Unicode emoji character)
+	// processDirectivePart ensures this condition is met
 	return customEmoji
 }
 
@@ -775,8 +780,14 @@ func (s *SlackService) processDirectivePart(part string, directives *PRDirective
 	if strings.HasPrefix(part, ":") && strings.HasSuffix(part, ":") && len(part) > 2 {
 		emojiName := strings.Trim(part, ":")
 		if emojiName != "" {
-			directives.CustomEmoji = emojiName
+			directives.CustomEmoji = ":" + emojiName + ":"
 		}
+		return
+	}
+
+	// Check for Unicode emoji characters
+	if emojiRegex.MatchString(part) {
+		directives.CustomEmoji = part
 		return
 	}
 
