@@ -31,6 +31,7 @@ const (
 	PRActionOpened                        = "opened"
 	PRActionEdited                        = "edited"
 	PRActionClosed                        = "closed"
+	PRActionReopened                      = "reopened"
 	PRActionReadyForReview                = "ready_for_review"
 	PRReviewActionSubmitted               = "submitted"
 	PRReviewActionDismissed               = "dismissed"
@@ -388,6 +389,8 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 		return h.handlePRReadyForReview(ctx, &githubPayload)
 	case PRActionClosed:
 		return h.handlePRClosed(ctx, &githubPayload)
+	case PRActionReopened:
+		return h.handlePRReopened(ctx, &githubPayload)
 	default:
 		log.Warn(ctx, "Pull request action not handled")
 		return nil
@@ -1509,6 +1512,47 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *github.Pull
 		"emoji", emoji,
 		"message_count", len(trackedMessages),
 	)
+	return nil
+}
+
+// handlePRReopened handles pull request reopened events.
+// Triggers a reaction sync job to remove closed reactions and update with current state.
+func (h *GitHubHandler) handlePRReopened(ctx context.Context, payload *github.PullRequestEvent) error {
+	log.Info(ctx, "Processing PR reopened event")
+
+	// Create ReactionSyncJob to handle reaction syncing asynchronously
+	reactionSyncJobID := uuid.New().String()
+	reactionSyncJob := &models.ReactionSyncJob{
+		ID:           reactionSyncJobID,
+		PRNumber:     payload.GetPullRequest().GetNumber(),
+		RepoFullName: payload.GetRepo().GetFullName(),
+		TraceID:      getTraceIDFromContext(ctx),
+	}
+
+	// Marshal the ReactionSyncJob as the payload for the Job
+	jobPayload, err := json.Marshal(reactionSyncJob)
+	if err != nil {
+		log.Error(ctx, "Failed to marshal reaction sync job", "error", err)
+		return fmt.Errorf("failed to marshal reaction sync job: %w", err)
+	}
+
+	// Create Job
+	job := &models.Job{
+		ID:      reactionSyncJobID,
+		Type:    models.JobTypeReactionSync,
+		TraceID: reactionSyncJob.TraceID,
+		Payload: jobPayload,
+	}
+
+	// Enqueue the reaction sync job
+	if err := h.cloudTasksService.EnqueueJob(ctx, job); err != nil {
+		log.Error(ctx, "Failed to enqueue reaction sync job", "error", err)
+		return fmt.Errorf("failed to enqueue reaction sync job: %w", err)
+	}
+
+	log.Info(ctx, "Enqueued reaction sync job for PR reopened",
+		"job_id", reactionSyncJobID)
+
 	return nil
 }
 

@@ -537,21 +537,24 @@ func (s *SlackService) SyncAllReviewReactions(
 		return nil
 	}
 
-	// Define all possible review emojis that might need to be removed
-	allReviewEmojis := []string{
+	// Define all possible emojis that might need to be removed when syncing for an open PR
+	// This includes both review emojis and closed state emojis (closed/merged)
+	allEmojisToRemove := []string{
 		s.emojiConfig.Approved,
 		s.emojiConfig.ChangesRequested,
 		s.emojiConfig.Commented,
+		s.emojiConfig.Closed, // Remove "x" emoji from closed PRs
+		s.emojiConfig.Merged, // Remove "tada" emoji from merged PRs
 	}
 
-	// Remove all existing review reactions
-	for _, emoji := range allReviewEmojis {
+	// Remove all existing review and closed state reactions
+	for _, emoji := range allEmojisToRemove {
 		if emoji != "" {
 			err := s.RemoveReactionFromMultipleMessages(ctx, teamID, messages, emoji)
 			if err != nil {
 				// Only log if it's a genuine error (RemoveReactionFromMultipleMessages
 				// already filters out expected "no_reaction" errors)
-				log.Warn(ctx, "Failed to remove some review reactions during sync",
+				log.Warn(ctx, "Failed to remove some reactions during sync",
 					"error", err,
 					"emoji", emoji,
 				)

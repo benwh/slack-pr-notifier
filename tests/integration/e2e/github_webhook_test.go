@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -975,6 +976,111 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		t.Logf("✅ Simultaneous title+CC change test passed: Single update call handled both changes efficiently")
 	})
+
+	t.Run("PR closed/reopened reaction handling", func(t *testing.T) {
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
+
+		// Setup OAuth workspace first
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Setup test data
+		setupTestUser(t, harness, "testuser", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Wait for setup to complete
+		time.Sleep(10 * time.Millisecond)
+
+		// Step 1: Open a PR to create a tracked message
+		prOpenedPayload := buildPROpenedPayload("testorg/testrepo", 789, "Test PR for close/reopen", "testuser")
+		resp := sendGitHubWebhook(t, harness, "pull_request", prOpenedPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Wait for PR opened processing
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify message was posted
+		postRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, postRequests, 1, "Should have posted one PR notification message")
+
+		// Clear captured requests for next step
+		harness.SlackRequestCapture().Clear()
+
+		// Step 2: Close the PR - should add 'x' reaction
+		prClosedPayload := buildPRClosedPayload("testorg/testrepo", 789, "Test PR for close/reopen", "testuser", false)
+		resp = sendGitHubWebhook(t, harness, "pull_request", prClosedPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Wait for PR closed processing
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify 'x' reaction was added
+		reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
+		require.Len(t, reactionRequests, 1, "Should have added one reaction for closed PR")
+		assert.Equal(t, "x", reactionRequests[0].Name, "Should add 'x' reaction for closed PR")
+
+		// Clear captured requests for next step
+		harness.SlackRequestCapture().Clear()
+
+		// Step 3: Reopen the PR - should remove 'x' reaction
+		prReopenedPayload := buildPRReopenedPayload("testorg/testrepo", 789, "Test PR for close/reopen", "testuser")
+		resp = sendGitHubWebhook(t, harness, "pull_request", prReopenedPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Wait for PR reopened processing to complete (longer wait for reaction sync job)
+		time.Sleep(200 * time.Millisecond)
+
+		// Verify that reaction sync was triggered and 'x' reaction was removed
+		allRequests := harness.SlackRequestCapture().GetAllRequests()
+
+		// Debug: Print all requests to understand what's being captured
+		t.Logf("DEBUG: Found %d total requests:", len(allRequests))
+		for i, req := range allRequests {
+			t.Logf("  [%d] %s %s", i, req.Method, req.URL)
+			if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok {
+				t.Logf("      Reaction: %s", reaction.Name)
+			}
+		}
+
+		// Look for reactions.remove requests containing 'x' emoji
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.remove") {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok {
+					t.Logf("DEBUG: Found remove reaction request for emoji: %s", reaction.Name)
+				}
+			}
+		}
+
+		// The behavior should be: when PR reopened, the reaction sync should clear all reactions,
+		// including the 'x' from the closed state. Let's verify we see remove requests
+		removeReactionCount := 0
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.remove") {
+				removeReactionCount++
+			}
+		}
+
+		t.Logf("DEBUG: Found %d reaction remove requests", removeReactionCount)
+
+		// The critical test: verify the "x" reaction was specifically removed when PR was reopened
+		foundXRemoval := false
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.remove") {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == "x" {
+					foundXRemoval = true
+					break
+				}
+			}
+		}
+
+		// This is the actual bug fix validation
+		assert.True(t, foundXRemoval, "The 'x' reaction MUST be removed when PR is reopened - this was the original bug")
+
+		t.Logf("✅ Verified: 'x' reaction was specifically removed when PR was reopened")
+
+		t.Logf("✅ PR closed/reopened reaction test passed: 'x' reaction added on close and removed on reopen")
+	})
 }
 
 // waitForTrackedMessage polls the database until a tracked message appears for the given PR.
@@ -1092,6 +1198,61 @@ func buildReviewSubmittedPayload(repoFullName string, prNumber int, reviewer, st
 
 func buildPRReadyForReviewPayload(repoFullName string, prNumber int, title, author string) []byte {
 	return buildPRPayload(repoFullName, prNumber, title, author, "ready_for_review", false)
+}
+
+func buildPRClosedPayload(repoFullName string, prNumber int, title, author string, merged bool) []byte {
+	return buildPRClosedPayloadDetailed(repoFullName, prNumber, title, author, merged)
+}
+
+func buildPRReopenedPayload(repoFullName string, prNumber int, title, author string) []byte {
+	return buildPRPayload(repoFullName, prNumber, title, author, "reopened", false)
+}
+
+func buildPRClosedPayloadDetailed(repoFullName string, prNumber int, title, author string, merged bool) []byte {
+	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
+	githubUserIDMap := map[string]int64{
+		"test-user":         100001,
+		"draft-user":        100002,
+		"draft-author":      100003,
+		"channel-test-user": 100004,
+		"testuser":          100005, // Add mapping for our test user
+	}
+	githubUserID, exists := githubUserIDMap[author]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
+	state := "closed"
+	payload := map[string]interface{}{
+		"action": "closed",
+		"pull_request": map[string]interface{}{
+			"number":    prNumber,
+			"title":     title,
+			"body":      "Test PR description",
+			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+			"state":     state,
+			"draft":     false,
+			"merged":    merged,
+			"additions": 50,
+			"deletions": 30,
+			"user": map[string]interface{}{
+				"id":    githubUserID,
+				"login": author,
+			},
+		},
+		"repository": map[string]interface{}{
+			"full_name": repoFullName,
+			"name":      "testrepo",
+		},
+		"installation": map[string]interface{}{
+			"id": 12345678,
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
 }
 
 func buildPRPayloadWithSize(repoFullName string, prNumber int, title, author, action string, draft bool, additions, deletions int) []byte {
