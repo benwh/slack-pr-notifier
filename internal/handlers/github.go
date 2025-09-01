@@ -16,7 +16,7 @@ import (
 	"github-slack-notifier/internal/utils"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/go-github/v73/github"
+	"github.com/google/go-github/v74/github"
 	"github.com/google/uuid"
 )
 
@@ -78,52 +78,6 @@ func channelsMatch(storedName, storedID, newChannel string) bool {
 		return storedID == newChannel
 	}
 	return false
-}
-
-// GitHubWebhookPayload represents the structure of GitHub webhook events.
-type GitHubWebhookPayload struct {
-	Action      string `json:"action"`
-	PullRequest struct {
-		Number    int    `json:"number"`
-		Title     string `json:"title"`
-		Body      string `json:"body"`
-		Draft     bool   `json:"draft"`
-		HTMLURL   string `json:"html_url"`
-		Additions int    `json:"additions"`
-		Deletions int    `json:"deletions"`
-		User      struct {
-			ID    int    `json:"id"`
-			Login string `json:"login"`
-		} `json:"user"`
-		Merged bool `json:"merged"`
-	} `json:"pull_request"`
-	Repository struct {
-		FullName string `json:"full_name"`
-		Name     string `json:"name"`
-	} `json:"repository"`
-	Review struct {
-		State string `json:"state"`
-		User  struct {
-			Login string `json:"login"`
-		} `json:"user"`
-	} `json:"review"`
-	Installation struct {
-		ID      int64 `json:"id"`
-		Account struct {
-			ID    int64  `json:"id"`
-			Login string `json:"login"`
-			Type  string `json:"type"`
-		} `json:"account"`
-		RepositorySelection string `json:"repository_selection"`
-		Repositories        []struct {
-			FullName string `json:"full_name"`
-		} `json:"repositories,omitempty"`
-	} `json:"installation"`
-	Changes struct {
-		Title struct {
-			From string `json:"from"`
-		} `json:"title,omitempty"`
-	} `json:"changes,omitempty"`
 }
 
 // CloudTasksServiceInterface defines the interface for cloud tasks operations.
@@ -339,7 +293,7 @@ func (h *GitHubHandler) ProcessWorkspacePRJob(ctx context.Context, job *models.J
 	log.Debug(ctx, "Processing workspace PR job")
 
 	// Unmarshal the GitHub payload
-	var githubPayload GitHubWebhookPayload
+	var githubPayload github.PullRequestEvent
 	if err := json.Unmarshal(workspacePRJob.PRPayload, &githubPayload); err != nil {
 		log.Error(ctx, "Failed to unmarshal GitHub payload from workspace PR job",
 			"error", err,
@@ -382,7 +336,7 @@ func (h *GitHubHandler) ProcessWorkspacePRJob(ctx context.Context, job *models.J
 	}
 
 	// Parse directives from the original payload
-	_, directives := h.slackService.ExtractChannelAndDirectives(githubPayload.PullRequest.Body)
+	_, directives := h.slackService.ExtractChannelAndDirectives(githubPayload.GetPullRequest().GetBody())
 
 	// Process the notification for this specific workspace
 	return h.processWorkspaceNotification(ctx, &githubPayload, repo, user, workspacePRJob.AnnotatedChannel, directives)
@@ -391,7 +345,7 @@ func (h *GitHubHandler) ProcessWorkspacePRJob(ctx context.Context, job *models.J
 // processPullRequestEvent processes pull request webhook events.
 // Handles PR opened, edited, ready_for_review, and closed actions with appropriate notifications.
 func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []byte) error {
-	var githubPayload GitHubWebhookPayload
+	var githubPayload github.PullRequestEvent
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
 		log.Error(ctx, "Failed to unmarshal pull request payload",
 			"error", err,
@@ -402,17 +356,17 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 
 	// Add PR metadata to context for all subsequent log calls
 	ctx = log.WithFields(ctx, log.LogFields{
-		"pr_number": githubPayload.PullRequest.Number,
-		"repo":      githubPayload.Repository.FullName,
-		"author":    githubPayload.PullRequest.User.Login,
-		"pr_action": githubPayload.Action,
+		"pr_number": githubPayload.GetPullRequest().GetNumber(),
+		"repo":      githubPayload.GetRepo().GetFullName(),
+		"author":    githubPayload.GetPullRequest().GetUser().GetLogin(),
+		"pr_action": githubPayload.GetAction(),
 	})
 
 	log.Info(ctx, "Handling pull request event",
-		"is_draft", githubPayload.PullRequest.Draft,
+		"is_draft", githubPayload.GetPullRequest().GetDraft(),
 	)
 
-	switch githubPayload.Action {
+	switch githubPayload.GetAction() {
 	case PRActionOpened:
 		return h.handlePROpened(ctx, &githubPayload)
 	case PRActionEdited:
@@ -430,7 +384,7 @@ func (h *GitHubHandler) processPullRequestEvent(ctx context.Context, payload []b
 // processPullRequestReviewEvent processes pull request review webhook events.
 // Handles review submitted and dismissed actions by enqueuing reaction sync jobs.
 func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, payload []byte, traceID string) error {
-	var githubPayload GitHubWebhookPayload
+	var githubPayload github.PullRequestReviewEvent
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
 		log.Error(ctx, "Failed to unmarshal pull request review payload",
 			"error", err,
@@ -441,15 +395,15 @@ func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, paylo
 
 	// Add PR metadata to context for all subsequent log calls
 	ctx = log.WithFields(ctx, log.LogFields{
-		"pr_number":     githubPayload.PullRequest.Number,
-		"repo":          githubPayload.Repository.FullName,
-		"author":        githubPayload.PullRequest.User.Login,
-		"reviewer":      githubPayload.Review.User.Login,
-		"review_state":  githubPayload.Review.State,
-		"review_action": githubPayload.Action,
+		"pr_number":     githubPayload.GetPullRequest().GetNumber(),
+		"repo":          githubPayload.GetRepo().GetFullName(),
+		"author":        githubPayload.GetPullRequest().GetUser().GetLogin(),
+		"reviewer":      githubPayload.GetReview().GetUser().GetLogin(),
+		"review_state":  githubPayload.GetReview().GetState(),
+		"review_action": githubPayload.GetAction(),
 	})
 
-	if githubPayload.Action != PRReviewActionSubmitted && githubPayload.Action != PRReviewActionDismissed {
+	if githubPayload.GetAction() != PRReviewActionSubmitted && githubPayload.GetAction() != PRReviewActionDismissed {
 		return nil
 	}
 
@@ -457,8 +411,8 @@ func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, paylo
 	reactionSyncJobID := uuid.New().String()
 	reactionSyncJob := &models.ReactionSyncJob{
 		ID:           reactionSyncJobID,
-		PRNumber:     githubPayload.PullRequest.Number,
-		RepoFullName: githubPayload.Repository.FullName,
+		PRNumber:     githubPayload.GetPullRequest().GetNumber(),
+		RepoFullName: githubPayload.GetRepo().GetFullName(),
 		TraceID:      traceID,
 	}
 
@@ -492,14 +446,14 @@ func (h *GitHubHandler) processPullRequestReviewEvent(ctx context.Context, paylo
 
 // handlePROpened handles pull request opened events.
 // Skips draft PRs and delegates to postPRToAllWorkspaces for notification processing.
-func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *GitHubWebhookPayload) error {
-	if payload.PullRequest.Draft {
+func (h *GitHubHandler) handlePROpened(ctx context.Context, payload *github.PullRequestEvent) error {
+	if payload.GetPullRequest().GetDraft() {
 		log.Debug(ctx, "Skipping draft PR")
 		return nil
 	}
 
 	log.Debug(ctx, "Processing PR opened",
-		"title", payload.PullRequest.Title,
+		"title", payload.GetPullRequest().GetTitle(),
 	)
 
 	return h.postPRToAllWorkspaces(ctx, payload)
@@ -517,7 +471,7 @@ func getTraceIDFromContext(ctx context.Context) string {
 // Enables proper error handling and retries by processing each workspace independently.
 func (h *GitHubHandler) enqueueWorkspacePRJobs(
 	ctx context.Context,
-	payload *GitHubWebhookPayload,
+	payload *github.PullRequestEvent,
 	repos []*models.Repo,
 	annotatedChannel string,
 	prAction string,
@@ -546,12 +500,12 @@ func (h *GitHubHandler) enqueueWorkspacePRJobs(
 		workspacePRJobID := uuid.New().String()
 		workspacePRJob := &models.WorkspacePRJob{
 			ID:               workspacePRJobID,
-			PRNumber:         payload.PullRequest.Number,
-			RepoFullName:     payload.Repository.FullName,
+			PRNumber:         payload.GetPullRequest().GetNumber(),
+			RepoFullName:     payload.GetRepo().GetFullName(),
 			WorkspaceID:      repo.WorkspaceID,
 			PRAction:         prAction,
-			GitHubUserID:     int64(payload.PullRequest.User.ID),
-			GitHubUsername:   payload.PullRequest.User.Login,
+			GitHubUserID:     payload.GetPullRequest().GetUser().GetID(),
+			GitHubUsername:   payload.GetPullRequest().GetUser().GetLogin(),
 			AnnotatedChannel: annotatedChannel,
 			TraceID:          getTraceIDFromContext(ctx),
 			PRPayload:        githubPayloadBytes,
@@ -614,9 +568,9 @@ func (h *GitHubHandler) enqueueWorkspacePRJobs(
 // postPRToAllWorkspaces handles the core logic of posting PR notifications to all configured workspaces.
 // Shared between handlePROpened, handlePREdited, and handlePRReadyForReview. Supports auto-registration for verified users.
 // Uses fan-out approach by enqueuing individual workspace jobs.
-func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitHubWebhookPayload) error {
-	authorUserID := int64(payload.PullRequest.User.ID)
-	authorUsername := payload.PullRequest.User.Login
+func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *github.PullRequestEvent) error {
+	authorUserID := payload.GetPullRequest().GetUser().GetID()
+	authorUsername := payload.GetPullRequest().GetUser().GetLogin()
 	log.Debug(ctx, "Looking up user by GitHub user ID",
 		"github_user_id", authorUserID,
 		"github_username", authorUsername)
@@ -632,7 +586,7 @@ func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitH
 	log.Debug(ctx, "User lookup result", "user_found", user != nil)
 
 	// Parse PR directives from description
-	annotatedChannel, directives := h.slackService.ExtractChannelAndDirectives(payload.PullRequest.Body)
+	annotatedChannel, directives := h.slackService.ExtractChannelAndDirectives(payload.GetPullRequest().GetBody())
 	log.Debug(ctx, "Channel and directive determination",
 		"annotated_channel", annotatedChannel,
 		"skip", directives.Skip,
@@ -646,7 +600,7 @@ func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitH
 
 	// Get all workspace configurations for this repository
 	log.Debug(ctx, "Looking up repository configurations across all workspaces")
-	repos, err := h.firestoreService.GetReposForAllWorkspaces(ctx, payload.Repository.FullName)
+	repos, err := h.firestoreService.GetReposForAllWorkspaces(ctx, payload.GetRepo().GetFullName())
 	if err != nil {
 		log.Error(ctx, "Failed to lookup repository configurations",
 			"error", err,
@@ -670,7 +624,7 @@ func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *GitH
 
 	// Fan-out approach: enqueue individual workspace PR jobs
 	// The PR action is extracted from the payload - "opened", "edited", etc.
-	return h.enqueueWorkspacePRJobs(ctx, payload, repos, annotatedChannel, payload.Action)
+	return h.enqueueWorkspacePRJobs(ctx, payload, repos, annotatedChannel, payload.GetAction())
 }
 
 // determineTargetChannel determines the target Slack channel for PR notifications.
@@ -702,13 +656,13 @@ func (h *GitHubHandler) determineTargetChannel(
 // Prevents duplicate notifications by using robust channel comparison that handles both names and IDs.
 func (h *GitHubHandler) checkForDuplicateBotMessage(
 	ctx context.Context,
-	payload *GitHubWebhookPayload,
+	payload *github.PullRequestEvent,
 	targetChannel string,
 	workspaceID string,
 ) (bool, error) {
 	// Get all bot messages for this PR in the workspace (don't filter by channel initially)
 	allBotMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, "", workspaceID, "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", workspaceID, "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to check for existing bot messages",
 			"error", err,
@@ -739,7 +693,7 @@ func (h *GitHubHandler) checkForDuplicateBotMessage(
 // Handles user preferences for tagging and impersonation, then saves tracking data to database.
 func (h *GitHubHandler) postAndTrackPRMessage(
 	ctx context.Context,
-	payload *GitHubWebhookPayload,
+	payload *github.PullRequestEvent,
 	repo *models.Repo,
 	user *models.User,
 	targetChannel string,
@@ -751,7 +705,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		"slack_team_id", repo.WorkspaceID)
 
 	// Calculate PR size (additions + deletions)
-	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+	prSize := payload.GetPullRequest().GetAdditions() + payload.GetPullRequest().GetDeletions()
 
 	// Get author's Slack user ID if they're in the same workspace and verified
 	var authorSlackUserID string
@@ -778,11 +732,11 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		ctx,
 		repo.WorkspaceID,
 		targetChannel,
-		payload.Repository.Name,
-		payload.PullRequest.Title,
-		payload.PullRequest.User.Login,
-		payload.PullRequest.Body,
-		payload.PullRequest.HTMLURL,
+		payload.GetRepo().GetName(),
+		payload.GetPullRequest().GetTitle(),
+		payload.GetPullRequest().GetUser().GetLogin(),
+		payload.GetPullRequest().GetBody(),
+		payload.GetPullRequest().GetHTMLURL(),
 		prSize,
 		authorSlackUserID,
 		directives.UserToCC,
@@ -796,8 +750,8 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 			"error", err,
 			"channel", targetChannel,
 			"slack_team_id", repo.WorkspaceID,
-			"repo_name", payload.Repository.Name,
-			"pr_title", payload.PullRequest.Title,
+			"repo_name", payload.GetRepo().GetName(),
+			"pr_title", payload.GetPullRequest().GetTitle(),
 		)
 		return err
 	}
@@ -812,9 +766,9 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	// Create TrackedMessage for the bot notification
 	hasDirective := directives.HasReviewDirective
 	trackedMessage := &models.TrackedMessage{
-		PRNumber:           payload.PullRequest.Number,
-		RepoFullName:       payload.Repository.FullName,
-		PRTitle:            payload.PullRequest.Title, // Store title for change detection
+		PRNumber:           payload.GetPullRequest().GetNumber(),
+		RepoFullName:       payload.GetRepo().GetFullName(),
+		PRTitle:            payload.GetPullRequest().GetTitle(), // Store title for change detection
 		SlackChannel:       resolvedChannelID,
 		SlackChannelName:   originalChannelName, // Store original channel name, never ID
 		SlackMessageTS:     timestamp,
@@ -846,7 +800,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 // Determines target channel, checks for duplicates, posts message, and syncs reactions with manual messages.
 func (h *GitHubHandler) processWorkspaceNotification(
 	ctx context.Context,
-	payload *GitHubWebhookPayload,
+	payload *github.PullRequestEvent,
 	repo *models.Repo,
 	user *models.User,
 	annotatedChannel string,
@@ -875,7 +829,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 
 	// After posting, synchronize reactions with any existing manual messages for this PR in this workspace
 	allMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, repo.WorkspaceID, "")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), targetChannel, repo.WorkspaceID, "")
 	if err != nil {
 		log.Error(ctx, "Failed to get all tracked messages for reaction sync", "error", err)
 	} else if len(allMessages) > 1 {
@@ -889,15 +843,15 @@ func (h *GitHubHandler) processWorkspaceNotification(
 
 // handlePREdited handles pull request edited events.
 // Processes skip directive changes, channel changes, and re-posting logic.
-func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *github.PullRequestEvent) error {
 	// Parse directives from PR description
-	directives := h.slackService.ParsePRDirectives(payload.PullRequest.Body)
+	directives := h.slackService.ParsePRDirectives(payload.GetPullRequest().GetBody())
 
 	log.Info(ctx, "Processing PR edit directives",
 		"skip", directives.Skip,
 		"channel", directives.Channel,
 		"user_to_cc", directives.UserToCC,
-		"pr_body", payload.PullRequest.Body,
+		"pr_body", payload.GetPullRequest().GetBody(),
 	)
 
 	// If skip directive is found, delete all tracked messages for this PR
@@ -974,15 +928,15 @@ func (h *GitHubHandler) compareChannelsForChange(ctx context.Context, botMessage
 
 // hasChannelChanged checks if the channel directive has changed from where bot messages are currently posted.
 // Only considers bot messages, ignoring manual messages.
-func (h *GitHubHandler) hasChannelChanged(ctx context.Context, payload *GitHubWebhookPayload, newChannel string) (bool, error) {
+func (h *GitHubHandler) hasChannelChanged(ctx context.Context, payload *github.PullRequestEvent, newChannel string) (bool, error) {
 	log.Info(ctx, "Checking for channel changes",
-		"pr_number", payload.PullRequest.Number,
-		"repo", payload.Repository.FullName,
+		"pr_number", payload.GetPullRequest().GetNumber(),
+		"repo", payload.GetRepo().GetFullName(),
 		"new_channel", newChannel,
 	)
 
 	// Get all tracked messages for the PR
-	allMessages, err := h.getAllTrackedMessagesForPRDirect(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	allMessages, err := h.getAllTrackedMessagesForPRDirect(ctx, payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber())
 
 	if err == nil {
 		log.Info(ctx, "Found ALL tracked messages for PR",
@@ -1012,7 +966,7 @@ func (h *GitHubHandler) hasChannelChanged(ctx context.Context, payload *GitHubWe
 	} else {
 		// Fallback to direct query (shouldn't be needed if retry worked above)
 		botMessages, err = h.firestoreService.GetTrackedMessages(ctx,
-			payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+			payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
 		if err != nil {
 			log.Error(ctx, "Failed to get bot tracked messages for channel change check",
 				"error", err,
@@ -1037,14 +991,16 @@ func (h *GitHubHandler) hasChannelChanged(ctx context.Context, payload *GitHubWe
 
 // handleChannelChange handles migration of PR notifications when channel directive changes.
 // Deletes bot messages from old channels and posts new message to the specified channel.
-func (h *GitHubHandler) handleChannelChange(ctx context.Context, payload *GitHubWebhookPayload, directives *services.PRDirectives) error {
+func (h *GitHubHandler) handleChannelChange(
+	ctx context.Context, payload *github.PullRequestEvent, directives *services.PRDirectives,
+) error {
 	log.Info(ctx, "Processing channel change - migrating PR notifications",
 		"new_channel", directives.Channel,
 	)
 
 	// Get all bot messages for this PR across all workspaces
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to get bot tracked messages for channel change",
 			"error", err,
@@ -1116,11 +1072,11 @@ func (h *GitHubHandler) handleChannelChange(ctx context.Context, payload *GitHub
 
 // processSkipDirective handles retroactive deletion of tracked messages when skip directive is added.
 // Removes all tracked messages for the PR from Slack and database across all workspaces.
-func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *github.PullRequestEvent) error {
 	log.Info(ctx, "Processing skip directive - deleting tracked messages")
 
 	// Get all tracked messages for this PR across all workspaces and channels
-	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber())
 	if err != nil {
 		log.Error(ctx, "Failed to get tracked messages for retroactive deletion",
 			"error", err,
@@ -1180,11 +1136,11 @@ func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *GitHu
 
 // handleUnskipDirective handles re-posting PRs when skip directive is removed from description.
 // Re-posts PR if no tracked messages exist, indicating previous skip directive removal.
-func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *github.PullRequestEvent) error {
 	log.Debug(ctx, "No skip directive found, checking if PR needs to be re-posted")
 
 	// Get all tracked messages for this PR to see if it's already posted
-	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber())
 	if err != nil {
 		log.Error(ctx, "Failed to get tracked messages for re-post check",
 			"error", err,
@@ -1196,7 +1152,7 @@ func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitH
 		log.Info(ctx, "No tracked messages found - re-posting PR after skip directive removal")
 
 		// Skip draft PRs (same logic as handlePROpened)
-		if payload.PullRequest.Draft {
+		if payload.GetPullRequest().GetDraft() {
 			log.Debug(ctx, "Skipping draft PR for re-posting")
 			return nil
 		}
@@ -1214,10 +1170,10 @@ func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitH
 // handleCCChanges detects changes to CC directives and updates existing bot messages accordingly.
 //
 //nolint:gocognit,cyclop // Complex CC change detection logic with multiple conditional branches
-func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *GitHubWebhookPayload, directives *services.PRDirectives) error {
+func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *github.PullRequestEvent, directives *services.PRDirectives) error {
 	// Get all bot messages for this PR across all workspaces
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to get bot messages for CC change detection", "error", err)
 		return err
@@ -1287,14 +1243,14 @@ func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *GitHubWebh
 
 	// Get user information once (shared across all messages)
 	var user *models.User
-	if payload.PullRequest.User.ID > 0 {
-		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, int64(payload.PullRequest.User.ID))
+	if payload.GetPullRequest().GetUser().GetID() > 0 {
+		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, payload.GetPullRequest().GetUser().GetID())
 		if err != nil {
 			log.Error(ctx, "Failed to lookup user for CC update", "error", err)
 		}
 	}
 
-	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+	prSize := payload.GetPullRequest().GetAdditions() + payload.GetPullRequest().GetDeletions()
 
 	// Update each message in Slack and database
 	for i, msg := range messagesToUpdate {
@@ -1321,23 +1277,23 @@ func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *GitHubWebh
 }
 
 // handleTitleChanges handles PR title changes by updating existing messages with new title.
-func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *github.PullRequestEvent) error {
 	// Check if title has actually changed
-	if payload.Changes.Title.From == "" || payload.Changes.Title.From == payload.PullRequest.Title {
+	if payload.GetChanges().GetTitle().GetFrom() == "" || payload.GetChanges().GetTitle().GetFrom() == payload.GetPullRequest().GetTitle() {
 		log.Debug(ctx, "No title change detected, skipping title update")
 		return nil
 	}
 
 	log.Info(ctx, "Title change detected",
-		"old_title", payload.Changes.Title.From,
-		"new_title", payload.PullRequest.Title,
-		"pr_number", payload.PullRequest.Number,
-		"repo", payload.Repository.FullName,
+		"old_title", payload.GetChanges().GetTitle().GetFrom(),
+		"new_title", payload.GetPullRequest().GetTitle(),
+		"pr_number", payload.GetPullRequest().GetNumber(),
+		"repo", payload.GetRepo().GetFullName(),
 	)
 
 	// Get all bot messages for this PR across all workspaces
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to get bot messages for title change detection", "error", err)
 		return err
@@ -1354,20 +1310,20 @@ func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *GitHubW
 	// Check each bot message to see if title needs updating
 	for _, msg := range botMessages {
 		// Update if stored title matches old title or is empty (legacy messages)
-		if msg.PRTitle == "" || msg.PRTitle == payload.Changes.Title.From {
+		if msg.PRTitle == "" || msg.PRTitle == payload.GetChanges().GetTitle().GetFrom() {
 			log.Info(ctx, "Title change detected for message",
 				"message_ts", msg.SlackMessageTS,
 				"channel_id", msg.SlackChannel,
 				"workspace_id", msg.SlackTeamID,
 				"old_stored_title", msg.PRTitle,
-				"old_payload_title", payload.Changes.Title.From,
-				"new_title", payload.PullRequest.Title,
+				"old_payload_title", payload.GetChanges().GetTitle().GetFrom(),
+				"new_title", payload.GetPullRequest().GetTitle(),
 			)
 			messagesToUpdate = append(messagesToUpdate, msg)
 
 			// Create updated message record for database
 			updatedMsg := *msg // Copy the struct
-			updatedMsg.PRTitle = payload.PullRequest.Title
+			updatedMsg.PRTitle = payload.GetPullRequest().GetTitle()
 			messagesToUpdateInDB = append(messagesToUpdateInDB, &updatedMsg)
 		}
 	}
@@ -1379,20 +1335,20 @@ func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *GitHubW
 
 	log.Info(ctx, "Updating messages due to title changes",
 		"message_count", len(messagesToUpdate),
-		"old_title", payload.Changes.Title.From,
-		"new_title", payload.PullRequest.Title,
+		"old_title", payload.GetChanges().GetTitle().GetFrom(),
+		"new_title", payload.GetPullRequest().GetTitle(),
 	)
 
 	// Get user information once (shared across all messages)
 	var user *models.User
-	if payload.PullRequest.User.ID > 0 {
-		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, int64(payload.PullRequest.User.ID))
+	if payload.GetPullRequest().GetUser().GetID() > 0 {
+		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, payload.GetPullRequest().GetUser().GetID())
 		if err != nil {
 			log.Error(ctx, "Failed to lookup user for title update", "error", err)
 		}
 	}
 
-	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+	prSize := payload.GetPullRequest().GetAdditions() + payload.GetPullRequest().GetDeletions()
 
 	// Update each message in Slack and database
 	for i, msg := range messagesToUpdate {
@@ -1412,7 +1368,7 @@ func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *GitHubW
 
 	log.Info(ctx, "Completed title change updates for bot messages",
 		"total_messages", len(messagesToUpdate),
-		"new_title", payload.PullRequest.Title,
+		"new_title", payload.GetPullRequest().GetTitle(),
 	)
 
 	return nil
@@ -1420,7 +1376,7 @@ func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *GitHubW
 
 // updateMessageWithTitle updates a single message with new title information.
 func (h *GitHubHandler) updateMessageWithTitle(
-	ctx context.Context, payload *GitHubWebhookPayload, msg *models.TrackedMessage,
+	ctx context.Context, payload *github.PullRequestEvent, msg *models.TrackedMessage,
 	user *models.User, prSize int,
 ) error {
 	// Resolve CC username to Slack user ID if stored
@@ -1444,11 +1400,11 @@ func (h *GitHubHandler) updateMessageWithTitle(
 		msg.SlackTeamID,
 		msg.SlackChannel,
 		msg.SlackMessageTS,
-		payload.Repository.FullName,
-		payload.PullRequest.Title, // Use new title
-		payload.PullRequest.User.Login,
-		payload.PullRequest.Body,
-		payload.PullRequest.HTMLURL,
+		payload.GetRepo().GetFullName(),
+		payload.GetPullRequest().GetTitle(), // Use new title
+		payload.GetPullRequest().GetUser().GetLogin(),
+		payload.GetPullRequest().GetBody(),
+		payload.GetPullRequest().GetHTMLURL(),
 		prSize,
 		authorSlackUserID,
 		msg.UserToCC,
@@ -1460,7 +1416,7 @@ func (h *GitHubHandler) updateMessageWithTitle(
 
 // updateMessageWithCC updates a single message with new CC information.
 func (h *GitHubHandler) updateMessageWithCC(
-	ctx context.Context, payload *GitHubWebhookPayload, msg *models.TrackedMessage,
+	ctx context.Context, payload *github.PullRequestEvent, msg *models.TrackedMessage,
 	directives *services.PRDirectives, user *models.User, prSize int,
 ) error {
 	// Resolve CC username to Slack user ID if possible
@@ -1484,11 +1440,11 @@ func (h *GitHubHandler) updateMessageWithCC(
 		msg.SlackTeamID,
 		msg.SlackChannel,
 		msg.SlackMessageTS,
-		payload.Repository.Name,
-		payload.PullRequest.Title,
-		payload.PullRequest.User.Login,
-		payload.PullRequest.Body,
-		payload.PullRequest.HTMLURL,
+		payload.GetRepo().GetName(),
+		payload.GetPullRequest().GetTitle(),
+		payload.GetPullRequest().GetUser().GetLogin(),
+		payload.GetPullRequest().GetBody(),
+		payload.GetPullRequest().GetHTMLURL(),
 		prSize,
 		authorSlackUserID,
 		directives.UserToCC,
@@ -1500,25 +1456,25 @@ func (h *GitHubHandler) updateMessageWithCC(
 
 // handlePRClosed handles pull request closed events.
 // Adds appropriate emoji reactions (merged/closed) to all tracked messages across workspaces.
-func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *github.PullRequestEvent) error {
 	// Get all tracked messages for this PR across all workspaces and channels
-	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.Repository.FullName, payload.PullRequest.Number)
+	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber())
 	if err != nil {
 		log.Error(ctx, "Failed to get tracked messages for PR closed reaction",
 			"error", err,
-			"merged", payload.PullRequest.Merged,
+			"merged", payload.GetPullRequest().GetMerged(),
 		)
 		return err
 	}
 	if len(trackedMessages) == 0 {
 		log.Warn(ctx, "No tracked messages found for PR closed reaction",
-			"merged", payload.PullRequest.Merged,
+			"merged", payload.GetPullRequest().GetMerged(),
 		)
 		return nil
 	}
 
 	// Add reaction to all tracked messages
-	emoji := utils.GetEmojiForPRState(PRActionClosed, payload.PullRequest.Merged, h.emojiConfig)
+	emoji := utils.GetEmojiForPRState(PRActionClosed, payload.GetPullRequest().GetMerged(), h.emojiConfig)
 	if emoji != "" {
 		var messageRefs []services.MessageRef
 		for _, msg := range trackedMessages {
@@ -1543,7 +1499,7 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebho
 					"team_id", teamID,
 					"emoji", emoji,
 					"message_count", len(teamMessageRefs),
-					"merged", payload.PullRequest.Merged,
+					"merged", payload.GetPullRequest().GetMerged(),
 				)
 				// Continue with other teams even if one fails
 			}
@@ -1551,7 +1507,7 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebho
 	}
 
 	log.Info(ctx, "PR closed reactions synchronized across tracked messages",
-		"merged", payload.PullRequest.Merged,
+		"merged", payload.GetPullRequest().GetMerged(),
 		"emoji", emoji,
 		"message_count", len(trackedMessages),
 	)
@@ -1560,9 +1516,9 @@ func (h *GitHubHandler) handlePRClosed(ctx context.Context, payload *GitHubWebho
 
 // handlePRReadyForReview handles pull request ready_for_review events.
 // Processes draft PRs that become ready for review by posting notifications to all workspaces.
-func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handlePRReadyForReview(ctx context.Context, payload *github.PullRequestEvent) error {
 	log.Debug(ctx, "Processing PR ready for review",
-		"title", payload.PullRequest.Title,
+		"title", payload.GetPullRequest().GetTitle(),
 	)
 
 	// Delegate to shared logic using fan-out approach
@@ -1603,14 +1559,14 @@ func (h *GitHubHandler) getAllTrackedMessagesForPR(
 // Validates workspace membership and GitHub installation access before creating repository configuration.
 // Returns created repo on success, nil if not possible, or error if registration fails.
 func (h *GitHubHandler) attemptAutoRegistration(
-	ctx context.Context, payload *GitHubWebhookPayload, user *models.User,
+	ctx context.Context, payload *github.PullRequestEvent, user *models.User,
 ) (*models.Repo, error) {
 	if user != nil && user.Verified && user.NotificationsEnabled {
 		log.Info(ctx, "Attempting auto-registration for verified user's workspace",
 			"github_username", user.GitHubUsername,
 			"github_user_id", user.GitHubUserID,
 			"slack_team_id", user.SlackTeamID,
-			"repo", payload.Repository.FullName)
+			"repo", payload.GetRepo().GetFullName())
 
 		// Verify workspace membership: ensure PR author belongs to the workspace being registered to
 		if !h.verifyWorkspaceMembership(ctx, user, payload) {
@@ -1618,16 +1574,16 @@ func (h *GitHubHandler) attemptAutoRegistration(
 				"github_user_id", user.GitHubUserID,
 				"github_username", user.GitHubUsername,
 				"user_workspace", user.SlackTeamID,
-				"repo", payload.Repository.FullName)
+				"repo", payload.GetRepo().GetFullName())
 			return nil, nil // Not an error, just means auto-registration is not possible
 		}
 
 		// Validate that the workspace has a GitHub installation for this repository
-		_, err := h.githubService.ValidateWorkspaceInstallationAccess(ctx, payload.Repository.FullName, user.SlackTeamID)
+		_, err := h.githubService.ValidateWorkspaceInstallationAccess(ctx, payload.GetRepo().GetFullName(), user.SlackTeamID)
 		if err != nil {
 			log.Warn(ctx, "Cannot auto-register repository - workspace lacks GitHub installation",
 				"error", err,
-				"repo", payload.Repository.FullName,
+				"repo", payload.GetRepo().GetFullName(),
 				"workspace_id", user.SlackTeamID)
 			return nil, nil // Not an error, just means auto-registration is not possible
 		}
@@ -1635,11 +1591,11 @@ func (h *GitHubHandler) attemptAutoRegistration(
 		log.Info(ctx, "Auto-registering repository for verified user's workspace",
 			"github_username", user.GitHubUsername,
 			"slack_team_id", user.SlackTeamID,
-			"repo", payload.Repository.FullName)
+			"repo", payload.GetRepo().GetFullName())
 
 		repo := &models.Repo{
-			ID:           user.SlackTeamID + "#" + payload.Repository.FullName, // Correct format: {workspace_id}#{repo_full_name}
-			RepoFullName: payload.Repository.FullName,
+			ID:           user.SlackTeamID + "#" + payload.GetRepo().GetFullName(), // Correct format: {workspace_id}#{repo_full_name}
+			RepoFullName: payload.GetRepo().GetFullName(),
 			WorkspaceID:  user.SlackTeamID,
 			Enabled:      true,
 		}
@@ -1689,10 +1645,10 @@ func (h *GitHubHandler) attemptAutoRegistration(
 // verifyWorkspaceMembership ensures PR author belongs to target workspace for auto-registration.
 // Prevents unauthorized cross-workspace repository registration by validating GitHub user ID match.
 func (h *GitHubHandler) verifyWorkspaceMembership(
-	ctx context.Context, user *models.User, payload *GitHubWebhookPayload,
+	ctx context.Context, user *models.User, payload *github.PullRequestEvent,
 ) bool {
 	// Extract PR author's numeric GitHub user ID from webhook payload
-	prAuthorUserID := int64(payload.PullRequest.User.ID)
+	prAuthorUserID := payload.GetPullRequest().GetUser().GetID()
 
 	// Verify the user record's GitHub ID matches the PR author's ID
 	if user.GitHubUserID != prAuthorUserID {
@@ -1764,7 +1720,7 @@ func (h *GitHubHandler) validateInstallationRepositoriesPayload(payload []byte) 
 // processInstallationEvent processes GitHub App installation webhook events.
 // Handles installation created, deleted, suspended, unsuspended, and new_permissions_accepted actions.
 func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []byte) error {
-	var githubPayload GitHubWebhookPayload
+	var githubPayload github.InstallationEvent
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
 		log.Error(ctx, "Failed to unmarshal installation payload",
 			"error", err,
@@ -1783,7 +1739,7 @@ func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []
 
 	log.Info(ctx, "Handling installation event")
 
-	switch githubPayload.Action {
+	switch githubPayload.GetAction() {
 	case InstallationActionCreated:
 		return h.handleInstallationCreated(ctx, &githubPayload)
 	case InstallationActionDeleted:
@@ -1802,11 +1758,11 @@ func (h *GitHubHandler) processInstallationEvent(ctx context.Context, payload []
 
 // handleInstallationCreated handles GitHub App installation created events.
 // Creates orphaned installation records for direct GitHub installs without workspace association.
-func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *github.InstallationEvent) error {
 	log.Info(ctx, "Processing installation created event")
 
 	// Check if installation already exists and has workspace association
-	existingInstallation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	existingInstallation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.GetInstallation().GetID())
 	if err != nil && !errors.Is(err, services.ErrGitHubInstallationNotFound) {
 		log.Error(ctx, "Failed to check existing installation", "error", err)
 		return fmt.Errorf("failed to check existing installation: %w", err)
@@ -1824,20 +1780,20 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 
 	// Extract repository list for selected repositories
 	var repositories []string
-	if payload.Installation.RepositorySelection == RepositorySelectionSelected {
-		for _, repo := range payload.Installation.Repositories {
-			repositories = append(repositories, repo.FullName)
+	if payload.GetInstallation().GetRepositorySelection() == RepositorySelectionSelected {
+		for _, repo := range payload.Repositories {
+			repositories = append(repositories, repo.GetFullName())
 		}
 	}
 
 	// Create or update GitHubInstallation record without workspace association
 	// These are orphaned installations that came from direct GitHub installs
 	installation := &models.GitHubInstallation{
-		ID:                  payload.Installation.ID,
-		AccountLogin:        payload.Installation.Account.Login,
-		AccountType:         payload.Installation.Account.Type,
-		AccountID:           payload.Installation.Account.ID,
-		RepositorySelection: payload.Installation.RepositorySelection,
+		ID:                  payload.GetInstallation().GetID(),
+		AccountLogin:        payload.GetInstallation().GetAccount().GetLogin(),
+		AccountType:         payload.GetInstallation().GetAccount().GetType(),
+		AccountID:           payload.GetInstallation().GetAccount().GetID(),
+		RepositorySelection: payload.GetInstallation().GetRepositorySelection(),
 		Repositories:        repositories,
 		InstalledAt:         time.Now(),
 		UpdatedAt:           time.Now(),
@@ -1847,25 +1803,25 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 	// This prevents duplicates since we don't listen to installation.deleted events
 	if existingInstallation != nil {
 		log.Info(ctx, "Deleting orphaned installation record before creating new one",
-			"installation_id", payload.Installation.ID,
+			"installation_id", payload.GetInstallation().GetID(),
 			"account_login", existingInstallation.AccountLogin)
 
-		err = h.firestoreService.DeleteGitHubInstallation(ctx, payload.Installation.ID)
+		err = h.firestoreService.DeleteGitHubInstallation(ctx, payload.GetInstallation().GetID())
 		if err != nil {
 			// Check if the error is "not found" - this is actually success for our purposes
 			if errors.Is(err, services.ErrGitHubInstallationNotFound) {
 				log.Debug(ctx, "Installation record already removed during cleanup",
-					"installation_id", payload.Installation.ID)
+					"installation_id", payload.GetInstallation().GetID())
 			} else {
 				// This is a real deletion failure (database connectivity, etc.)
 				log.Error(ctx, "Failed to delete existing installation record",
 					"error", err,
-					"installation_id", payload.Installation.ID)
+					"installation_id", payload.GetInstallation().GetID())
 				return fmt.Errorf("failed to clean up existing installation record: %w", err)
 			}
 		} else {
 			log.Info(ctx, "Successfully cleaned up existing installation record",
-				"installation_id", payload.Installation.ID)
+				"installation_id", payload.GetInstallation().GetID())
 		}
 	}
 
@@ -1891,50 +1847,50 @@ func (h *GitHubHandler) handleInstallationCreated(ctx context.Context, payload *
 
 // handleInstallationDeleted handles GitHub App installation deleted events.
 // Removes installation record from database when GitHub App is uninstalled.
-func (h *GitHubHandler) handleInstallationDeleted(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationDeleted(ctx context.Context, payload *github.InstallationEvent) error {
 	log.Info(ctx, "Processing installation deleted event")
 
 	// Delete the installation record from Firestore
-	err := h.firestoreService.DeleteGitHubInstallation(ctx, payload.Installation.ID)
+	err := h.firestoreService.DeleteGitHubInstallation(ctx, payload.GetInstallation().GetID())
 	if err != nil {
 		// Check if the error is "not found" - this might happen if the installation
 		// was already cleaned up or never existed in our database
 		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
 			log.Warn(ctx, "Installation record not found during deletion - may have been already cleaned up",
-				"installation_id", payload.Installation.ID)
+				"installation_id", payload.GetInstallation().GetID())
 			return nil
 		}
 		log.Error(ctx, "Failed to delete GitHub installation record",
 			"error", err,
-			"installation_id", payload.Installation.ID)
+			"installation_id", payload.GetInstallation().GetID())
 		return fmt.Errorf("failed to delete GitHub installation: %w", err)
 	}
 
 	log.Info(ctx, "Successfully processed installation deletion",
-		"installation_id", payload.Installation.ID,
-		"account_login", payload.Installation.Account.Login)
+		"installation_id", payload.GetInstallation().GetID(),
+		"account_login", payload.GetInstallation().GetAccount().GetLogin())
 
 	return nil
 }
 
 // handleInstallationSuspend handles GitHub App installation suspended events.
 // Updates installation record with suspension timestamp when access is suspended.
-func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *github.InstallationEvent) error {
 	log.Info(ctx, "Processing installation suspend event")
 
 	// Get existing installation to update it
-	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.GetInstallation().GetID())
 	if err != nil {
 		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
 			log.Warn(ctx, "Installation not found for suspend event - creating suspended installation record",
-				"installation_id", payload.Installation.ID)
+				"installation_id", payload.GetInstallation().GetID())
 			// Create a new installation record in suspended state
 			installation = &models.GitHubInstallation{
-				ID:                  payload.Installation.ID,
-				AccountLogin:        payload.Installation.Account.Login,
-				AccountType:         payload.Installation.Account.Type,
-				AccountID:           payload.Installation.Account.ID,
-				RepositorySelection: payload.Installation.RepositorySelection,
+				ID:                  payload.GetInstallation().GetID(),
+				AccountLogin:        payload.GetInstallation().GetAccount().GetLogin(),
+				AccountType:         payload.GetInstallation().GetAccount().GetType(),
+				AccountID:           payload.GetInstallation().GetAccount().GetID(),
+				RepositorySelection: payload.GetInstallation().GetRepositorySelection(),
 				InstalledAt:         time.Now(), // We don't have the original install time
 				UpdatedAt:           time.Now(),
 			}
@@ -1959,8 +1915,8 @@ func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *
 	}
 
 	log.Info(ctx, "Successfully processed installation suspension",
-		"installation_id", payload.Installation.ID,
-		"account_login", payload.Installation.Account.Login,
+		"installation_id", payload.GetInstallation().GetID(),
+		"account_login", payload.GetInstallation().GetAccount().GetLogin(),
 		"suspended_at", suspendedAt)
 
 	return nil
@@ -1968,15 +1924,15 @@ func (h *GitHubHandler) handleInstallationSuspend(ctx context.Context, payload *
 
 // handleInstallationUnsuspend handles GitHub App installation unsuspended events.
 // Clears suspension timestamp when installation access is restored.
-func (h *GitHubHandler) handleInstallationUnsuspend(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationUnsuspend(ctx context.Context, payload *github.InstallationEvent) error {
 	log.Info(ctx, "Processing installation unsuspend event")
 
 	// Get existing installation to update it
-	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.GetInstallation().GetID())
 	if err != nil {
 		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
 			log.Warn(ctx, "Installation not found for unsuspend event - this shouldn't normally happen",
-				"installation_id", payload.Installation.ID)
+				"installation_id", payload.GetInstallation().GetID())
 			return nil
 		}
 		log.Error(ctx, "Failed to get installation for unsuspend", "error", err)
@@ -1994,18 +1950,18 @@ func (h *GitHubHandler) handleInstallationUnsuspend(ctx context.Context, payload
 	}
 
 	log.Info(ctx, "Successfully processed installation unsuspension",
-		"installation_id", payload.Installation.ID,
-		"account_login", payload.Installation.Account.Login)
+		"installation_id", payload.GetInstallation().GetID(),
+		"account_login", payload.GetInstallation().GetAccount().GetLogin())
 
 	return nil
 }
 
 // handleInstallationNewPermissions handles installation new_permissions_accepted events.
 // Logs permission changes for audit purposes when new permissions are granted to the app.
-func (h *GitHubHandler) handleInstallationNewPermissions(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationNewPermissions(ctx context.Context, payload *github.InstallationEvent) error {
 	log.Info(ctx, "Processing installation new permissions accepted event",
-		"installation_id", payload.Installation.ID,
-		"account_login", payload.Installation.Account.Login)
+		"installation_id", payload.GetInstallation().GetID(),
+		"account_login", payload.GetInstallation().GetAccount().GetLogin())
 
 	// For now, we just log this event for audit purposes
 	// In the future, we could track permission changes or update stored scopes
@@ -2016,7 +1972,7 @@ func (h *GitHubHandler) handleInstallationNewPermissions(ctx context.Context, pa
 // processInstallationRepositoriesEvent processes installation_repositories webhook events.
 // Handles repository additions and removals from GitHub App installations.
 func (h *GitHubHandler) processInstallationRepositoriesEvent(ctx context.Context, payload []byte) error {
-	var githubPayload GitHubWebhookPayload
+	var githubPayload github.InstallationRepositoriesEvent
 	if err := json.Unmarshal(payload, &githubPayload); err != nil {
 		log.Error(ctx, "Failed to unmarshal installation_repositories payload",
 			"error", err,
@@ -2035,7 +1991,7 @@ func (h *GitHubHandler) processInstallationRepositoriesEvent(ctx context.Context
 
 	log.Info(ctx, "Handling installation_repositories event")
 
-	switch githubPayload.Action {
+	switch githubPayload.GetAction() {
 	case InstallationRepositoriesActionAdded:
 		return h.handleInstallationRepositoriesAdded(ctx, &githubPayload)
 	case InstallationRepositoriesActionRemoved:
@@ -2048,15 +2004,15 @@ func (h *GitHubHandler) processInstallationRepositoriesEvent(ctx context.Context
 
 // handleInstallationRepositoriesAdded handles repositories added to GitHub App installation.
 // Updates installation record with newly added repositories for selected repository installations.
-func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context, payload *github.InstallationRepositoriesEvent) error {
 	log.Info(ctx, "Processing installation repositories added event")
 
 	// Get existing installation to update repository list
-	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.GetInstallation().GetID())
 	if err != nil {
 		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
 			log.Warn(ctx, "Installation not found for repositories added event",
-				"installation_id", payload.Installation.ID)
+				"installation_id", payload.GetInstallation().GetID())
 			return nil
 		}
 		log.Error(ctx, "Failed to get installation for repositories update", "error", err)
@@ -2064,9 +2020,9 @@ func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context,
 	}
 
 	// Extract added repositories from payload
-	addedRepos := make([]string, 0, len(payload.Installation.Repositories))
-	for _, repo := range payload.Installation.Repositories {
-		addedRepos = append(addedRepos, repo.FullName)
+	addedRepos := make([]string, 0, len(payload.RepositoriesAdded))
+	for _, repo := range payload.RepositoriesAdded {
+		addedRepos = append(addedRepos, repo.GetFullName())
 	}
 
 	// Update installation's repository list (add new repos to existing list)
@@ -2093,7 +2049,7 @@ func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context,
 	}
 
 	log.Info(ctx, "Successfully processed installation repositories added event",
-		"installation_id", payload.Installation.ID,
+		"installation_id", payload.GetInstallation().GetID(),
 		"added_repositories", addedRepos,
 		"total_repositories", len(installation.Repositories))
 
@@ -2102,15 +2058,15 @@ func (h *GitHubHandler) handleInstallationRepositoriesAdded(ctx context.Context,
 
 // handleInstallationRepositoriesRemoved handles repositories removed from GitHub App installation.
 // Updates installation record by removing specified repositories from the repository list.
-func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Context, payload *GitHubWebhookPayload) error {
+func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Context, payload *github.InstallationRepositoriesEvent) error {
 	log.Info(ctx, "Processing installation repositories removed event")
 
 	// Get existing installation to update repository list
-	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.Installation.ID)
+	installation, err := h.firestoreService.GetGitHubInstallationByID(ctx, payload.GetInstallation().GetID())
 	if err != nil {
 		if errors.Is(err, services.ErrGitHubInstallationNotFound) {
 			log.Warn(ctx, "Installation not found for repositories removed event",
-				"installation_id", payload.Installation.ID)
+				"installation_id", payload.GetInstallation().GetID())
 			return nil
 		}
 		log.Error(ctx, "Failed to get installation for repositories update", "error", err)
@@ -2118,9 +2074,9 @@ func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Contex
 	}
 
 	// Extract removed repositories from payload
-	removedRepos := make([]string, 0, len(payload.Installation.Repositories))
-	for _, repo := range payload.Installation.Repositories {
-		removedRepos = append(removedRepos, repo.FullName)
+	removedRepos := make([]string, 0, len(payload.RepositoriesRemoved))
+	for _, repo := range payload.RepositoriesRemoved {
+		removedRepos = append(removedRepos, repo.GetFullName())
 	}
 
 	// Update installation's repository list (remove repos from existing list)
@@ -2149,7 +2105,7 @@ func (h *GitHubHandler) handleInstallationRepositoriesRemoved(ctx context.Contex
 	}
 
 	log.Info(ctx, "Successfully processed installation repositories removed event",
-		"installation_id", payload.Installation.ID,
+		"installation_id", payload.GetInstallation().GetID(),
 		"removed_repositories", removedRepos,
 		"remaining_repositories", len(installation.Repositories))
 

@@ -9,7 +9,7 @@ require (
 	cloud.google.com/go/firestore v1.14.0
 	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0
 	github.com/gin-gonic/gin v1.9.1
-	github.com/google/go-github/v73 v73.0.0
+	github.com/google/go-github/v74 v74.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jarcoal/httpmock v1.4.0
 	github.com/slack-go/slack v0.12.3

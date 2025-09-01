@@ -13,7 +13,7 @@ import (
 	"github-slack-notifier/internal/models"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
-	"github.com/google/go-github/v73/github"
+	"github.com/google/go-github/v74/github"
 )
 
 // GitHubService provides methods for interacting with the GitHub API.
