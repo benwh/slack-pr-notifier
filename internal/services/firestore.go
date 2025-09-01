@@ -383,7 +383,8 @@ func (fs *FirestoreService) UpdateTrackedMessage(ctx context.Context, message *m
 	}
 
 	docRef := fs.client.Collection("trackedmessages").Doc(message.ID)
-	_, err := docRef.Set(ctx, message, firestore.MergeAll)
+	// Use regular Set() instead of MergeAll - Firestore MergeAll only works with map data, not structs
+	_, err := docRef.Set(ctx, message)
 	if err != nil {
 		log.Error(ctx, "Failed to update tracked message",
 			"error", err,
