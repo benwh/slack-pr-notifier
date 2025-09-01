@@ -132,11 +132,11 @@ func Load() *Config {
 
 	// Parse emoji configuration
 	cfg.Emoji = EmojiConfig{
-		Approved:         getEnvDefault("EMOJI_APPROVED", "approved_gh"),
+		Approved:         getEnvDefault("EMOJI_APPROVED", "white_check_mark"),
 		ChangesRequested: getEnvDefault("EMOJI_CHANGES_REQUESTED", "question"),
 		Commented:        getEnvDefault("EMOJI_COMMENTED", "speech_balloon"),
-		Merged:           getEnvDefault("EMOJI_MERGED", "merged"),
-		Closed:           getEnvDefault("EMOJI_CLOSED", "pr-closed"),
+		Merged:           getEnvDefault("EMOJI_MERGED", "tada"),
+		Closed:           getEnvDefault("EMOJI_CLOSED", "x"),
 	}
 
 	// Validate configuration
