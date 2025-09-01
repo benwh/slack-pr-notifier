@@ -119,6 +119,11 @@ type GitHubWebhookPayload struct {
 			FullName string `json:"full_name"`
 		} `json:"repositories,omitempty"`
 	} `json:"installation"`
+	Changes struct {
+		Title struct {
+			From string `json:"from"`
+		} `json:"title,omitempty"`
+	} `json:"changes,omitempty"`
 }
 
 // CloudTasksServiceInterface defines the interface for cloud tasks operations.
@@ -809,6 +814,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	trackedMessage := &models.TrackedMessage{
 		PRNumber:           payload.PullRequest.Number,
 		RepoFullName:       payload.Repository.FullName,
+		PRTitle:            payload.PullRequest.Title, // Store title for change detection
 		SlackChannel:       resolvedChannelID,
 		SlackChannelName:   originalChannelName, // Store original channel name, never ID
 		SlackMessageTS:     timestamp,
@@ -924,6 +930,12 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebho
 	// Check if CC directive has changed and update existing messages
 	if err := h.handleCCChanges(ctx, payload, directives); err != nil {
 		log.Error(ctx, "Failed to handle CC changes", "error", err)
+		return err
+	}
+
+	// Check if PR title has changed and update existing messages
+	if err := h.handleTitleChanges(ctx, payload); err != nil {
+		log.Error(ctx, "Failed to handle title changes", "error", err)
 		return err
 	}
 
@@ -1306,6 +1318,144 @@ func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *GitHubWebh
 	)
 
 	return nil
+}
+
+// handleTitleChanges handles PR title changes by updating existing messages with new title.
+func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *GitHubWebhookPayload) error {
+	// Check if title has actually changed
+	if payload.Changes.Title.From == "" || payload.Changes.Title.From == payload.PullRequest.Title {
+		log.Debug(ctx, "No title change detected, skipping title update")
+		return nil
+	}
+
+	log.Info(ctx, "Title change detected",
+		"old_title", payload.Changes.Title.From,
+		"new_title", payload.PullRequest.Title,
+		"pr_number", payload.PullRequest.Number,
+		"repo", payload.Repository.FullName,
+	)
+
+	// Get all bot messages for this PR across all workspaces
+	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+	if err != nil {
+		log.Error(ctx, "Failed to get bot messages for title change detection", "error", err)
+		return err
+	}
+
+	if len(botMessages) == 0 {
+		log.Debug(ctx, "No bot messages found to update for title changes")
+		return nil
+	}
+
+	var messagesToUpdate []*models.TrackedMessage
+	var messagesToUpdateInDB []*models.TrackedMessage
+
+	// Check each bot message to see if title needs updating
+	for _, msg := range botMessages {
+		// Update if stored title matches old title or is empty (legacy messages)
+		if msg.PRTitle == "" || msg.PRTitle == payload.Changes.Title.From {
+			log.Info(ctx, "Title change detected for message",
+				"message_ts", msg.SlackMessageTS,
+				"channel_id", msg.SlackChannel,
+				"workspace_id", msg.SlackTeamID,
+				"old_stored_title", msg.PRTitle,
+				"old_payload_title", payload.Changes.Title.From,
+				"new_title", payload.PullRequest.Title,
+			)
+			messagesToUpdate = append(messagesToUpdate, msg)
+
+			// Create updated message record for database
+			updatedMsg := *msg // Copy the struct
+			updatedMsg.PRTitle = payload.PullRequest.Title
+			messagesToUpdateInDB = append(messagesToUpdateInDB, &updatedMsg)
+		}
+	}
+
+	if len(messagesToUpdate) == 0 {
+		log.Debug(ctx, "No title changes detected, no messages need updating")
+		return nil
+	}
+
+	log.Info(ctx, "Updating messages due to title changes",
+		"message_count", len(messagesToUpdate),
+		"old_title", payload.Changes.Title.From,
+		"new_title", payload.PullRequest.Title,
+	)
+
+	// Get user information once (shared across all messages)
+	var user *models.User
+	if payload.PullRequest.User.ID > 0 {
+		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, int64(payload.PullRequest.User.ID))
+		if err != nil {
+			log.Error(ctx, "Failed to lookup user for title update", "error", err)
+		}
+	}
+
+	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+
+	// Update each message in Slack and database
+	for i, msg := range messagesToUpdate {
+		err := h.updateMessageWithTitle(ctx, payload, msg, user, prSize)
+		if err != nil {
+			log.Error(ctx, "Failed to update message for title change", "error", err)
+			continue
+		}
+
+		// Update the message record in database with new title
+		err = h.firestoreService.UpdateTrackedMessage(ctx, messagesToUpdateInDB[i])
+		if err != nil {
+			log.Error(ctx, "Failed to update tracked message with new title",
+				"error", err, "message_id", msg.ID)
+		}
+	}
+
+	log.Info(ctx, "Completed title change updates for bot messages",
+		"total_messages", len(messagesToUpdate),
+		"new_title", payload.PullRequest.Title,
+	)
+
+	return nil
+}
+
+// updateMessageWithTitle updates a single message with new title information.
+func (h *GitHubHandler) updateMessageWithTitle(
+	ctx context.Context, payload *GitHubWebhookPayload, msg *models.TrackedMessage,
+	user *models.User, prSize int,
+) error {
+	// Resolve CC username to Slack user ID if stored
+	var userToCCSlackID string
+	if msg.UserToCC != "" {
+		userToCCSlackID = h.resolveUserMention(ctx, msg.UserToCC, msg.SlackTeamID)
+	}
+
+	// Get author's Slack user ID if they're in the same workspace and verified
+	var authorSlackUserID string
+	if user != nil && user.SlackTeamID == msg.SlackTeamID && user.Verified {
+		authorSlackUserID = user.SlackUserID
+	}
+
+	// Determine user tagging preference
+	userTaggingEnabled := user != nil && user.TaggingEnabled
+
+	// Update the message in Slack with new title
+	return h.slackService.UpdatePRMessage(
+		ctx,
+		msg.SlackTeamID,
+		msg.SlackChannel,
+		msg.SlackMessageTS,
+		payload.Repository.FullName,
+		payload.PullRequest.Title, // Use new title
+		payload.PullRequest.User.Login,
+		payload.PullRequest.Body,
+		payload.PullRequest.HTMLURL,
+		prSize,
+		authorSlackUserID,
+		msg.UserToCC,
+		userToCCSlackID,
+		"", // customEmoji - use default
+		userTaggingEnabled,
+	)
 }
 
 // updateMessageWithCC updates a single message with new CC information.

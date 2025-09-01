@@ -846,6 +846,67 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		t.Logf("✅ CC directive change test passed: Message correctly updated to add and remove CC mentions")
 	})
+
+	t.Run("PR title changes - update message with new title", func(t *testing.T) {
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Step 1: Create initial PR with original title
+		initialPayload := buildPRPayloadWithDirective(
+			"testorg/testrepo", 700, "Original PR Title", "test-user", "Initial PR description",
+		)
+		resp := sendGitHubWebhook(t, harness, "pull_request", initialPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed and initial message was posted
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2) // github_webhook + workspace_pr
+
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected initial PR message to be posted")
+
+		initialMessage := slackRequests[0]
+		assert.Equal(t, "C987654321", initialMessage.Channel) // test-channel -> C987654321
+		assert.Contains(t, initialMessage.Text, "Original PR Title")
+		assert.Contains(t, initialMessage.Text, "https://github.com/testorg/testrepo/pull/700")
+
+		// Wait for tracked message to be persisted
+		waitForTrackedMessage(t, harness, "testorg/testrepo", 700)
+
+		// Step 2: Edit PR to change the title
+		harness.ResetForNextStep()
+
+		titleChangePayload := buildPREditedPayloadWithTitleChange(
+			"testorg/testrepo", 700, "Updated PR Title", "test-user", "Initial PR description", "Original PR Title",
+		)
+		resp = sendGitHubWebhook(t, harness, "pull_request", titleChangePayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify edit job was executed
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1, "Expected only github_webhook job for PR edit")
+
+		// Verify message was updated with new title
+		updateRequests := harness.SlackRequestCapture().GetUpdateMessageRequests()
+		require.Len(t, updateRequests, 1, "Expected message to be updated with new title")
+
+		updateMessage := updateRequests[0]
+		assert.Equal(t, "C987654321", updateMessage.Channel)
+		assert.Contains(t, updateMessage.Text, "Updated PR Title", "Updated message should contain new title")
+		assert.NotContains(t, updateMessage.Text, "Original PR Title", "Updated message should not contain old title")
+
+		// Verify no new post message requests (only updates)
+		postRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, postRequests, "No new messages should be posted, only updates")
+
+		t.Logf("✅ PR title change test passed: Message correctly updated with new title")
+	})
 }
 
 // waitForTrackedMessage polls the database until a tracked message appears for the given PR.
@@ -1083,6 +1144,54 @@ func buildPREditedPayloadWithDirective(repoFullName string, prNumber int, title,
 		},
 		"repository": map[string]interface{}{
 			"full_name": repoFullName,
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
+}
+
+// buildPREditedPayloadWithTitleChange builds a GitHub PR edited payload with title change information.
+func buildPREditedPayloadWithTitleChange(repoFullName string, prNumber int, newTitle, author, body, oldTitle string) []byte {
+	// Map GitHub usernames to consistent numeric IDs for testing (same as harness.go)
+	githubUserIDMap := map[string]int64{
+		"test-user":         100001,
+		"draft-user":        100002,
+		"draft-author":      100003,
+		"channel-test-user": 100004,
+	}
+
+	githubUserID, exists := githubUserIDMap[author]
+	if !exists {
+		githubUserID = 999999 // Default fallback ID for unmapped users
+	}
+
+	payload := map[string]interface{}{
+		"action": "edited",
+		"pull_request": map[string]interface{}{
+			"number":    prNumber,
+			"title":     newTitle,
+			"body":      body,
+			"html_url":  fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+			"state":     "open",
+			"draft":     false,
+			"additions": 50,
+			"deletions": 30,
+			"user": map[string]interface{}{
+				"id":    githubUserID, // Add numeric GitHub user ID
+				"login": author,
+			},
+		},
+		"repository": map[string]interface{}{
+			"full_name": repoFullName,
+		},
+		"changes": map[string]interface{}{
+			"title": map[string]interface{}{
+				"from": oldTitle,
+			},
 		},
 	}
 

@@ -143,6 +143,7 @@ type TrackedMessage struct {
 	ID                 string    `firestore:"id"`                             // Auto-generated document ID
 	PRNumber           int       `firestore:"pr_number"`                      // GitHub PR number
 	RepoFullName       string    `firestore:"repo_full_name"`                 // e.g., "owner/repo"
+	PRTitle            string    `firestore:"pr_title,omitempty"`             // PR title when message was created/updated
 	SlackChannel       string    `firestore:"slack_channel"`                  // Slack channel ID
 	SlackChannelName   string    `firestore:"slack_channel_name,omitempty"`   // Channel name for logging (optional)
 	SlackMessageTS     string    `firestore:"slack_message_ts"`               // Slack message timestamp
