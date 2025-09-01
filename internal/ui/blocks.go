@@ -154,23 +154,23 @@ func (b *HomeViewBuilder) buildChannelConfigSection(user *models.User) []slack.B
 	if !githubConnected {
 		// GitHub not connected - show pending state
 		notificationStatus = "⏳ Pending - Connect GitHub first"
-		toggleText = "Enable notifications"
+		toggleText = "Enable auto-posting"
 		toggleStyle = slack.StylePrimary
 	} else if user != nil && !user.NotificationsEnabled {
 		// GitHub connected but notifications disabled
 		notificationStatus = "❌ Disabled"
-		toggleText = "Enable notifications"
+		toggleText = "Enable auto-posting"
 		toggleStyle = slack.StylePrimary
 	} else {
 		// GitHub connected and notifications enabled
 		notificationStatus = "✅ Enabled"
-		toggleText = "Disable notifications"
+		toggleText = "Disable auto-posting"
 		toggleStyle = slack.StyleDanger
 	}
 
 	// Build the section block with or without the button based on GitHub connection
 	sectionText := slack.NewTextBlockObject(slack.MarkdownType,
-		fmt.Sprintf("Enable PR mirroring\n_%s - When enabled, your PRs will be automatically posted_", notificationStatus),
+		fmt.Sprintf("Enable PR posting\n_%s - When enabled, your PRs will be automatically posted_", notificationStatus),
 		false, false)
 
 	var accessory *slack.Accessory
