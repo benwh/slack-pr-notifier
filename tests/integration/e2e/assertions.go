@@ -38,6 +38,14 @@ type SlackReactionRequest struct {
 	Name      string `json:"name"` // emoji name
 }
 
+// SlackUpdateMessageRequest represents a parsed chat.update request.
+type SlackUpdateMessageRequest struct {
+	Channel   string `json:"channel"`
+	Timestamp string `json:"ts"`
+	Text      string `json:"text"`
+	// Add other fields as needed
+}
+
 // NewSlackRequestCapture creates a new request capture instance.
 func NewSlackRequestCapture() *SlackRequestCapture {
 	return &SlackRequestCapture{
@@ -72,6 +80,11 @@ func (c *SlackRequestCapture) CaptureRequest(req *http.Request) error {
 		if err := parseFormURLEncoded(body, &parsed); err == nil {
 			captured.ParsedBody = parsed
 		}
+	} else if strings.Contains(req.URL.Path, "chat.update") {
+		var parsed SlackUpdateMessageRequest
+		if err := parseFormURLEncoded(body, &parsed); err == nil {
+			captured.ParsedBody = parsed
+		}
 	} else if strings.Contains(req.URL.Path, "reactions.add") || strings.Contains(req.URL.Path, "reactions.remove") {
 		var parsed SlackReactionRequest
 		if err := parseFormURLEncoded(body, &parsed); err == nil {
@@ -91,6 +104,20 @@ func (c *SlackRequestCapture) GetPostMessageRequests() []SlackPostMessageRequest
 	var results []SlackPostMessageRequest
 	for _, req := range c.requests {
 		if parsed, ok := req.ParsedBody.(SlackPostMessageRequest); ok {
+			results = append(results, parsed)
+		}
+	}
+	return results
+}
+
+// GetUpdateMessageRequests returns all captured chat.update requests.
+func (c *SlackRequestCapture) GetUpdateMessageRequests() []SlackUpdateMessageRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var results []SlackUpdateMessageRequest
+	for _, req := range c.requests {
+		if parsed, ok := req.ParsedBody.(SlackUpdateMessageRequest); ok {
 			results = append(results, parsed)
 		}
 	}
@@ -141,6 +168,10 @@ func parseFormURLEncoded(data []byte, v interface{}) error {
 	switch target := v.(type) {
 	case *SlackPostMessageRequest:
 		target.Channel = values.Get("channel")
+		target.Text = values.Get("text")
+	case *SlackUpdateMessageRequest:
+		target.Channel = values.Get("channel")
+		target.Timestamp = values.Get("ts")
 		target.Text = values.Get("text")
 	case *SlackReactionRequest:
 		target.Channel = values.Get("channel")

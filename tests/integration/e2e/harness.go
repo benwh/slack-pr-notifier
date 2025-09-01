@@ -516,6 +516,23 @@ func (h *TestHarness) SetupMockResponses() {
 			return resp, err
 		})
 
+	httpmock.RegisterResponder("POST", "https://slack.com/api/chat.update",
+		func(req *http.Request) (*http.Response, error) {
+			// Capture the request using this test's capture
+			if err := h.slackRequestCapture.CaptureRequest(req); err != nil {
+				return nil, err
+			}
+
+			// Return standard response
+			resp, err := httpmock.NewJsonResponse(200, map[string]interface{}{
+				"ok":      true,
+				"channel": "C1234567890",
+				"ts":      "1234567890.123456",
+				"text":    "Updated message text",
+			})
+			return resp, err
+		})
+
 	httpmock.RegisterResponder("POST", "https://slack.com/api/reactions.add",
 		func(req *http.Request) (*http.Response, error) {
 			// Capture the request using this test's capture

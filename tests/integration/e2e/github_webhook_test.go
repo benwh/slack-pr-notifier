@@ -756,6 +756,96 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		t.Logf("✅ Channel change test passed: PR notification migrated from #dev-team to #qa-team")
 	})
+
+	t.Run("PR CC directive changes - add and remove CC", func(t *testing.T) {
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Setup a user that can be CC'd
+		require.NoError(t, harness.SetupUser(ctx, "test-cc-user", "U987654321", "test-channel"))
+
+		// Step 1: Create initial PR with just !review (no CC)
+		initialPayload := buildPRPayloadWithDirective(
+			"testorg/testrepo", 600, "Test CC directive changes", "test-user", "!review",
+		)
+		resp := sendGitHubWebhook(t, harness, "pull_request", initialPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed and initial message was posted
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2) // github_webhook + workspace_pr
+
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected initial PR message to be posted")
+
+		initialMessage := slackRequests[0]
+		assert.Equal(t, "C987654321", initialMessage.Channel) // test-channel -> C987654321
+		assert.Contains(t, initialMessage.Text, "Test CC directive changes")
+		assert.NotContains(t, initialMessage.Text, "cc:", "Initial message should not contain CC")
+
+		// Wait for tracked message to be persisted
+		waitForTrackedMessage(t, harness, "testorg/testrepo", 600)
+
+		// Step 2: Edit PR to add CC directive
+		harness.ResetForNextStep()
+
+		ccPayload := buildPREditedPayloadWithDirective(
+			"testorg/testrepo", 600, "Test CC directive changes", "test-user", "!review cc @test-cc-user",
+		)
+		resp = sendGitHubWebhook(t, harness, "pull_request", ccPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify edit job was executed
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1, "Expected only github_webhook job for PR edit")
+
+		// Verify message was updated with CC mention
+		updateRequests := harness.SlackRequestCapture().GetUpdateMessageRequests()
+		require.Len(t, updateRequests, 1, "Expected message to be updated with CC")
+
+		updateMessage := updateRequests[0]
+		assert.Equal(t, "C987654321", updateMessage.Channel)
+		assert.Contains(t, updateMessage.Text, "Test CC directive changes")
+		assert.Contains(t, updateMessage.Text, "(cc: <@U987654321>)", "Updated message should contain CC mention")
+
+		// Verify no new post message requests (only updates)
+		postRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, postRequests, "No new messages should be posted, only updates")
+
+		// Step 3: Edit PR to remove CC directive
+		harness.ResetForNextStep()
+
+		removeCCPayload := buildPREditedPayloadWithDirective(
+			"testorg/testrepo", 600, "Test CC directive changes", "test-user", "!review",
+		)
+		resp = sendGitHubWebhook(t, harness, "pull_request", removeCCPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify edit job was executed
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1, "Expected only github_webhook job for PR edit")
+
+		// Verify message was updated to remove CC mention
+		updateRequests = harness.SlackRequestCapture().GetUpdateMessageRequests()
+		require.Len(t, updateRequests, 1, "Expected message to be updated to remove CC")
+
+		finalUpdateMessage := updateRequests[0]
+		assert.Equal(t, "C987654321", finalUpdateMessage.Channel)
+		assert.Contains(t, finalUpdateMessage.Text, "Test CC directive changes")
+		assert.NotContains(t, finalUpdateMessage.Text, "cc:", "Final message should not contain CC")
+
+		// Verify no new post message requests (only updates)
+		postRequests = harness.SlackRequestCapture().GetPostMessageRequests()
+		assert.Empty(t, postRequests, "No new messages should be posted, only updates")
+
+		t.Logf("✅ CC directive change test passed: Message correctly updated to add and remove CC mentions")
+	})
 }
 
 // waitForTrackedMessage polls the database until a tracked message appears for the given PR.
