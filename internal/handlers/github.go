@@ -49,6 +49,19 @@ const (
 	RepositorySelectionSelected           = "selected"
 )
 
+// PRUpdateChanges tracks what has changed in a PR edit that needs to be reflected in Slack messages.
+type PRUpdateChanges struct {
+	TitleChanged      bool
+	CCChanged         bool
+	DirectivesChanged bool
+	OldTitle          string
+	NewTitle          string
+	OldCC             string
+	NewCC             string
+	OldHasDirective   bool
+	NewHasDirective   bool
+}
+
 // Channel utility functions
 
 // isChannelID checks if a string looks like a Slack channel ID (e.g., "C0964H95F6C").
@@ -881,15 +894,10 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *github.Pull
 		log.Info(ctx, "No channel directive found")
 	}
 
-	// Check if CC directive has changed and update existing messages
-	if err := h.handleCCChanges(ctx, payload, directives); err != nil {
-		log.Error(ctx, "Failed to handle CC changes", "error", err)
-		return err
-	}
-
-	// Check if PR title has changed and update existing messages
-	if err := h.handleTitleChanges(ctx, payload); err != nil {
-		log.Error(ctx, "Failed to handle title changes", "error", err)
+	// Detect what has changed and update existing messages
+	changes := h.detectPRChanges(ctx, payload, directives)
+	if err := h.updateMessagesForPRChanges(ctx, payload, changes, directives); err != nil {
+		log.Error(ctx, "Failed to handle PR changes", "error", err)
 		return err
 	}
 
@@ -1167,255 +1175,245 @@ func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *gith
 	return nil
 }
 
-// handleCCChanges detects changes to CC directives and updates existing bot messages accordingly.
-//
-//nolint:gocognit,cyclop // Complex CC change detection logic with multiple conditional branches
-func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *github.PullRequestEvent, directives *services.PRDirectives) error {
+// detectPRChanges analyzes what has changed in a PR edit that needs to be reflected in Slack messages.
+func (h *GitHubHandler) detectPRChanges(
+	ctx context.Context, payload *github.PullRequestEvent, directives *services.PRDirectives,
+) *PRUpdateChanges {
+	changes := &PRUpdateChanges{
+		NewTitle:        payload.GetPullRequest().GetTitle(),
+		NewCC:           directives.UserToCC,
+		NewHasDirective: directives.HasReviewDirective,
+	}
+
+	// Check if title changed
+	if payload.GetChanges().GetTitle().GetFrom() != "" && payload.GetChanges().GetTitle().GetFrom() != payload.GetPullRequest().GetTitle() {
+		changes.TitleChanged = true
+		changes.OldTitle = payload.GetChanges().GetTitle().GetFrom()
+		log.Info(ctx, "Title change detected",
+			"old_title", changes.OldTitle,
+			"new_title", changes.NewTitle,
+		)
+	}
+
+	// For CC and directive changes, we need to get existing bot messages to determine what was stored previously
+	// This is more complex because we need to check what the existing messages had
+	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
+	if err != nil {
+		log.Error(ctx, "Failed to get bot messages for change detection", "error", err)
+		// Continue without CC change detection if we can't get messages
+		return changes
+	}
+
+	if len(botMessages) > 0 {
+		// Use the first bot message as representative of what was previously stored
+		// (all bot messages for the same PR should have the same CC/directive state)
+		firstMsg := botMessages[0]
+
+		// Check if CC changed
+		if firstMsg.UserToCC != directives.UserToCC {
+			changes.CCChanged = true
+			changes.OldCC = firstMsg.UserToCC
+			log.Info(ctx, "CC change detected",
+				"old_cc", changes.OldCC,
+				"new_cc", changes.NewCC,
+			)
+		}
+
+		// Check if directive status changed
+		oldHasDirective := firstMsg.HasReviewDirective != nil && *firstMsg.HasReviewDirective
+		if oldHasDirective != directives.HasReviewDirective {
+			changes.DirectivesChanged = true
+			changes.OldHasDirective = oldHasDirective
+			log.Info(ctx, "Directive status change detected",
+				"old_has_directive", changes.OldHasDirective,
+				"new_has_directive", changes.NewHasDirective,
+			)
+		}
+	} else if directives.HasReviewDirective {
+		// No existing bot messages, so any directive presence is a change
+		changes.DirectivesChanged = true
+		changes.OldHasDirective = false
+		log.Info(ctx, "New directive detected on PR without existing bot messages")
+	}
+
+	return changes
+}
+
+// updateMessagesForPRChanges handles updating Slack messages when PR content changes.
+// This unified function replaces separate handleTitleChanges and handleCCChanges functions.
+func (h *GitHubHandler) updateMessagesForPRChanges(
+	ctx context.Context, payload *github.PullRequestEvent, changes *PRUpdateChanges, directives *services.PRDirectives,
+) error {
+	// If nothing changed, skip
+	if !changes.TitleChanged && !changes.CCChanged && !changes.DirectivesChanged {
+		log.Debug(ctx, "No relevant changes detected, skipping message updates")
+		return nil
+	}
+
 	// Get all bot messages for this PR across all workspaces
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
 		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
 	if err != nil {
-		log.Error(ctx, "Failed to get bot messages for CC change detection", "error", err)
+		log.Error(ctx, "Failed to get bot messages for PR changes", "error", err)
 		return err
 	}
 
 	if len(botMessages) == 0 {
-		log.Debug(ctx, "No bot messages found to update for CC changes")
+		log.Debug(ctx, "No bot messages found to update for PR changes")
 		return nil
 	}
 
+	// Filter messages that need updating
+	messagesToUpdate, messagesToUpdateInDB := h.filterMessagesForPRUpdates(ctx, botMessages, changes)
+
+	if len(messagesToUpdate) == 0 {
+		log.Debug(ctx, "No messages need updating based on PR changes")
+		return nil
+	}
+
+	return h.performPRMessageUpdates(ctx, payload, messagesToUpdate, messagesToUpdateInDB, changes, directives)
+}
+
+// filterMessagesForPRUpdates determines which messages need updating based on detected changes.
+func (h *GitHubHandler) filterMessagesForPRUpdates(
+	ctx context.Context, botMessages []*models.TrackedMessage, changes *PRUpdateChanges,
+) ([]*models.TrackedMessage, []*models.TrackedMessage) {
 	var messagesToUpdate []*models.TrackedMessage
 	var messagesToUpdateInDB []*models.TrackedMessage
 
-	// Check each bot message to see if CC has changed
 	for _, msg := range botMessages {
-		// Determine if this message needs updating
-		needsUpdate := false
-		changeReason := ""
-
-		// Case 1: Old message without directive support, now has a directive (even if empty)
-		if (msg.HasReviewDirective == nil || !*msg.HasReviewDirective) && directives.HasReviewDirective {
-			needsUpdate = true
-			changeReason = "directive_added"
-		}
-		// Case 2: Message had directive, CC content changed
-		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && msg.UserToCC != directives.UserToCC {
-			needsUpdate = true
-			changeReason = "cc_changed"
-		}
-		// Case 3: Message had directive, directive removed
-		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && !directives.HasReviewDirective {
-			needsUpdate = true
-			changeReason = "directive_removed"
-		}
+		needsUpdate, changeReasons := h.messageNeedsUpdate(msg, changes)
 
 		if needsUpdate {
-			log.Info(ctx, "CC change detected for message",
+			log.Info(ctx, "PR changes detected for message",
 				"message_ts", msg.SlackMessageTS,
 				"channel_id", msg.SlackChannel,
 				"workspace_id", msg.SlackTeamID,
+				"old_title", msg.PRTitle,
+				"new_title", changes.NewTitle,
 				"old_cc", msg.UserToCC,
-				"new_cc", directives.UserToCC,
+				"new_cc", changes.NewCC,
 				"old_has_directive", msg.HasReviewDirective != nil && *msg.HasReviewDirective,
-				"new_has_directive", directives.HasReviewDirective,
-				"change_reason", changeReason,
+				"new_has_directive", changes.NewHasDirective,
+				"change_reasons", strings.Join(changeReasons, ","),
 			)
 			messagesToUpdate = append(messagesToUpdate, msg)
 
 			// Create updated message record for database
-			updatedMsg := *msg // Copy the struct
-			updatedMsg.UserToCC = directives.UserToCC
-			hasDirective := directives.HasReviewDirective
-			updatedMsg.HasReviewDirective = &hasDirective
-			messagesToUpdateInDB = append(messagesToUpdateInDB, &updatedMsg)
+			updatedMsg := h.createUpdatedMessage(msg, changes)
+			messagesToUpdateInDB = append(messagesToUpdateInDB, updatedMsg)
 		}
 	}
 
-	if len(messagesToUpdate) == 0 {
-		log.Debug(ctx, "No CC changes detected, no messages need updating")
-		return nil
-	}
-
-	log.Info(ctx, "Updating messages due to CC changes",
-		"message_count", len(messagesToUpdate),
-		"new_cc", directives.UserToCC,
-	)
-
-	// Get user information once (shared across all messages)
-	var user *models.User
-	if payload.GetPullRequest().GetUser().GetID() > 0 {
-		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, payload.GetPullRequest().GetUser().GetID())
-		if err != nil {
-			log.Error(ctx, "Failed to lookup user for CC update", "error", err)
-		}
-	}
-
-	prSize := payload.GetPullRequest().GetAdditions() + payload.GetPullRequest().GetDeletions()
-
-	// Update each message in Slack and database
-	for i, msg := range messagesToUpdate {
-		err := h.updateMessageWithCC(ctx, payload, msg, directives, user, prSize)
-		if err != nil {
-			log.Error(ctx, "Failed to update message for CC change", "error", err)
-			continue
-		}
-
-		// Update the message record in database with new CC info
-		err = h.firestoreService.UpdateTrackedMessage(ctx, messagesToUpdateInDB[i])
-		if err != nil {
-			log.Error(ctx, "Failed to update tracked message with new CC info",
-				"error", err, "message_id", msg.ID)
-		}
-	}
-
-	log.Info(ctx, "Completed CC change updates for bot messages",
-		"total_messages", len(messagesToUpdate),
-		"new_cc", directives.UserToCC,
-	)
-
-	return nil
+	return messagesToUpdate, messagesToUpdateInDB
 }
 
-// handleTitleChanges handles PR title changes by updating existing messages with new title.
-func (h *GitHubHandler) handleTitleChanges(ctx context.Context, payload *github.PullRequestEvent) error {
-	// Check if title has actually changed
-	if payload.GetChanges().GetTitle().GetFrom() == "" || payload.GetChanges().GetTitle().GetFrom() == payload.GetPullRequest().GetTitle() {
-		log.Debug(ctx, "No title change detected, skipping title update")
-		return nil
+// messageNeedsUpdate checks if a specific message needs updating based on changes.
+func (h *GitHubHandler) messageNeedsUpdate(
+	msg *models.TrackedMessage, changes *PRUpdateChanges,
+) (bool, []string) {
+	needsUpdate := false
+	changeReasons := []string{}
+
+	// Check if title needs updating
+	if changes.TitleChanged && (msg.PRTitle == "" || msg.PRTitle == changes.OldTitle) {
+		needsUpdate = true
+		changeReasons = append(changeReasons, "title")
 	}
 
-	log.Info(ctx, "Title change detected",
-		"old_title", payload.GetChanges().GetTitle().GetFrom(),
-		"new_title", payload.GetPullRequest().GetTitle(),
-		"pr_number", payload.GetPullRequest().GetNumber(),
-		"repo", payload.GetRepo().GetFullName(),
-	)
-
-	// Get all bot messages for this PR across all workspaces
-	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
-	if err != nil {
-		log.Error(ctx, "Failed to get bot messages for title change detection", "error", err)
-		return err
-	}
-
-	if len(botMessages) == 0 {
-		log.Debug(ctx, "No bot messages found to update for title changes")
-		return nil
-	}
-
-	var messagesToUpdate []*models.TrackedMessage
-	var messagesToUpdateInDB []*models.TrackedMessage
-
-	// Check each bot message to see if title needs updating
-	for _, msg := range botMessages {
-		// Update if stored title matches old title or is empty (legacy messages)
-		if msg.PRTitle == "" || msg.PRTitle == payload.GetChanges().GetTitle().GetFrom() {
-			log.Info(ctx, "Title change detected for message",
-				"message_ts", msg.SlackMessageTS,
-				"channel_id", msg.SlackChannel,
-				"workspace_id", msg.SlackTeamID,
-				"old_stored_title", msg.PRTitle,
-				"old_payload_title", payload.GetChanges().GetTitle().GetFrom(),
-				"new_title", payload.GetPullRequest().GetTitle(),
-			)
-			messagesToUpdate = append(messagesToUpdate, msg)
-
-			// Create updated message record for database
-			updatedMsg := *msg // Copy the struct
-			updatedMsg.PRTitle = payload.GetPullRequest().GetTitle()
-			messagesToUpdateInDB = append(messagesToUpdateInDB, &updatedMsg)
+	// Check if CC needs updating
+	if changes.CCChanged || changes.DirectivesChanged {
+		// Case 1: Old message without directive support, now has a directive (even if empty)
+		if (msg.HasReviewDirective == nil || !*msg.HasReviewDirective) && changes.NewHasDirective {
+			needsUpdate = true
+			changeReasons = append(changeReasons, "directive_added")
+		}
+		// Case 2: Message had directive, CC content changed
+		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && msg.UserToCC != changes.NewCC {
+			needsUpdate = true
+			changeReasons = append(changeReasons, "cc_changed")
+		}
+		// Case 3: Message had directive, directive removed
+		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && !changes.NewHasDirective {
+			needsUpdate = true
+			changeReasons = append(changeReasons, "directive_removed")
 		}
 	}
 
-	if len(messagesToUpdate) == 0 {
-		log.Debug(ctx, "No title changes detected, no messages need updating")
-		return nil
-	}
-
-	log.Info(ctx, "Updating messages due to title changes",
-		"message_count", len(messagesToUpdate),
-		"old_title", payload.GetChanges().GetTitle().GetFrom(),
-		"new_title", payload.GetPullRequest().GetTitle(),
-	)
-
-	// Get user information once (shared across all messages)
-	var user *models.User
-	if payload.GetPullRequest().GetUser().GetID() > 0 {
-		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, payload.GetPullRequest().GetUser().GetID())
-		if err != nil {
-			log.Error(ctx, "Failed to lookup user for title update", "error", err)
-		}
-	}
-
-	prSize := payload.GetPullRequest().GetAdditions() + payload.GetPullRequest().GetDeletions()
-
-	// Update each message in Slack and database
-	for i, msg := range messagesToUpdate {
-		err := h.updateMessageWithTitle(ctx, payload, msg, user, prSize)
-		if err != nil {
-			log.Error(ctx, "Failed to update message for title change", "error", err)
-			continue
-		}
-
-		// Update the message record in database with new title
-		err = h.firestoreService.UpdateTrackedMessage(ctx, messagesToUpdateInDB[i])
-		if err != nil {
-			log.Error(ctx, "Failed to update tracked message with new title",
-				"error", err, "message_id", msg.ID)
-		}
-	}
-
-	log.Info(ctx, "Completed title change updates for bot messages",
-		"total_messages", len(messagesToUpdate),
-		"new_title", payload.GetPullRequest().GetTitle(),
-	)
-
-	return nil
+	return needsUpdate, changeReasons
 }
 
-// updateMessageWithTitle updates a single message with new title information.
-func (h *GitHubHandler) updateMessageWithTitle(
-	ctx context.Context, payload *github.PullRequestEvent, msg *models.TrackedMessage,
-	user *models.User, prSize int,
+// createUpdatedMessage creates an updated TrackedMessage with new field values.
+func (h *GitHubHandler) createUpdatedMessage(msg *models.TrackedMessage, changes *PRUpdateChanges) *models.TrackedMessage {
+	updatedMsg := *msg // Copy the struct
+
+	if changes.TitleChanged {
+		updatedMsg.PRTitle = changes.NewTitle
+	}
+
+	if changes.CCChanged || changes.DirectivesChanged {
+		updatedMsg.UserToCC = changes.NewCC
+		hasDirective := changes.NewHasDirective
+		updatedMsg.HasReviewDirective = &hasDirective
+	}
+
+	return &updatedMsg
+}
+
+// performPRMessageUpdates executes the actual Slack and database updates.
+func (h *GitHubHandler) performPRMessageUpdates(
+	ctx context.Context, payload *github.PullRequestEvent,
+	messagesToUpdate, messagesToUpdateInDB []*models.TrackedMessage,
+	changes *PRUpdateChanges, directives *services.PRDirectives,
 ) error {
-	// Resolve CC username to Slack user ID if stored
-	var userToCCSlackID string
-	if msg.UserToCC != "" {
-		userToCCSlackID = h.resolveUserMention(ctx, msg.UserToCC, msg.SlackTeamID)
-	}
-
-	// Get author's Slack user ID if they're in the same workspace and verified
-	var authorSlackUserID string
-	if user != nil && user.SlackTeamID == msg.SlackTeamID && user.Verified {
-		authorSlackUserID = user.SlackUserID
-	}
-
-	// Determine user tagging preference
-	userTaggingEnabled := user != nil && user.TaggingEnabled
-
-	// Update the message in Slack with new title
-	return h.slackService.UpdatePRMessage(
-		ctx,
-		msg.SlackTeamID,
-		msg.SlackChannel,
-		msg.SlackMessageTS,
-		payload.GetRepo().GetFullName(),
-		payload.GetPullRequest().GetTitle(), // Use new title
-		payload.GetPullRequest().GetUser().GetLogin(),
-		payload.GetPullRequest().GetBody(),
-		payload.GetPullRequest().GetHTMLURL(),
-		prSize,
-		authorSlackUserID,
-		msg.UserToCC,
-		userToCCSlackID,
-		"", // customEmoji - use default
-		userTaggingEnabled,
+	log.Info(ctx, "Updating messages due to PR changes",
+		"message_count", len(messagesToUpdate),
+		"title_changed", changes.TitleChanged,
+		"cc_changed", changes.CCChanged,
+		"new_title", changes.NewTitle,
+		"new_cc", changes.NewCC,
 	)
+
+	// Get user information once (shared across all messages)
+	var user *models.User
+	if payload.GetPullRequest().GetUser().GetID() > 0 {
+		var err error
+		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, payload.GetPullRequest().GetUser().GetID())
+		if err != nil {
+			log.Error(ctx, "Failed to lookup user for PR update", "error", err)
+		}
+	}
+
+	prSize := payload.GetPullRequest().GetAdditions() + payload.GetPullRequest().GetDeletions()
+
+	// Update each message in Slack and database
+	for i, msg := range messagesToUpdate {
+		err := h.updateSingleMessageForPRChanges(ctx, payload, msg, directives, user, prSize)
+		if err != nil {
+			log.Error(ctx, "Failed to update message for PR changes", "error", err)
+			continue
+		}
+
+		// Update the message record in database
+		err = h.firestoreService.UpdateTrackedMessage(ctx, messagesToUpdateInDB[i])
+		if err != nil {
+			log.Error(ctx, "Failed to update tracked message with PR changes",
+				"error", err, "message_id", msg.ID)
+		}
+	}
+
+	log.Info(ctx, "Completed PR change updates for bot messages",
+		"total_messages", len(messagesToUpdate),
+		"new_title", changes.NewTitle,
+		"new_cc", changes.NewCC,
+	)
+
+	return nil
 }
 
-// updateMessageWithCC updates a single message with new CC information.
-func (h *GitHubHandler) updateMessageWithCC(
+// updateSingleMessageForPRChanges updates a single message with the PR changes.
+func (h *GitHubHandler) updateSingleMessageForPRChanges(
 	ctx context.Context, payload *github.PullRequestEvent, msg *models.TrackedMessage,
 	directives *services.PRDirectives, user *models.User, prSize int,
 ) error {
@@ -1434,20 +1432,20 @@ func (h *GitHubHandler) updateMessageWithCC(
 	// Determine user tagging preference
 	userTaggingEnabled := user != nil && user.TaggingEnabled
 
-	// Update the message in Slack
+	// Update the message in Slack with all changes
 	return h.slackService.UpdatePRMessage(
 		ctx,
 		msg.SlackTeamID,
 		msg.SlackChannel,
 		msg.SlackMessageTS,
-		payload.GetRepo().GetName(),
-		payload.GetPullRequest().GetTitle(),
+		payload.GetRepo().GetFullName(),     // Use full name for consistency
+		payload.GetPullRequest().GetTitle(), // Use current title
 		payload.GetPullRequest().GetUser().GetLogin(),
 		payload.GetPullRequest().GetBody(),
 		payload.GetPullRequest().GetHTMLURL(),
 		prSize,
 		authorSlackUserID,
-		directives.UserToCC,
+		directives.UserToCC, // Use current CC
 		userToCCSlackID,
 		directives.CustomEmoji,
 		userTaggingEnabled,
