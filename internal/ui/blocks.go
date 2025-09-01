@@ -258,7 +258,7 @@ func (b *HomeViewBuilder) buildUserTaggingSection(user *models.User) []slack.Blo
 			taggingToggleText = "Disable mentions"
 			taggingToggleStyle = slack.StyleDanger
 		} else {
-			taggingStatus = "❌ Disabled"
+			taggingStatus = "🔔 Disabled"
 			taggingToggleText = "Enable mentions"
 			taggingToggleStyle = slack.StylePrimary
 		}
