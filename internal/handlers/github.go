@@ -49,6 +49,37 @@ const (
 	RepositorySelectionSelected           = "selected"
 )
 
+// Channel utility functions
+
+// isChannelID checks if a string looks like a Slack channel ID (e.g., "C0964H95F6C").
+func isChannelID(s string) bool {
+	return len(s) >= 9 && s[0] == 'C' && strings.ToUpper(s) == s
+}
+
+// getChannelNameForStorage determines what channel name to store (never store IDs as names).
+func getChannelNameForStorage(targetChannel, annotatedChannel string) string {
+	if !isChannelID(targetChannel) {
+		return targetChannel
+	}
+	if annotatedChannel != "" && !isChannelID(annotatedChannel) {
+		return annotatedChannel
+	}
+	return "" // Can't determine name from ID
+}
+
+// channelsMatch checks if a stored channel matches a new channel reference.
+func channelsMatch(storedName, storedID, newChannel string) bool {
+	// Prefer name comparison when available
+	if storedName != "" && !isChannelID(storedName) && !isChannelID(newChannel) {
+		return storedName == newChannel
+	}
+	// Fall back to ID comparison
+	if isChannelID(newChannel) && storedID != "" {
+		return storedID == newChannel
+	}
+	return false
+}
+
 // GitHubWebhookPayload represents the structure of GitHub webhook events.
 type GitHubWebhookPayload struct {
 	Action      string `json:"action"`
@@ -663,15 +694,16 @@ func (h *GitHubHandler) determineTargetChannel(
 }
 
 // checkForDuplicateBotMessage checks if bot notification already exists for this PR in the target channel.
-// Prevents duplicate notifications by querying existing tracked messages with 'bot' source.
+// Prevents duplicate notifications by using robust channel comparison that handles both names and IDs.
 func (h *GitHubHandler) checkForDuplicateBotMessage(
 	ctx context.Context,
 	payload *GitHubWebhookPayload,
 	targetChannel string,
 	workspaceID string,
 ) (bool, error) {
-	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.Repository.FullName, payload.PullRequest.Number, targetChannel, workspaceID, "bot")
+	// Get all bot messages for this PR in the workspace (don't filter by channel initially)
+	allBotMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, "", workspaceID, "bot")
 	if err != nil {
 		log.Error(ctx, "Failed to check for existing bot messages",
 			"error", err,
@@ -679,14 +711,22 @@ func (h *GitHubHandler) checkForDuplicateBotMessage(
 		return false, err
 	}
 
-	if len(botMessages) > 0 {
-		log.Info(ctx, "Bot message already exists for this PR in workspace channel, skipping duplicate notification",
-			"channel", targetChannel,
-			"slack_team_id", workspaceID,
-			"existing_message_count", len(botMessages))
-		return true, nil
+	// Check if any existing bot message is in the same channel as targetChannel
+	for _, msg := range allBotMessages {
+		if channelsMatch(msg.SlackChannelName, msg.SlackChannel, targetChannel) {
+			log.Info(ctx, "Bot message already exists for this PR in target channel, skipping duplicate notification",
+				"target_channel", targetChannel,
+				"existing_channel_name", msg.SlackChannelName,
+				"existing_channel_id", msg.SlackChannel,
+				"slack_team_id", workspaceID)
+			return true, nil
+		}
 	}
 
+	log.Debug(ctx, "No duplicate bot message found for target channel",
+		"target_channel", targetChannel,
+		"slack_team_id", workspaceID,
+		"total_bot_messages_in_workspace", len(allBotMessages))
 	return false, nil
 }
 
@@ -698,6 +738,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 	repo *models.Repo,
 	user *models.User,
 	targetChannel string,
+	annotatedChannel string,
 	directives *services.PRDirectives,
 ) error {
 	log.Info(ctx, "Posting PR message to Slack workspace",
@@ -760,15 +801,21 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		"slack_team_id", repo.WorkspaceID,
 	)
 
+	// Determine the proper channel name to store (never store channel IDs in name field)
+	originalChannelName := getChannelNameForStorage(targetChannel, annotatedChannel)
+
 	// Create TrackedMessage for the bot notification
+	hasDirective := directives.HasReviewDirective
 	trackedMessage := &models.TrackedMessage{
-		PRNumber:         payload.PullRequest.Number,
-		RepoFullName:     payload.Repository.FullName,
-		SlackChannel:     resolvedChannelID,
-		SlackChannelName: targetChannel, // Store original for logging if it was a name
-		SlackMessageTS:   timestamp,
-		SlackTeamID:      repo.WorkspaceID,
-		MessageSource:    "bot",
+		PRNumber:           payload.PullRequest.Number,
+		RepoFullName:       payload.Repository.FullName,
+		SlackChannel:       resolvedChannelID,
+		SlackChannelName:   originalChannelName, // Store original channel name, never ID
+		SlackMessageTS:     timestamp,
+		SlackTeamID:        repo.WorkspaceID,
+		MessageSource:      "bot",
+		UserToCC:           directives.UserToCC, // Store CC info for future updates
+		HasReviewDirective: &hasDirective,       // Track whether directive existed when message was created
 	}
 
 	log.Debug(ctx, "Saving tracked message to database",
@@ -816,7 +863,7 @@ func (h *GitHubHandler) processWorkspaceNotification(
 	}
 
 	// Post message and track it
-	if err := h.postAndTrackPRMessage(ctx, payload, repo, user, targetChannel, directives); err != nil {
+	if err := h.postAndTrackPRMessage(ctx, payload, repo, user, targetChannel, annotatedChannel, directives); err != nil {
 		return err
 	}
 
@@ -874,6 +921,12 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *GitHubWebho
 		log.Info(ctx, "No channel directive found")
 	}
 
+	// Check if CC directive has changed and update existing messages
+	if err := h.handleCCChanges(ctx, payload, directives); err != nil {
+		log.Error(ctx, "Failed to handle CC changes", "error", err)
+		return err
+	}
+
 	// No skip directive and no channel change - check if we need to re-post the PR
 	log.Info(ctx, "Processing unskip directive")
 	return h.handleUnskipDirective(ctx, payload)
@@ -888,26 +941,11 @@ func (h *GitHubHandler) getAllTrackedMessagesForPRDirect(
 
 // compareChannelsForChange compares bot messages with new channel to detect changes.
 func (h *GitHubHandler) compareChannelsForChange(ctx context.Context, botMessages []*models.TrackedMessage, newChannel string) bool {
-	for i, msg := range botMessages {
-		// Use SlackChannelName if it was stored (which is the original name used)
-		// Otherwise fall back to comparing channel IDs
-		storedChannelRef := msg.SlackChannelName
-		if storedChannelRef == "" {
-			storedChannelRef = msg.SlackChannel
-		}
-
-		log.Info(ctx, "Comparing channels",
-			"message_index", i,
-			"stored_channel_name", msg.SlackChannelName,
-			"stored_channel_id", msg.SlackChannel,
-			"stored_channel_ref", storedChannelRef,
-			"new_channel", newChannel,
-			"workspace_id", msg.SlackTeamID,
-		)
-
-		if storedChannelRef != newChannel {
+	for _, msg := range botMessages {
+		if !channelsMatch(msg.SlackChannelName, msg.SlackChannel, newChannel) {
 			log.Info(ctx, "Channel change detected",
-				"old_channel", storedChannelRef,
+				"stored_name", msg.SlackChannelName,
+				"stored_id", msg.SlackChannel,
 				"new_channel", newChannel,
 				"workspace_id", msg.SlackTeamID,
 			)
@@ -1159,6 +1197,155 @@ func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *GitH
 		"message_count", len(trackedMessages),
 	)
 	return nil
+}
+
+// handleCCChanges detects changes to CC directives and updates existing bot messages accordingly.
+//
+//nolint:gocognit,cyclop // Complex CC change detection logic with multiple conditional branches
+func (h *GitHubHandler) handleCCChanges(ctx context.Context, payload *GitHubWebhookPayload, directives *services.PRDirectives) error {
+	// Get all bot messages for this PR across all workspaces
+	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
+		payload.Repository.FullName, payload.PullRequest.Number, "", "", "bot")
+	if err != nil {
+		log.Error(ctx, "Failed to get bot messages for CC change detection", "error", err)
+		return err
+	}
+
+	if len(botMessages) == 0 {
+		log.Debug(ctx, "No bot messages found to update for CC changes")
+		return nil
+	}
+
+	var messagesToUpdate []*models.TrackedMessage
+	var messagesToUpdateInDB []*models.TrackedMessage
+
+	// Check each bot message to see if CC has changed
+	for _, msg := range botMessages {
+		// Determine if this message needs updating
+		needsUpdate := false
+		changeReason := ""
+
+		// Case 1: Old message without directive support, now has a directive (even if empty)
+		if (msg.HasReviewDirective == nil || !*msg.HasReviewDirective) && directives.HasReviewDirective {
+			needsUpdate = true
+			changeReason = "directive_added"
+		}
+		// Case 2: Message had directive, CC content changed
+		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && msg.UserToCC != directives.UserToCC {
+			needsUpdate = true
+			changeReason = "cc_changed"
+		}
+		// Case 3: Message had directive, directive removed
+		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && !directives.HasReviewDirective {
+			needsUpdate = true
+			changeReason = "directive_removed"
+		}
+
+		if needsUpdate {
+			log.Info(ctx, "CC change detected for message",
+				"message_ts", msg.SlackMessageTS,
+				"channel_id", msg.SlackChannel,
+				"workspace_id", msg.SlackTeamID,
+				"old_cc", msg.UserToCC,
+				"new_cc", directives.UserToCC,
+				"old_has_directive", msg.HasReviewDirective != nil && *msg.HasReviewDirective,
+				"new_has_directive", directives.HasReviewDirective,
+				"change_reason", changeReason,
+			)
+			messagesToUpdate = append(messagesToUpdate, msg)
+
+			// Create updated message record for database
+			updatedMsg := *msg // Copy the struct
+			updatedMsg.UserToCC = directives.UserToCC
+			hasDirective := directives.HasReviewDirective
+			updatedMsg.HasReviewDirective = &hasDirective
+			messagesToUpdateInDB = append(messagesToUpdateInDB, &updatedMsg)
+		}
+	}
+
+	if len(messagesToUpdate) == 0 {
+		log.Debug(ctx, "No CC changes detected, no messages need updating")
+		return nil
+	}
+
+	log.Info(ctx, "Updating messages due to CC changes",
+		"message_count", len(messagesToUpdate),
+		"new_cc", directives.UserToCC,
+	)
+
+	// Get user information once (shared across all messages)
+	var user *models.User
+	if payload.PullRequest.User.ID > 0 {
+		user, err = h.firestoreService.GetUserByGitHubUserID(ctx, int64(payload.PullRequest.User.ID))
+		if err != nil {
+			log.Error(ctx, "Failed to lookup user for CC update", "error", err)
+		}
+	}
+
+	prSize := payload.PullRequest.Additions + payload.PullRequest.Deletions
+
+	// Update each message in Slack and database
+	for i, msg := range messagesToUpdate {
+		err := h.updateMessageWithCC(ctx, payload, msg, directives, user, prSize)
+		if err != nil {
+			log.Error(ctx, "Failed to update message for CC change", "error", err)
+			continue
+		}
+
+		// Update the message record in database with new CC info
+		err = h.firestoreService.UpdateTrackedMessage(ctx, messagesToUpdateInDB[i])
+		if err != nil {
+			log.Error(ctx, "Failed to update tracked message with new CC info",
+				"error", err, "message_id", msg.ID)
+		}
+	}
+
+	log.Info(ctx, "Completed CC change updates for bot messages",
+		"total_messages", len(messagesToUpdate),
+		"new_cc", directives.UserToCC,
+	)
+
+	return nil
+}
+
+// updateMessageWithCC updates a single message with new CC information.
+func (h *GitHubHandler) updateMessageWithCC(
+	ctx context.Context, payload *GitHubWebhookPayload, msg *models.TrackedMessage,
+	directives *services.PRDirectives, user *models.User, prSize int,
+) error {
+	// Resolve CC username to Slack user ID if possible
+	var userToCCSlackID string
+	if directives.UserToCC != "" {
+		userToCCSlackID = h.resolveUserMention(ctx, directives.UserToCC, msg.SlackTeamID)
+	}
+
+	// Get author's Slack user ID if they're in the same workspace and verified
+	var authorSlackUserID string
+	if user != nil && user.SlackTeamID == msg.SlackTeamID && user.Verified {
+		authorSlackUserID = user.SlackUserID
+	}
+
+	// Determine user tagging preference
+	userTaggingEnabled := user != nil && user.TaggingEnabled
+
+	// Update the message in Slack
+	return h.slackService.UpdatePRMessage(
+		ctx,
+		msg.SlackTeamID,
+		msg.SlackChannel,
+		msg.SlackMessageTS,
+		payload.Repository.Name,
+		payload.PullRequest.Title,
+		payload.PullRequest.User.Login,
+		payload.PullRequest.Body,
+		payload.PullRequest.HTMLURL,
+		prSize,
+		authorSlackUserID,
+		directives.UserToCC,
+		userToCCSlackID,
+		directives.CustomEmoji,
+		userTaggingEnabled,
+	)
 }
 
 // handlePRClosed handles pull request closed events.

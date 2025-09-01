@@ -26,41 +26,42 @@ func TestSlackService_ParsePRDirectives(t *testing.T) {
 			name:        "Skip directive - skip",
 			description: "!review: skip",
 			expected: &PRDirectives{
-				Skip: true,
+				Skip:               true,
+				HasReviewDirective: true,
 			},
 		},
 		{
 			name:        "Skip directive - no",
 			description: "!review: no",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip: true,
 			},
 		},
 		{
 			name:        "Skip directive - case insensitive",
 			description: "!REVIEW: SKIP",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip: true,
 			},
 		},
 		{
 			name:        "Channel directive",
 			description: "!review: #dev-team",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel: "dev-team",
 			},
 		},
 		{
 			name:        "User CC directive",
 			description: "!review: @john.doe",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				UserToCC: "john.doe",
 			},
 		},
 		{
 			name:        "Combined directives",
 			description: "!review: #dev-team @jane.smith",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel:  "dev-team",
 				UserToCC: "jane.smith",
 			},
@@ -68,7 +69,7 @@ func TestSlackService_ParsePRDirectives(t *testing.T) {
 		{
 			name:        "All directives including skip (skip takes precedence)",
 			description: "!review: skip #dev-team @someone",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip:     true,
 				Channel:  "dev-team",
 				UserToCC: "someone",
@@ -77,7 +78,7 @@ func TestSlackService_ParsePRDirectives(t *testing.T) {
 		{
 			name:        "Reviews plural form",
 			description: "!reviews: #engineering @lead",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel:  "engineering",
 				UserToCC: "lead",
 			},
@@ -85,7 +86,7 @@ func TestSlackService_ParsePRDirectives(t *testing.T) {
 		{
 			name:        "Multiple spaces and mixed order",
 			description: "!review:   @user1   #channel1    skip  ",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip:     true,
 				Channel:  "channel1",
 				UserToCC: "user1",
@@ -94,28 +95,28 @@ func TestSlackService_ParsePRDirectives(t *testing.T) {
 		{
 			name:        "Invalid channel name (contains special chars)",
 			description: "!review: #dev-team! @user",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				UserToCC: "user",
 			},
 		},
 		{
 			name:        "Invalid user name (contains special chars)",
 			description: "!review: #dev-team @user@domain",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel: "dev-team",
 			},
 		},
 		{
 			name:        "Valid channel with hyphens and underscores",
 			description: "!review: #dev-team_backend-v2",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel: "dev-team_backend-v2",
 			},
 		},
 		{
 			name:        "Valid user with dots and hyphens",
 			description: "!review: @john.doe-smith",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				UserToCC: "john.doe-smith",
 			},
 		},
@@ -126,7 +127,7 @@ func TestSlackService_ParsePRDirectives(t *testing.T) {
 !review: #dev-team @reviewer
 
 More details about the PR.`,
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel:  "dev-team",
 				UserToCC: "reviewer",
 			},
@@ -134,7 +135,7 @@ More details about the PR.`,
 		{
 			name:        "Directive in middle of line",
 			description: "Some text !review: #channel @user and more text",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel:  "channel",
 				UserToCC: "user",
 			},
@@ -142,7 +143,7 @@ More details about the PR.`,
 		{
 			name:        "Multiple directives - last one wins",
 			description: "!review: #first @user1\n!review: #second @user2",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel:  "second",
 				UserToCC: "user2",
 			},
@@ -160,7 +161,7 @@ More details about the PR.`,
 		{
 			name:        "Case insensitive directive name",
 			description: "!Review: #test @user",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel:  "test",
 				UserToCC: "user",
 			},
@@ -168,28 +169,28 @@ More details about the PR.`,
 		{
 			name:        "Review-skip directive (shorthand for review: skip)",
 			description: "!review-skip",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip: true,
 			},
 		},
 		{
 			name:        "Review-skip directive case insensitive",
 			description: "!REVIEW-SKIP",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip: true,
 			},
 		},
 		{
 			name:        "Review-skip directive with other text",
 			description: "Please remove this PR from Slack.\n\n!review-skip\n\nThanks!",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip: true,
 			},
 		},
 		{
 			name:        "Review-skip with later directive (skip persists unless overridden)",
 			description: "!review-skip\n!review: #dev-team @user",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip:     true, // Skip persists since second directive doesn't mention skip
 				Channel:  "dev-team",
 				UserToCC: "user",
@@ -198,7 +199,7 @@ More details about the PR.`,
 		{
 			name:        "Review-skip with later channel directive (accumulative)",
 			description: "!review: skip\n!review: #dev-team",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Skip:    true, // Skip persists from first directive
 				Channel: "dev-team",
 			},
@@ -206,14 +207,14 @@ More details about the PR.`,
 		{
 			name:        "Custom emoji directive",
 			description: "!review: :rocket:",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "rocket",
 			},
 		},
 		{
 			name:        "Custom emoji with other directives",
 			description: "!review: :sparkles: #dev-team @reviewer",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "sparkles",
 				Channel:     "dev-team",
 				UserToCC:    "reviewer",
@@ -222,7 +223,7 @@ More details about the PR.`,
 		{
 			name:        "Custom emoji in different order",
 			description: "!review: #dev-team :fire: @user",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "fire",
 				Channel:     "dev-team",
 				UserToCC:    "user",
@@ -231,21 +232,21 @@ More details about the PR.`,
 		{
 			name:        "Empty emoji (invalid)",
 			description: "!review: :: #dev-team",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel: "dev-team",
 			},
 		},
 		{
 			name:        "Emoji without colons (invalid)",
 			description: "!review: rocket #dev-team",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				Channel: "dev-team",
 			},
 		},
 		{
 			name:        "Multiple emojis - last one wins",
 			description: "!review: :boom: #dev-team\n!review: :tada: @user",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "tada",
 				Channel:     "dev-team",
 				UserToCC:    "user",
@@ -254,7 +255,7 @@ More details about the PR.`,
 		{
 			name:        "Emoji with skip directive",
 			description: "!review: :fire: skip #dev-team",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "fire",
 				Skip:        true,
 				Channel:     "dev-team",
@@ -263,7 +264,7 @@ More details about the PR.`,
 		{
 			name:        "Complex emoji name with underscores",
 			description: "!review: :white_check_mark: #approvals",
-			expected: &PRDirectives{
+			expected: &PRDirectives{HasReviewDirective: true,
 				CustomEmoji: "white_check_mark",
 				Channel:     "approvals",
 			},
@@ -293,8 +294,9 @@ func TestSlackService_ExtractChannelAndDirectives(t *testing.T) {
 			description:     "!review: #dev-team @user",
 			expectedChannel: "dev-team",
 			expectedDirectives: &PRDirectives{
-				Channel:  "dev-team",
-				UserToCC: "user",
+				Channel:            "dev-team",
+				UserToCC:           "user",
+				HasReviewDirective: true,
 			},
 		},
 		{
@@ -308,8 +310,9 @@ func TestSlackService_ExtractChannelAndDirectives(t *testing.T) {
 			description:     "!review: @user skip",
 			expectedChannel: "",
 			expectedDirectives: &PRDirectives{
-				Skip:     true,
-				UserToCC: "user",
+				Skip:               true,
+				UserToCC:           "user",
+				HasReviewDirective: true,
 			},
 		},
 		{
@@ -323,7 +326,8 @@ func TestSlackService_ExtractChannelAndDirectives(t *testing.T) {
 			description:     "!review: #backend-team",
 			expectedChannel: "backend-team",
 			expectedDirectives: &PRDirectives{
-				Channel: "backend-team",
+				Channel:            "backend-team",
+				HasReviewDirective: true,
 			},
 		},
 	}

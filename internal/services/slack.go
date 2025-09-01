@@ -709,10 +709,11 @@ func (s *SlackService) resolveChannelID(ctx context.Context, _ string, client *s
 
 // PRDirectives represents the parsed directives from a PR description.
 type PRDirectives struct {
-	Skip        bool
-	Channel     string
-	UserToCC    string
-	CustomEmoji string
+	Skip               bool
+	Channel            string
+	UserToCC           string
+	CustomEmoji        string
+	HasReviewDirective bool // Whether any !review directive was found (even if empty)
 }
 
 // !review[s]: [skip|no] [#channel_name] [@user_to_cc].
@@ -747,6 +748,9 @@ func (s *SlackService) processDirectiveMatch(content string, directives *PRDirec
 	if content == "" {
 		return
 	}
+
+	// Mark that we have a valid review directive with content
+	directives.HasReviewDirective = true
 
 	// Split content by whitespace and parse each component
 	parts := strings.Fields(content)
@@ -1007,4 +1011,45 @@ func (s *SlackService) GetChannelName(ctx context.Context, teamID, channelID str
 	}
 
 	return channel.Name, nil
+}
+
+// UpdatePRMessage updates an existing PR message in Slack with new content.
+// Used to update CC mentions when PR description directives change.
+func (s *SlackService) UpdatePRMessage(
+	ctx context.Context, teamID, channelID, messageTS, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
+	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, userTaggingEnabled bool,
+) error {
+	client, err := s.getSlackClient(ctx, teamID)
+	if err != nil {
+		return err
+	}
+
+	// Build the updated message text using the same logic as PostPRMessage
+	messageText := s.buildMessageText(
+		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC, userToCCSlackID,
+		authorSlackUserID, userTaggingEnabled,
+	)
+
+	// Update the message using Slack's chat.update API
+	_, _, responseTS, err := client.UpdateMessage(channelID, messageTS, slack.MsgOptionText(messageText, false))
+	_ = responseTS // Ignore the response timestamp
+	if err != nil {
+		log.Error(ctx, "Failed to update PR message in Slack",
+			"error", err,
+			"channel_id", channelID,
+			"message_ts", messageTS,
+			"team_id", teamID,
+			"operation", "update_pr_message",
+		)
+		return fmt.Errorf("failed to update message %s in channel %s for team %s: %w", messageTS, channelID, teamID, err)
+	}
+
+	log.Info(ctx, "Successfully updated PR message in Slack",
+		"channel_id", channelID,
+		"message_ts", messageTS,
+		"team_id", teamID,
+		"user_to_cc", userToCC,
+	)
+
+	return nil
 }

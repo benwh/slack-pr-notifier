@@ -24,6 +24,7 @@ var (
 	ErrRepoAlreadyExists          = errors.New("repository already exists")
 	ErrOAuthStateNotFound         = errors.New("OAuth state not found")
 	ErrGitHubInstallationNotFound = errors.New("GitHub installation not found")
+	ErrInvalidMessageID           = errors.New("message ID is required for update")
 )
 
 // FirestoreService provides database operations for Firestore.
@@ -300,8 +301,11 @@ func (fs *FirestoreService) GetTrackedMessages(
 ) ([]*models.TrackedMessage, error) {
 	query := fs.client.Collection("trackedmessages").
 		Where("repo_full_name", "==", repoFullName).
-		Where("pr_number", "==", prNumber).
-		Where("slack_team_id", "==", slackTeamID)
+		Where("pr_number", "==", prNumber)
+
+	if slackTeamID != "" {
+		query = query.Where("slack_team_id", "==", slackTeamID)
+	}
 
 	if slackChannel != "" {
 		query = query.Where("slack_channel", "==", slackChannel)
@@ -369,6 +373,35 @@ func (fs *FirestoreService) CreateTrackedMessage(ctx context.Context, message *m
 		return fmt.Errorf("failed to create tracked message for repo %s PR %d: %w",
 			message.RepoFullName, message.PRNumber, err)
 	}
+	return nil
+}
+
+// UpdateTrackedMessage updates an existing tracked message in Firestore.
+func (fs *FirestoreService) UpdateTrackedMessage(ctx context.Context, message *models.TrackedMessage) error {
+	if message.ID == "" {
+		return ErrInvalidMessageID
+	}
+
+	docRef := fs.client.Collection("trackedmessages").Doc(message.ID)
+	_, err := docRef.Set(ctx, message, firestore.MergeAll)
+	if err != nil {
+		log.Error(ctx, "Failed to update tracked message",
+			"error", err,
+			"message_id", message.ID,
+			"repo", message.RepoFullName,
+			"pr_number", message.PRNumber,
+			"operation", "update_tracked_message",
+		)
+		return fmt.Errorf("failed to update tracked message %s: %w", message.ID, err)
+	}
+
+	log.Debug(ctx, "Successfully updated tracked message",
+		"message_id", message.ID,
+		"repo", message.RepoFullName,
+		"pr_number", message.PRNumber,
+		"user_to_cc", message.UserToCC,
+	)
+
 	return nil
 }
 
