@@ -10,6 +10,8 @@ standards.
 
 Run the linting script, and collect the list of errors.
 
+If the script reports no linting issues, then we're all done - no further action required!
+
 Group them appropriately (e.g. if many appear to be from the same cause), and then work
 through them methodically in a list, applying fixes to resolve the linter failure.
 
@@ -17,4 +19,4 @@ If any of the issues aren't reasonably straight-forward to resolve, e.g. may req
 significant refactoring, then confirm with the user before proceeding with anything like
 that.
 
-Once done, run the linter one final time to confirm the fixes.
+Once you've made changes to resolve the issues, run the linter one final time to confirm the fixes.
