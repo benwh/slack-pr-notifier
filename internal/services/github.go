@@ -209,13 +209,19 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		return nil, "", fmt.Errorf("failed to fetch PR reviews: %w", err)
 	}
 
-	// Determine the latest review state per user
-	userReviewStates := make(map[string]string)
+	// Get PR author's user ID for filtering their comments
+	var prAuthorID int64
+	if pr.User != nil {
+		prAuthorID = pr.User.GetID()
+	}
+
+	// Determine the latest review state per user (using user ID for reliability)
+	userReviewStates := make(map[int64]string)
 	for _, review := range reviews {
 		if review.User == nil || review.State == nil {
 			continue
 		}
-		userID := review.User.GetLogin()
+		userID := review.User.GetID()
 		state := review.GetState()
 
 		// Only track meaningful review states
@@ -227,8 +233,8 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		userReviewStates[userID] = string(reviewState)
 	}
 
-	// Determine overall review state based on all reviews
-	currentReviewState := determineOverallReviewState(userReviewStates)
+	// Determine overall review state based on all reviews, excluding PR author's comments
+	currentReviewState := determineOverallReviewState(userReviewStates, prAuthorID)
 
 	log.Debug(ctx, "Fetched PR with reviews",
 		"repo", repoFullName,
@@ -253,6 +259,11 @@ func (s *GitHubService) GetPullRequestWithReviews(
 //  3. commented - At least one reviewer commented (and no approvals or changes requested)
 //  4. dismissed - Dismissed reviews are ignored in overall state calculation
 //
+// PR Author Comment Filtering:
+// - Comments from the PR author are only excluded if they are the ONLY commenter
+// - If other users have also commented, the "commented" state is still shown
+// - PR author's "approved" and "changes_requested" reviews are always included
+//
 // Dismissed reviews are intentionally excluded from the priority calculation because:
 // - When a review is dismissed, it typically means the feedback is no longer relevant
 // - The dismissed review shouldn't influence whether the PR appears as approved/rejected
@@ -260,7 +271,7 @@ func (s *GitHubService) GetPullRequestWithReviews(
 //
 // Returns the string representation of the highest priority review state, or empty string
 // if no reviews exist or all reviews are dismissed.
-func determineOverallReviewState(userReviewStates map[string]string) string {
+func determineOverallReviewState(userReviewStates map[int64]string, prAuthorID int64) string {
 	if len(userReviewStates) == 0 {
 		return ""
 	}
@@ -270,14 +281,18 @@ func determineOverallReviewState(userReviewStates map[string]string) string {
 	hasApproved := false
 	hasCommented := false
 
-	for _, state := range userReviewStates {
+	for userID, state := range userReviewStates {
 		switch models.ReviewState(state) {
 		case models.ReviewStateChangesRequested:
 			hasChangesRequested = true
 		case models.ReviewStateApproved:
 			hasApproved = true
 		case models.ReviewStateCommented:
-			hasCommented = true
+			// Only count comments from non-PR-authors
+			// If PR author has commented but others have too, we still want the reaction
+			if userID != prAuthorID {
+				hasCommented = true
+			}
 		case models.ReviewStateDismissed:
 			// Dismissed reviews are excluded from overall state calculation
 			// (see function documentation above for rationale)

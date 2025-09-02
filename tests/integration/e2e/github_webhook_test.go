@@ -1089,6 +1089,161 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 
 		t.Logf("✅ PR closed/reopened reaction test passed: 'x' reaction added on close and removed on reopen")
 	})
+
+	// PR Author Comment Filtering Tests
+	t.Run("PR review reactions - exclude PR author comments only", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			prNumber       int
+			reviewer       string
+			reviewerID     int64
+			prAuthor       string
+			prAuthorID     int64
+			expectReaction bool
+			description    string
+		}{
+			{
+				name:           "PR author comments only - no reaction",
+				prNumber:       4000,
+				reviewer:       "test-user",
+				reviewerID:     100001,
+				prAuthor:       "test-user",
+				prAuthorID:     100001,
+				expectReaction: false,
+				description:    "When PR author is the only one commenting, no reaction should be added",
+			},
+			{
+				name:           "Other user comments only - add reaction",
+				prNumber:       4002,
+				reviewer:       "other-reviewer",
+				reviewerID:     200001,
+				prAuthor:       "test-user",
+				prAuthorID:     100001,
+				expectReaction: true,
+				description:    "When other users comment, reaction should be added",
+			},
+			{
+				name:           "Both PR author and other user comment - add reaction",
+				prNumber:       4003,
+				reviewer:       "other-reviewer",
+				reviewerID:     200001,
+				prAuthor:       "test-user",
+				prAuthorID:     100001,
+				expectReaction: true,
+				description:    "When both PR author and others comment, reaction should still be added",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Reset state and setup test environment
+				require.NoError(t, harness.ResetForTest(ctx))
+				harness.FakeCloudTasks().ClearExecutedJobs()
+				harness.SlackRequestCapture().Clear()
+
+				setupTestWorkspace(t, harness, "U123456789")
+				setupTestUser(t, harness, tc.prAuthor, "U123456789", "test-channel")
+				setupTestRepo(t, harness, "test-channel")
+				setupGitHubInstallation(t, harness)
+
+				// Create PR first to ensure tracked message exists
+				prPayload := buildPROpenedPayload("testorg/testrepo", tc.prNumber, "Test PR", tc.prAuthor)
+				resp := sendGitHubWebhook(t, harness, "pull_request", prPayload)
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				// Wait for PR to be processed and tracked message created
+				waitForTrackedMessage(t, harness, "testorg/testrepo", tc.prNumber)
+
+				// Clear previous jobs/requests to focus on review
+				harness.FakeCloudTasks().ClearExecutedJobs()
+				harness.SlackRequestCapture().Clear()
+
+				// For the "both users comment" case, the mock already returns both reviews
+				// No need to simulate multiple webhook calls since the mock returns the final state
+
+				// Send the review webhook - the mock will return appropriate review data
+				reviewPayload := buildReviewSubmittedPayloadWithIDs(
+					"testorg/testrepo", tc.prNumber, tc.reviewer, tc.reviewerID, "commented", tc.prAuthor, tc.prAuthorID)
+				resp = sendGitHubWebhook(t, harness, "pull_request_review", reviewPayload)
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				// Verify jobs were executed
+				jobs := harness.FakeCloudTasks().GetExecutedJobs()
+				require.Len(t, jobs, 2) // github_webhook + reaction_sync
+
+				// Check if comment reaction was added
+				allRequests := harness.SlackRequestCapture().GetAllRequests()
+				var addReactions []SlackReactionRequest
+				for _, req := range allRequests {
+					if strings.Contains(req.URL, "reactions.add") {
+						if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == "speech_balloon" {
+							addReactions = append(addReactions, reaction)
+						}
+					}
+				}
+
+				if tc.expectReaction {
+					assert.Len(t, addReactions, 1, "Expected comment reaction to be added for: %s", tc.description)
+					if len(addReactions) > 0 {
+						assert.Equal(t, "C987654321", addReactions[0].Channel) // Channel ID from mock
+						assert.Equal(t, "speech_balloon", addReactions[0].Name)
+					}
+				} else {
+					assert.Empty(t, addReactions, "Expected no comment reaction for: %s", tc.description)
+				}
+
+				t.Logf("✅ %s: %s", tc.name, tc.description)
+			})
+		}
+	})
+
+	t.Run("PR review reactions - PR author approval still works", func(t *testing.T) {
+		// Reset state and setup
+		require.NoError(t, harness.ResetForTest(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Create PR first
+		prPayload := buildPROpenedPayload("testorg/testrepo", 4001, "Test PR", "test-user")
+		resp := sendGitHubWebhook(t, harness, "pull_request", prPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		waitForTrackedMessage(t, harness, "testorg/testrepo", 4001)
+
+		// Clear to focus on review
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// PR author approves their own PR (should still add approved reaction)
+		reviewPayload := buildReviewSubmittedPayloadWithIDs("testorg/testrepo", 4001, "test-user", 100001, "approved", "test-user", 100001)
+		resp = sendGitHubWebhook(t, harness, "pull_request_review", reviewPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify approved reaction was added
+		allRequests := harness.SlackRequestCapture().GetAllRequests()
+		var addReactions []SlackReactionRequest
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.add") {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == "white_check_mark" {
+					addReactions = append(addReactions, reaction)
+				}
+			}
+		}
+
+		assert.Len(t, addReactions, 1, "PR author's approval should still add approved reaction")
+		if len(addReactions) > 0 {
+			// Channel ID is returned by the mock, not the channel name
+			assert.Equal(t, "C987654321", addReactions[0].Channel)
+			assert.Equal(t, "white_check_mark", addReactions[0].Name)
+		}
+
+		t.Logf("✅ PR author approval test passed: approved reaction added even when PR author approves")
+	})
 }
 
 // waitForTrackedMessage polls the database until a tracked message appears for the given PR.
@@ -1191,6 +1346,41 @@ func buildReviewSubmittedPayload(repoFullName string, prNumber int, reviewer, st
 			"number":   prNumber,
 			"title":    "Test PR",
 			"html_url": fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+		},
+		"repository": map[string]interface{}{
+			"full_name": repoFullName,
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
+}
+
+// buildReviewSubmittedPayloadWithIDs creates a review payload with both login and ID for users.
+// This is needed to test PR author comment filtering logic that relies on user IDs.
+func buildReviewSubmittedPayloadWithIDs(
+	repoFullName string, prNumber int, reviewer string, reviewerID int64, state string, prAuthor string, prAuthorID int64,
+) []byte {
+	payload := map[string]interface{}{
+		"action": "submitted",
+		"review": map[string]interface{}{
+			"state": state,
+			"user": map[string]interface{}{
+				"login": reviewer,
+				"id":    reviewerID,
+			},
+		},
+		"pull_request": map[string]interface{}{
+			"number":   prNumber,
+			"title":    "Test PR",
+			"html_url": fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber),
+			"user": map[string]interface{}{
+				"login": prAuthor,
+				"id":    prAuthorID,
+			},
 		},
 		"repository": map[string]interface{}{
 			"full_name": repoFullName,

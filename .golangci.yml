@@ -104,6 +104,7 @@ linters:
           - contextcheck  # Integration tests create their own contexts
           - cyclop       # E2E tests can be complex
           - gocognit     # E2E tests can have complex logic
+          - gocyclo      # E2E tests can have high cyclomatic complexity
         path: tests/integration/e2e/
       - linters:
           - funlen

@@ -30,6 +30,10 @@ import (
 //go:embed test-private-key.pem
 var testPrivateKeyPEM []byte
 
+const (
+	testUserLogin = "test-user"
+)
+
 // TestHarness provides an end-to-end testing environment for the application.
 type TestHarness struct {
 	// Server details
@@ -373,7 +377,7 @@ func (h *TestHarness) ResetForNextStep() {
 func (h *TestHarness) SetupUser(ctx context.Context, githubUsername, slackUserID, defaultChannel string) error {
 	// Map GitHub usernames to consistent numeric IDs for testing
 	githubUserIDMap := map[string]int64{
-		"test-user":    100001,
+		testUserLogin:  100001,
 		"draft-user":   100002,
 		"draft-author": 100003,
 		"other-user":   100004, // Different user for testing authorization
@@ -427,8 +431,8 @@ func (h *TestHarness) SetupTrackedMessage(
 	// Generate an ID for the tracked message
 	docRef := h.testDB.Collection("trackedmessages").NewDoc()
 
-	// Set PR author GitHub ID to match the test-user's GitHub ID (100001)
-	// This allows the test-user to delete messages they authored
+	// Set PR author GitHub ID to match the testUserLogin's GitHub ID (100001)
+	// This allows the testUserLogin to delete messages they authored
 	prAuthorGitHubID := int64(100001)
 
 	msg := map[string]interface{}{
@@ -724,7 +728,7 @@ func (h *TestHarness) SetupMockResponses() {
 			"ok": true,
 			"user": map[string]interface{}{
 				"id":        "U123456789",
-				"name":      "test-user",
+				"name":      testUserLogin,
 				"real_name": "Test User",
 				"profile": map[string]interface{}{
 					"display_name": "Test User",
@@ -745,7 +749,7 @@ func (h *TestHarness) SetupMockResponses() {
 			"additions": 50,
 			"deletions": 30,
 			"user": map[string]interface{}{
-				"login": "test-user",
+				"login": testUserLogin,
 			},
 		}))
 
@@ -756,15 +760,118 @@ func (h *TestHarness) SetupMockResponses() {
 			"expires_at": "2025-12-31T23:59:59Z",
 		}))
 
-	// Mock GitHub PR reviews endpoint
+	// Mock GitHub PR details endpoint
+	httpmock.RegisterResponder("GET", `=~^https://api\.github\.com/repos/[^/]+/[^/]+/pulls/\d+$`,
+		func(req *http.Request) (*http.Response, error) {
+			// Extract PR number from URL and provide appropriate response
+			path := req.URL.Path
+			var prNumber int
+			var prAuthor string
+			var prAuthorID int64
+
+			switch path {
+			case "/repos/testorg/testrepo/pulls/4000":
+				prNumber = 4000
+				prAuthor = testUserLogin
+				prAuthorID = 100001
+			case "/repos/testorg/testrepo/pulls/4001":
+				prNumber = 4001
+				prAuthor = testUserLogin
+				prAuthorID = 100001
+			case "/repos/testorg/testrepo/pulls/4002":
+				prNumber = 4002
+				prAuthor = testUserLogin // PR author is still testUserLogin
+				prAuthorID = 100001
+			case "/repos/testorg/testrepo/pulls/4003":
+				prNumber = 4003
+				prAuthor = testUserLogin // PR author is still testUserLogin
+				prAuthorID = 100001
+			default:
+				// Default fallback for other PRs
+				prNumber = 4000
+				prAuthor = testUserLogin
+				prAuthorID = 100001
+			}
+
+			return httpmock.NewJsonResponse(200, map[string]interface{}{
+				"number": prNumber,
+				"title":  "Test PR",
+				"state":  "open",
+				"user": map[string]interface{}{
+					"id":    prAuthorID,
+					"login": prAuthor,
+				},
+			})
+		})
+
+	// Mock GitHub PR reviews endpoint - dynamic response based on the test case
 	httpmock.RegisterResponder("GET", `=~^https://api\.github\.com/repos/[^/]+/[^/]+/pulls/\d+/reviews`,
-		httpmock.NewJsonResponderOrPanic(200, []interface{}{
-			map[string]interface{}{
-				"id":     12345,
-				"state":  "APPROVED",
-				"author": map[string]interface{}{"login": "reviewer"},
-			},
-		}))
+		func(req *http.Request) (*http.Response, error) {
+			// Default empty reviews for the "PR author comments only" case
+			reviews := []interface{}{}
+
+			// For test PRs 4000 and higher (our new tests), provide specific responses per scenario
+			switch req.URL.Path {
+			case "/repos/testorg/testrepo/pulls/4000/reviews":
+				// PR author comments only scenario - only PR author has commented
+				reviews = []interface{}{
+					map[string]interface{}{
+						"id":    12345,
+						"state": "COMMENTED",
+						"user": map[string]interface{}{
+							"id":    100001,
+							"login": testUserLogin,
+						},
+					},
+				}
+			case "/repos/testorg/testrepo/pulls/4001/reviews":
+				// PR author approval test - PR author approves
+				reviews = []interface{}{
+					map[string]interface{}{
+						"id":    12346,
+						"state": "APPROVED",
+						"user": map[string]interface{}{
+							"id":    100001,
+							"login": testUserLogin,
+						},
+					},
+				}
+			case "/repos/testorg/testrepo/pulls/4002/reviews":
+				// Other user comments only scenario - other user has commented
+				reviews = []interface{}{
+					map[string]interface{}{
+						"id":    12347,
+						"state": "COMMENTED",
+						"user": map[string]interface{}{
+							"id":    200001,
+							"login": "other-reviewer",
+						},
+					},
+				}
+			case "/repos/testorg/testrepo/pulls/4003/reviews":
+				// Both PR author and other user comment scenario
+				reviews = []interface{}{
+					map[string]interface{}{
+						"id":    12348,
+						"state": "COMMENTED",
+						"user": map[string]interface{}{
+							"id":    100001,
+							"login": testUserLogin,
+						},
+					},
+					map[string]interface{}{
+						"id":    12349,
+						"state": "COMMENTED",
+						"user": map[string]interface{}{
+							"id":    200001,
+							"login": "other-reviewer",
+						},
+					},
+				}
+			}
+
+			return httpmock.NewJsonResponse(200, reviews)
+		})
 
 	// Mock Slack OAuth endpoint
 	httpmock.RegisterResponder("POST", "https://slack.com/api/oauth.v2.access",
