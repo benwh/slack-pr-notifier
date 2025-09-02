@@ -484,3 +484,4 @@ See `docs/reference/SLACK_APP_MANIFEST.md` for detailed setup instructions.
 ## Development Tips
 
 - Whenever trying to add newlines to ends of files, just use `gofmt -w $file` instead
+- To run all tests, regardless of caching, use: `go test ./... -count=1`

@@ -260,6 +260,51 @@ func (sh *SlackHandler) handleReactionAddedEvent(ctx context.Context, event *sla
 		return
 	}
 
+	// Check if PR author GitHub ID is set (should be for bot messages)
+	if trackedMessage.PRAuthorGitHubID == nil {
+		log.Warn(ctx, "Bot message missing PR author GitHub ID, cannot authorize deletion",
+			"tracked_message_id", trackedMessage.ID,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	// Check if the user who added the reaction is the PR author
+	user, err := sh.firestoreService.GetUserBySlackID(ctx, event.User)
+	if err != nil {
+		log.Error(ctx, "Failed to lookup user for wastebasket reaction authorization",
+			"error", err,
+			"slack_user_id", event.User,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	if user == nil {
+		log.Info(ctx, "User not found for wastebasket reaction, deletion denied",
+			"slack_user_id", event.User,
+			"pr_author_github_id", *trackedMessage.PRAuthorGitHubID,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	// Check if the user's GitHub ID matches the PR author
+	if user.GitHubUserID != *trackedMessage.PRAuthorGitHubID {
+		log.Info(ctx, "User is not PR author, deletion denied",
+			"slack_user_id", event.User,
+			"user_github_id", user.GitHubUserID,
+			"pr_author_github_id", *trackedMessage.PRAuthorGitHubID,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	log.Info(ctx, "PR author authorized for message deletion",
+		"slack_user_id", event.User,
+		"github_user_id", user.GitHubUserID,
+		"tracked_message_id", trackedMessage.ID)
+
 	// Queue deletion job
 	jobID := uuid.New().String()
 	traceID := uuid.New().String()

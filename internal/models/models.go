@@ -185,6 +185,7 @@ type TrackedMessage struct {
 	SlackMessageTS     string    `firestore:"slack_message_ts"`               // Slack message timestamp
 	SlackTeamID        string    `firestore:"slack_team_id"`                  // Slack workspace/team ID
 	MessageSource      string    `firestore:"message_source"`                 // "bot" or "manual"
+	PRAuthorGitHubID   *int64    `firestore:"pr_author_github_id,omitempty"`  // GitHub user ID of PR author (bot messages only)
 	UserToCC           string    `firestore:"user_to_cc,omitempty"`           // GitHub username mentioned in CC directive
 	HasReviewDirective *bool     `firestore:"has_review_directive,omitempty"` // Whether message had directive
 	DeletedByUser      bool      `firestore:"deleted_by_user,omitempty"`      // Whether user deleted this message

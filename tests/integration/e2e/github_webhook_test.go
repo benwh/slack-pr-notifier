@@ -188,7 +188,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		setupGitHubInstallation(t, harness)
 
 		// Create a tracked message (simulating a previous PR notification)
-		setupTrackedMessage(t, harness, "testorg/testrepo", 456, "test-channel", "T123456789", "1234567890.123456")
+		setupTrackedMessage(t, harness, 456, "test-channel")
 
 		// Wait a moment to ensure the data is persisted
 		time.Sleep(10 * time.Millisecond)
@@ -361,8 +361,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				setupGitHubInstallation(t, harness)
 
 				// Create a tracked message
-				const messageTS = "1234567890.123456"
-				setupTrackedMessage(t, harness, "testorg/testrepo", 3000, "test-channel", "T123456789", messageTS)
+				setupTrackedMessage(t, harness, 3000, "test-channel")
 
 				// Wait for data persistence
 				time.Sleep(10 * time.Millisecond)
@@ -378,13 +377,22 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				jobs := harness.FakeCloudTasks().GetExecutedJobs()
 				require.Len(t, jobs, 2)
 
-				// Verify the correct reaction was added
-				reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
-				if len(reactionRequests) > 0 {
-					require.Len(t, reactionRequests, 1)
-					assert.Equal(t, "test-channel", reactionRequests[0].Channel)
-					assert.Equal(t, messageTS, reactionRequests[0].Timestamp)
-					assert.Equal(t, tc.emojiName, reactionRequests[0].Name)
+				// Verify the correct reaction was added (filter for only add operations)
+				allRequests := harness.SlackRequestCapture().GetAllRequests()
+				var addReactions []SlackReactionRequest
+				for _, req := range allRequests {
+					if strings.Contains(req.URL, "reactions.add") {
+						if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok {
+							addReactions = append(addReactions, reaction)
+						}
+					}
+				}
+
+				if len(addReactions) > 0 {
+					require.Len(t, addReactions, 1)
+					assert.Equal(t, "test-channel", addReactions[0].Channel)
+					assert.Equal(t, "1234567890.123456", addReactions[0].Timestamp)
+					assert.Equal(t, tc.emojiName, addReactions[0].Name)
 				}
 			})
 		}

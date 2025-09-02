@@ -52,9 +52,12 @@ func setupTestRepo(t *testing.T, harness *TestHarness, channelID string) {
 }
 
 // setupTrackedMessage creates a test tracked message in Firestore.
-func setupTrackedMessage(t *testing.T, harness *TestHarness, repoFullName string, prNumber int, channelID, teamID, messageTS string) {
+func setupTrackedMessage(t *testing.T, harness *TestHarness, prNumber int, channelID string) {
 	t.Helper()
 	ctx := context.Background()
+	const repoFullName = "testorg/testrepo" // All tests use the same test repository
+	const teamID = "T123456789"             // All tests use the same test workspace
+	const messageTS = "1234567890.123456"   // All tests use the same test message timestamp
 	err := harness.SetupTrackedMessage(ctx, repoFullName, prNumber, channelID, teamID, messageTS)
 	require.NoError(t, err)
 }

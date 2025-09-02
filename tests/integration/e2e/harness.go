@@ -376,6 +376,7 @@ func (h *TestHarness) SetupUser(ctx context.Context, githubUsername, slackUserID
 		"test-user":    100001,
 		"draft-user":   100002,
 		"draft-author": 100003,
+		"other-user":   100004, // Different user for testing authorization
 	}
 
 	githubUserID, exists := githubUserIDMap[githubUsername]
@@ -425,15 +426,21 @@ func (h *TestHarness) SetupTrackedMessage(
 ) error {
 	// Generate an ID for the tracked message
 	docRef := h.testDB.Collection("trackedmessages").NewDoc()
+
+	// Set PR author GitHub ID to match the test-user's GitHub ID (100001)
+	// This allows the test-user to delete messages they authored
+	prAuthorGitHubID := int64(100001)
+
 	msg := map[string]interface{}{
-		"id":               docRef.ID, // Set the document ID as the ID field
-		"repo_full_name":   repoFullName,
-		"pr_number":        prNumber,
-		"slack_channel":    channelID,
-		"slack_team_id":    teamID,
-		"slack_message_ts": messageTS,
-		"message_source":   "bot",
-		"created_at":       time.Now(),
+		"id":                  docRef.ID, // Set the document ID as the ID field
+		"repo_full_name":      repoFullName,
+		"pr_number":           prNumber,
+		"slack_channel":       channelID,
+		"slack_team_id":       teamID,
+		"slack_message_ts":    messageTS,
+		"message_source":      "bot",
+		"pr_author_github_id": prAuthorGitHubID,
+		"created_at":          time.Now(),
 	}
 	_, err := docRef.Set(ctx, msg)
 	return err

@@ -113,6 +113,37 @@ func TestTrackedMessage_DeletedByUserField(t *testing.T) {
 	assert.True(t, message.DeletedByUser)
 }
 
+// TestTrackedMessage_PRAuthorGitHubIDField tests the new PRAuthorGitHubID field.
+func TestTrackedMessage_PRAuthorGitHubIDField(t *testing.T) {
+	// Test bot message with PR author ID
+	prAuthorID := int64(12345)
+	botMessage := &models.TrackedMessage{
+		ID:               "test-id",
+		PRNumber:         123,
+		RepoFullName:     "test-owner/test-repo",
+		SlackChannel:     "C1234567890",
+		SlackTeamID:      "T1234567890",
+		MessageSource:    models.MessageSourceBot,
+		PRAuthorGitHubID: &prAuthorID,
+	}
+
+	require.NotNil(t, botMessage.PRAuthorGitHubID)
+	assert.Equal(t, int64(12345), *botMessage.PRAuthorGitHubID)
+
+	// Test manual message without PR author ID (should be nil)
+	manualMessage := &models.TrackedMessage{
+		ID:               "test-id-2",
+		PRNumber:         123,
+		RepoFullName:     "test-owner/test-repo",
+		SlackChannel:     "C1234567890",
+		SlackTeamID:      "T1234567890",
+		MessageSource:    models.MessageSourceManual,
+		PRAuthorGitHubID: nil, // Manual messages should not have this set
+	}
+
+	assert.Nil(t, manualMessage.PRAuthorGitHubID)
+}
+
 // TestMessageSourceConstants tests the new message source constants.
 func TestMessageSourceConstants(t *testing.T) {
 	assert.Equal(t, "bot", models.MessageSourceBot)

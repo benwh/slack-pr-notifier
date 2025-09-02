@@ -782,6 +782,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 
 	// Create TrackedMessage for the bot notification
 	hasDirective := directives.HasReviewDirective
+	prAuthorID := payload.GetPullRequest().GetUser().GetID()
 	trackedMessage := &models.TrackedMessage{
 		PRNumber:           payload.GetPullRequest().GetNumber(),
 		RepoFullName:       payload.GetRepo().GetFullName(),
@@ -791,6 +792,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		SlackMessageTS:     timestamp,
 		SlackTeamID:        repo.WorkspaceID,
 		MessageSource:      models.MessageSourceBot,
+		PRAuthorGitHubID:   &prAuthorID,         // Store PR author GitHub ID for deletion authorization
 		UserToCC:           directives.UserToCC, // Store CC info for future updates
 		HasReviewDirective: &hasDirective,       // Track whether directive existed when message was created
 	}

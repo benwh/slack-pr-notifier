@@ -194,7 +194,7 @@ func TestSlackEventsIntegration(t *testing.T) {
 		setupTestRepo(t, harness, "C1234567890")
 
 		// Create a tracked message first (simulating a bot message already posted)
-		setupTrackedMessage(t, harness, "testorg/testrepo", 123, "C1234567890", "T123456789", "1234567890.123456")
+		setupTrackedMessage(t, harness, 123, "C1234567890")
 
 		// Create reaction_added event with wastebasket emoji
 		payload := buildSlackReactionAddedEvent("wastebasket", "C1234567890", "U123456789", "1234567890.123456", "T123456789")
@@ -225,6 +225,40 @@ func TestSlackEventsIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, message, "Tracked message should exist")
 		assert.True(t, message.DeletedByUser, "Message should be marked as deleted by user")
+	})
+
+	t.Run("Non-PR-author deletion denied", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Setup test data with different user (not the PR author)
+		setupTestUser(t, harness, "other-user", "U987654321", "test-channel") // Different user
+		setupTestRepo(t, harness, "C1234567890")
+
+		// Create a tracked message (simulating a bot message posted by someone else)
+		setupTrackedMessage(t, harness, 123, "C1234567890")
+
+		// Create reaction_added event with wastebasket emoji from non-PR-author
+		payload := buildSlackReactionAddedEvent("wastebasket", "C1234567890", "U987654321", "1234567890.123456", "T123456789")
+
+		// Send event to application
+		resp := sendSlackEvent(t, harness, payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify NO delete job was queued - non-PR-authors should be denied
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		assert.Empty(t, jobs, "Expected no jobs for non-PR-author wastebasket reactions")
+
+		// Verify the tracked message was NOT marked as deleted in Firestore
+		firestoreService := services.NewFirestoreService(harness.FirestoreClient())
+		message, err := firestoreService.GetTrackedMessageBySlackMessage(ctx, "T123456789", "C1234567890", "1234567890.123456")
+		require.NoError(t, err)
+		require.NotNil(t, message, "Tracked message should exist")
+		assert.False(t, message.DeletedByUser, "Message should NOT be marked as deleted by non-author")
 	})
 
 	t.Run("Non-wastebasket emoji reactions ignored", func(t *testing.T) {
