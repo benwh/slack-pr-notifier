@@ -21,7 +21,7 @@ func setupTestWorkspace(t *testing.T, harness *TestHarness, installedBy string) 
 		ID:           teamID,
 		TeamName:     teamName,
 		AccessToken:  accessToken,
-		Scope:        "channels:read,chat:write,links:read,channels:history",
+		Scope:        "channels:read,chat:write,reactions:write,reactions:read,links:read,channels:history",
 		InstalledBy:  installedBy,
 		InstalledAt:  time.Now(),
 		UpdatedAt:    time.Now(),

@@ -33,6 +33,7 @@ oauth_config:
       - chat:write              # Post messages in approved channels
       - chat:write.customize    # Post messages that appear to be from other users
       - reactions:write         # Add and remove emoji reactions to messages
+      - reactions:read          # View emoji reactions and their associated content
       - links:read              # Read information about links shared in channels
       - channels:history        # Required by message.channels event subscription
       - users:read              # Read user information for display names
@@ -43,6 +44,7 @@ settings:
     bot_events:
       - app_home_opened         # Handle App Home tab being opened
       - message.channels        # Detect GitHub PR links in public channels
+      - reaction_added          # Handle emoji reactions (for wastebasket deletion)
   interactivity:
     is_enabled: true
     request_url: "{{BASE_URL}}/webhooks/slack/interactions"

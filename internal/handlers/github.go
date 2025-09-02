@@ -678,7 +678,7 @@ func (h *GitHubHandler) checkForDuplicateBotMessage(
 ) (bool, error) {
 	// Get all bot messages for this PR in the workspace (don't filter by channel initially)
 	allBotMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", workspaceID, "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", workspaceID, models.MessageSourceBot)
 	if err != nil {
 		log.Error(ctx, "Failed to check for existing bot messages",
 			"error", err,
@@ -790,7 +790,7 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		SlackChannelName:   originalChannelName, // Store original channel name, never ID
 		SlackMessageTS:     timestamp,
 		SlackTeamID:        repo.WorkspaceID,
-		MessageSource:      "bot",
+		MessageSource:      models.MessageSourceBot,
 		UserToCC:           directives.UserToCC, // Store CC info for future updates
 		HasReviewDirective: &hasDirective,       // Track whether directive existed when message was created
 	}
@@ -971,14 +971,14 @@ func (h *GitHubHandler) hasChannelChanged(ctx context.Context, payload *github.P
 	if len(allMessages) > 0 {
 		// Filter for bot messages from what we already have
 		for _, msg := range allMessages {
-			if msg.MessageSource == "bot" {
+			if msg.MessageSource == models.MessageSourceBot {
 				botMessages = append(botMessages, msg)
 			}
 		}
 	} else {
 		// Fallback to direct query (shouldn't be needed if retry worked above)
 		botMessages, err = h.firestoreService.GetTrackedMessages(ctx,
-			payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
+			payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", models.MessageSourceBot)
 		if err != nil {
 			log.Error(ctx, "Failed to get bot tracked messages for channel change check",
 				"error", err,
@@ -1012,7 +1012,7 @@ func (h *GitHubHandler) handleChannelChange(
 
 	// Get all bot messages for this PR across all workspaces
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", models.MessageSourceBot)
 	if err != nil {
 		log.Error(ctx, "Failed to get bot tracked messages for channel change",
 			"error", err,
@@ -1147,9 +1147,13 @@ func (h *GitHubHandler) processSkipDirective(ctx context.Context, payload *githu
 }
 
 // handleUnskipDirective handles re-posting PRs when skip directive is removed from description.
-// Re-posts PR if no tracked messages exist, indicating previous skip directive removal.
+// Re-posts PR if no tracked messages exist or all existing messages have been deleted by user.
+// Special handling for directive changes: if directive status changes, re-post even for deleted messages.
 func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *github.PullRequestEvent) error {
 	log.Debug(ctx, "No skip directive found, checking if PR needs to be re-posted")
+
+	// Parse current directives to check for directive status changes
+	currentDirectives := h.slackService.ParsePRDirectives(payload.GetPullRequest().GetBody())
 
 	// Get all tracked messages for this PR to see if it's already posted
 	trackedMessages, err := h.getAllTrackedMessagesForPR(ctx, payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber())
@@ -1173,8 +1177,52 @@ func (h *GitHubHandler) handleUnskipDirective(ctx context.Context, payload *gith
 		return h.postPRToAllWorkspaces(ctx, payload)
 	}
 
-	log.Debug(ctx, "PR already has tracked messages, no re-posting needed",
-		"message_count", len(trackedMessages),
+	// Check if all existing bot messages have been deleted by user
+	botMessages := make([]*models.TrackedMessage, 0)
+	activeBotMessages := make([]*models.TrackedMessage, 0)
+
+	for _, msg := range trackedMessages {
+		if msg.MessageSource == models.MessageSourceBot {
+			botMessages = append(botMessages, msg)
+			if !msg.DeletedByUser {
+				activeBotMessages = append(activeBotMessages, msg)
+			}
+		}
+	}
+
+	// If we have bot messages but all are deleted by user, allow re-posting
+	if len(botMessages) > 0 && len(activeBotMessages) == 0 {
+		// Check if directive status has changed for deleted messages
+		firstBotMessage := botMessages[0]
+		oldHasDirective := firstBotMessage.HasReviewDirective != nil && *firstBotMessage.HasReviewDirective
+
+		if oldHasDirective != currentDirectives.HasReviewDirective {
+			log.Info(ctx, "Directive status changed for deleted messages - re-posting PR",
+				"old_has_directive", oldHasDirective,
+				"new_has_directive", currentDirectives.HasReviewDirective,
+				"total_bot_messages", len(botMessages),
+			)
+		} else {
+			log.Info(ctx, "All bot messages have been deleted by user - re-posting PR",
+				"total_bot_messages", len(botMessages),
+				"active_bot_messages", len(activeBotMessages),
+			)
+		}
+
+		// Skip draft PRs (same logic as handlePROpened)
+		if payload.GetPullRequest().GetDraft() {
+			log.Debug(ctx, "Skipping draft PR for re-posting")
+			return nil
+		}
+
+		// Re-post the PR using the shared logic
+		return h.postPRToAllWorkspaces(ctx, payload)
+	}
+
+	log.Debug(ctx, "PR already has active tracked messages, no re-posting needed",
+		"total_messages", len(trackedMessages),
+		"bot_messages", len(botMessages),
+		"active_bot_messages", len(activeBotMessages),
 	)
 	return nil
 }
@@ -1202,7 +1250,7 @@ func (h *GitHubHandler) detectPRChanges(
 	// For CC and directive changes, we need to get existing bot messages to determine what was stored previously
 	// This is more complex because we need to check what the existing messages had
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", models.MessageSourceBot)
 	if err != nil {
 		log.Error(ctx, "Failed to get bot messages for change detection", "error", err)
 		// Continue without CC change detection if we can't get messages
@@ -1257,7 +1305,7 @@ func (h *GitHubHandler) updateMessagesForPRChanges(
 
 	// Get all bot messages for this PR across all workspaces
 	botMessages, err := h.firestoreService.GetTrackedMessages(ctx,
-		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", "bot")
+		payload.GetRepo().GetFullName(), payload.GetPullRequest().GetNumber(), "", "", models.MessageSourceBot)
 	if err != nil {
 		log.Error(ctx, "Failed to get bot messages for PR changes", "error", err)
 		return err
@@ -1287,6 +1335,16 @@ func (h *GitHubHandler) filterMessagesForPRUpdates(
 	var messagesToUpdateInDB []*models.TrackedMessage
 
 	for _, msg := range botMessages {
+		// Skip messages that have been deleted by user
+		if msg.DeletedByUser {
+			log.Debug(ctx, "Skipping message update for deleted message",
+				"message_id", msg.ID,
+				"message_ts", msg.SlackMessageTS,
+				"channel_id", msg.SlackChannel,
+			)
+			continue
+		}
+
 		needsUpdate, changeReasons := h.messageNeedsUpdate(msg, changes)
 
 		if needsUpdate {

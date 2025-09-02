@@ -32,6 +32,7 @@ var (
 	ErrPRActionRequired            = errors.New("PR action is required")
 	ErrRepoConfigNotFound          = errors.New("repository configuration not found")
 	ErrWorkspaceJobsEnqueueFailed  = errors.New("failed to enqueue workspace PR jobs")
+	ErrTrackedMessageIDRequired    = errors.New("tracked message ID is required")
 )
 
 type User struct {
@@ -186,6 +187,7 @@ type TrackedMessage struct {
 	MessageSource      string    `firestore:"message_source"`                 // "bot" or "manual"
 	UserToCC           string    `firestore:"user_to_cc,omitempty"`           // GitHub username mentioned in CC directive
 	HasReviewDirective *bool     `firestore:"has_review_directive,omitempty"` // Whether message had directive
+	DeletedByUser      bool      `firestore:"deleted_by_user,omitempty"`      // Whether user deleted this message
 	CreatedAt          time.Time `firestore:"created_at"`                     // When we started tracking this message
 }
 
@@ -326,10 +328,17 @@ const (
 
 // Job types for the job processing system.
 const (
-	JobTypeGitHubWebhook = "github_webhook"
-	JobTypeManualPRLink  = "manual_pr_link"
-	JobTypeReactionSync  = "reaction_sync"
-	JobTypeWorkspacePR   = "workspace_pr"
+	JobTypeGitHubWebhook        = "github_webhook"
+	JobTypeManualPRLink         = "manual_pr_link"
+	JobTypeReactionSync         = "reaction_sync"
+	JobTypeWorkspacePR          = "workspace_pr"
+	JobTypeDeleteTrackedMessage = "delete_tracked_message"
+)
+
+// Message source constants.
+const (
+	MessageSourceBot    = "bot"
+	MessageSourceManual = "manual"
 )
 
 // Job represents a job structure for all async processing.
@@ -338,6 +347,39 @@ type Job struct {
 	Type    string          `json:"type"`
 	TraceID string          `json:"trace_id"`
 	Payload json.RawMessage `json:"payload"`
+}
+
+// DeleteTrackedMessageJob represents a job to delete a tracked message.
+type DeleteTrackedMessageJob struct {
+	ID               string `json:"id"`
+	TrackedMessageID string `json:"tracked_message_id"` // ID of the TrackedMessage to delete
+	SlackChannel     string `json:"slack_channel"`      // Slack channel ID
+	SlackMessageTS   string `json:"slack_message_ts"`   // Slack message timestamp
+	SlackTeamID      string `json:"slack_team_id"`      // Slack workspace ID
+	TraceID          string `json:"trace_id"`
+}
+
+// Validate validates required fields for DeleteTrackedMessageJob.
+func (dtmj *DeleteTrackedMessageJob) Validate() error {
+	if dtmj.ID == "" {
+		return ErrJobIDRequired
+	}
+	if dtmj.TrackedMessageID == "" {
+		return ErrTrackedMessageIDRequired
+	}
+	if dtmj.SlackChannel == "" {
+		return ErrSlackChannelRequired
+	}
+	if dtmj.SlackMessageTS == "" {
+		return ErrSlackMessageTSRequired
+	}
+	if dtmj.SlackTeamID == "" {
+		return ErrSlackTeamIDRequired
+	}
+	if dtmj.TraceID == "" {
+		return ErrTraceIDRequired
+	}
+	return nil
 }
 
 // ChannelConfig represents per-channel configuration for manual PR tracking.

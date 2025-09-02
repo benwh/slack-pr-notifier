@@ -121,6 +121,8 @@ func (sh *SlackHandler) HandleEvent(c *gin.Context) {
 			sh.handleMessageEvent(ctx, ev, eventsAPIEvent.TeamID)
 		case *slackevents.AppHomeOpenedEvent:
 			sh.handleAppHomeOpened(ctx, ev, eventsAPIEvent.TeamID)
+		case *slackevents.ReactionAddedEvent:
+			sh.handleReactionAddedEvent(ctx, ev, eventsAPIEvent.TeamID)
 		}
 	}
 
@@ -207,6 +209,95 @@ func (sh *SlackHandler) handleMessageEvent(ctx context.Context, event *slackeven
 		} else {
 			log.Info(linkCtx, "Manual PR link detected and queued for processing")
 		}
+	}
+}
+
+// handleReactionAddedEvent processes reaction_added events to detect wastebasket emoji for message deletion.
+// Only processes wastebasket reactions on bot messages from tracked PR notifications.
+func (sh *SlackHandler) handleReactionAddedEvent(ctx context.Context, event *slackevents.ReactionAddedEvent, teamID string) {
+	// Only handle wastebasket emoji reactions
+	if event.Reaction != "wastebasket" {
+		return
+	}
+
+	log.Info(ctx, "Wastebasket reaction detected",
+		"user", event.User,
+		"channel", event.Item.Channel,
+		"message_ts", event.Item.Timestamp)
+
+	// Look up the tracked message to see if this is a bot message we should handle
+	trackedMessage, err := sh.firestoreService.GetTrackedMessageBySlackMessage(ctx, teamID, event.Item.Channel, event.Item.Timestamp)
+	if err != nil {
+		log.Error(ctx, "Failed to lookup tracked message for wastebasket reaction",
+			"error", err,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	if trackedMessage == nil {
+		log.Debug(ctx, "Wastebasket reaction not on tracked message, ignoring",
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	// Only handle bot messages
+	if trackedMessage.MessageSource != models.MessageSourceBot {
+		log.Debug(ctx, "Wastebasket reaction on manual message, ignoring",
+			"message_source", trackedMessage.MessageSource,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	// Skip if already deleted by user
+	if trackedMessage.DeletedByUser {
+		log.Debug(ctx, "Message already deleted by user",
+			"tracked_message_id", trackedMessage.ID,
+			"channel", event.Item.Channel,
+			"message_ts", event.Item.Timestamp)
+		return
+	}
+
+	// Queue deletion job
+	jobID := uuid.New().String()
+	traceID := uuid.New().String()
+
+	deleteJob := &models.DeleteTrackedMessageJob{
+		ID:               jobID,
+		TrackedMessageID: trackedMessage.ID,
+		SlackChannel:     event.Item.Channel,
+		SlackMessageTS:   event.Item.Timestamp,
+		SlackTeamID:      teamID,
+		TraceID:          traceID,
+	}
+
+	// Marshal the DeleteTrackedMessageJob as the payload for the Job
+	jobPayload, err := json.Marshal(deleteJob)
+	if err != nil {
+		log.Error(ctx, "Failed to marshal delete tracked message job", "error", err)
+		return
+	}
+
+	// Create Job
+	job := &models.Job{
+		ID:      jobID,
+		Type:    models.JobTypeDeleteTrackedMessage,
+		TraceID: traceID,
+		Payload: jobPayload,
+	}
+
+	// Queue for async processing
+	err = sh.cloudTasksService.EnqueueJob(ctx, job)
+	if err != nil {
+		log.Error(ctx, "Failed to enqueue message deletion job", "error", err)
+	} else {
+		log.Info(ctx, "Message deletion job queued",
+			"job_id", jobID,
+			"tracked_message_id", trackedMessage.ID,
+			"repo", trackedMessage.RepoFullName,
+			"pr_number", trackedMessage.PRNumber)
 	}
 }
 
@@ -1107,7 +1198,7 @@ func (sh *SlackHandler) ProcessManualPRLinkJob(ctx context.Context, job *models.
 		SlackChannelName: manualLinkJob.SlackChannel, // Store original for logging if it was a name
 		SlackMessageTS:   manualLinkJob.SlackMessageTS,
 		SlackTeamID:      manualLinkJob.SlackTeamID,
-		MessageSource:    "manual",
+		MessageSource:    models.MessageSourceManual,
 	}
 
 	log.Debug(ctx, "Creating tracked message for manual PR link")
@@ -1364,6 +1455,56 @@ func (sh *SlackHandler) isValidEmoji(emoji string) bool {
 			`[\x{1F1E0}-\x{1F1FF}]|[\x{2600}-\x{26FF}]|[\x{2700}-\x{27BF}]$`,
 	)
 	return emojiRegex.MatchString(emoji)
+}
+
+// ProcessDeleteTrackedMessageJob processes a job to delete a tracked message.
+// Deletes the Slack message and marks the tracked message as deleted by user.
+func (sh *SlackHandler) ProcessDeleteTrackedMessageJob(ctx context.Context, job *models.Job) error {
+	// Parse the DeleteTrackedMessageJob from the job payload
+	var deleteJob models.DeleteTrackedMessageJob
+	if err := json.Unmarshal(job.Payload, &deleteJob); err != nil {
+		log.Error(ctx, "Failed to unmarshal delete tracked message job from job payload",
+			"error", err,
+			"job_id", job.ID,
+		)
+		return fmt.Errorf("failed to unmarshal delete tracked message job: %w", err)
+	}
+
+	// Validate the delete job
+	if err := deleteJob.Validate(); err != nil {
+		log.Error(ctx, "Invalid delete tracked message job payload",
+			"error", err,
+			"job_id", job.ID,
+		)
+		return fmt.Errorf("invalid delete tracked message job: %w", err)
+	}
+
+	// Add context for logging
+	ctx = log.WithFields(ctx, log.LogFields{
+		"tracked_message_id": deleteJob.TrackedMessageID,
+		"slack_channel":      deleteJob.SlackChannel,
+		"slack_message_ts":   deleteJob.SlackMessageTS,
+		"slack_team_id":      deleteJob.SlackTeamID,
+	})
+
+	log.Info(ctx, "Processing tracked message deletion job")
+
+	// Delete the Slack message
+	err := sh.slackService.DeleteMessage(ctx, deleteJob.SlackTeamID, deleteJob.SlackChannel, deleteJob.SlackMessageTS)
+	if err != nil {
+		log.Error(ctx, "Failed to delete Slack message", "error", err)
+		return fmt.Errorf("failed to delete Slack message: %w", err)
+	}
+
+	// Mark the tracked message as deleted by user
+	err = sh.firestoreService.MarkTrackedMessageDeleted(ctx, deleteJob.TrackedMessageID)
+	if err != nil {
+		log.Error(ctx, "Failed to mark tracked message as deleted", "error", err)
+		return fmt.Errorf("failed to mark tracked message as deleted: %w", err)
+	}
+
+	log.Info(ctx, "Successfully processed message deletion job")
+	return nil
 }
 
 // extractTextInput extracts text input from modal interaction state.

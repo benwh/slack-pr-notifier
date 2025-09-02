@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github-slack-notifier/internal/models"
+	"github-slack-notifier/internal/services"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -180,6 +181,90 @@ func TestSlackEventsIntegration(t *testing.T) {
 		assert.Empty(t, jobs)
 	})
 
+	t.Run("Wastebasket emoji deletion", func(t *testing.T) {
+		// Clear any existing data
+		require.NoError(t, harness.ClearFirestore(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Setup test data
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "C1234567890")
+
+		// Create a tracked message first (simulating a bot message already posted)
+		setupTrackedMessage(t, harness, "testorg/testrepo", 123, "C1234567890", "T123456789", "1234567890.123456")
+
+		// Create reaction_added event with wastebasket emoji
+		payload := buildSlackReactionAddedEvent("wastebasket", "C1234567890", "U123456789", "1234567890.123456", "T123456789")
+
+		// Send event to application
+		resp := sendSlackEvent(t, harness, payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify delete job was queued and executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1)
+
+		deleteJob := jobs[0]
+		assert.Equal(t, models.JobTypeDeleteTrackedMessage, deleteJob.Type)
+
+		// Verify the delete job payload
+		var delJob models.DeleteTrackedMessageJob
+		require.NoError(t, json.Unmarshal(deleteJob.Payload, &delJob))
+		assert.Equal(t, "C1234567890", delJob.SlackChannel)
+		assert.Equal(t, "1234567890.123456", delJob.SlackMessageTS)
+		assert.Equal(t, "T123456789", delJob.SlackTeamID)
+
+		// Verify the tracked message was marked as deleted in Firestore
+		// Note: The actual message deletion would happen via Slack API mock
+		// but we can verify the database state was updated
+		firestoreService := services.NewFirestoreService(harness.FirestoreClient())
+		message, err := firestoreService.GetTrackedMessageBySlackMessage(ctx, "T123456789", "C1234567890", "1234567890.123456")
+		require.NoError(t, err)
+		require.NotNil(t, message, "Tracked message should exist")
+		assert.True(t, message.DeletedByUser, "Message should be marked as deleted by user")
+	})
+
+	t.Run("Non-wastebasket emoji reactions ignored", func(t *testing.T) {
+		// Clear any existing data
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Create reaction_added event with different emoji
+		payload := buildSlackReactionAddedEvent("thumbsup", "C1234567890", "U123456789", "1234567890.123456", "T123456789")
+
+		// Send event to application
+		resp := sendSlackEvent(t, harness, payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify NO jobs were queued - non-wastebasket reactions are ignored
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		assert.Empty(t, jobs, "Expected no jobs for non-wastebasket emoji reactions")
+	})
+
+	t.Run("Reaction on non-tracked message ignored", func(t *testing.T) {
+		// Clear any existing data
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Setup OAuth workspace first (required for multi-workspace support)
+		setupTestWorkspace(t, harness, "U123456789")
+
+		// Create reaction_added event on message that's not tracked
+		payload := buildSlackReactionAddedEvent("wastebasket", "C1234567890", "U123456789", "9999999999.999999", "T123456789")
+
+		// Send event to application
+		resp := sendSlackEvent(t, harness, payload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify NO jobs were queued - reactions on non-tracked messages are ignored
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		assert.Empty(t, jobs, "Expected no jobs for reactions on non-tracked messages")
+	})
+
 	t.Run("App Home opened event", func(t *testing.T) {
 		// Clear any existing data
 		require.NoError(t, harness.ClearFirestore(ctx))
@@ -251,6 +336,30 @@ func buildSlackURLVerification(challenge string) []byte {
 	payload := map[string]interface{}{
 		"type":      "url_verification",
 		"challenge": challenge,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // Test helper, panic is acceptable
+	}
+	return data
+}
+
+func buildSlackReactionAddedEvent(reaction, channel, user, messageTS, teamID string) []byte {
+	payload := map[string]interface{}{
+		"type": "event_callback",
+		"event": map[string]interface{}{
+			"type":     "reaction_added",
+			"user":     user,
+			"reaction": reaction,
+			"item": map[string]interface{}{
+				"type":    "message",
+				"channel": channel,
+				"ts":      messageTS,
+			},
+			"event_ts": fmt.Sprintf("%d.000000", time.Now().Unix()),
+		},
+		"team_id": teamID,
 	}
 
 	data, err := json.Marshal(payload)

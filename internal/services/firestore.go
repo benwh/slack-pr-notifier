@@ -354,6 +354,49 @@ func (fs *FirestoreService) GetTrackedMessages(
 	return messages, nil
 }
 
+// GetTrackedMessageBySlackMessage retrieves a tracked message by its Slack message details.
+func (fs *FirestoreService) GetTrackedMessageBySlackMessage(
+	ctx context.Context,
+	slackTeamID string,
+	slackChannel string,
+	slackMessageTS string,
+) (*models.TrackedMessage, error) {
+	query := fs.client.Collection("trackedmessages").
+		Where("slack_team_id", "==", slackTeamID).
+		Where("slack_channel", "==", slackChannel).
+		Where("slack_message_ts", "==", slackMessageTS).
+		Limit(1)
+
+	iter := query.Documents(ctx)
+	defer iter.Stop()
+
+	doc, err := iter.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
+			// No matching tracked message found
+			return nil, nil
+		}
+		log.Error(ctx, "Failed to query tracked message by Slack message",
+			"error", err,
+			"team_id", slackTeamID,
+			"channel", slackChannel,
+			"message_ts", slackMessageTS,
+		)
+		return nil, fmt.Errorf("failed to query tracked message: %w", err)
+	}
+
+	var message models.TrackedMessage
+	if err := doc.DataTo(&message); err != nil {
+		log.Error(ctx, "Failed to deserialize tracked message",
+			"error", err,
+			"doc_id", doc.Ref.ID,
+		)
+		return nil, fmt.Errorf("failed to deserialize tracked message: %w", err)
+	}
+
+	return &message, nil
+}
+
 // CreateTrackedMessage creates a new tracked message record.
 func (fs *FirestoreService) CreateTrackedMessage(ctx context.Context, message *models.TrackedMessage) error {
 	message.CreatedAt = time.Now()
@@ -407,6 +450,33 @@ func (fs *FirestoreService) UpdateTrackedMessage(ctx context.Context, message *m
 		"user_to_cc", message.UserToCC,
 		"has_review_directive", message.HasReviewDirective,
 	)
+
+	return nil
+}
+
+// MarkTrackedMessageDeleted marks a tracked message as deleted by user.
+func (fs *FirestoreService) MarkTrackedMessageDeleted(ctx context.Context, messageID string) error {
+	if messageID == "" {
+		return ErrInvalidMessageID
+	}
+
+	docRef := fs.client.Collection("trackedmessages").Doc(messageID)
+	updates := []firestore.Update{
+		{Path: "deleted_by_user", Value: true},
+	}
+
+	_, err := docRef.Update(ctx, updates)
+	if err != nil {
+		log.Error(ctx, "Failed to mark tracked message as deleted",
+			"error", err,
+			"message_id", messageID,
+			"operation", "mark_tracked_message_deleted",
+		)
+		return fmt.Errorf("failed to mark tracked message %s as deleted: %w", messageID, err)
+	}
+
+	log.Debug(ctx, "Successfully marked tracked message as deleted",
+		"message_id", messageID)
 
 	return nil
 }

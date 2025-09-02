@@ -423,15 +423,19 @@ func (h *TestHarness) SetupRepo(ctx context.Context, repoFullName, channelID, te
 func (h *TestHarness) SetupTrackedMessage(
 	ctx context.Context, repoFullName string, prNumber int, channelID, teamID, messageTS string,
 ) error {
+	// Generate an ID for the tracked message
+	docRef := h.testDB.Collection("trackedmessages").NewDoc()
 	msg := map[string]interface{}{
-		"repo_full_name": repoFullName,
-		"pr_number":      prNumber,
-		"slack_channel":  channelID,
-		"slack_team_id":  teamID,
-		"message_ts":     messageTS,
-		"message_source": "webhook",
+		"id":               docRef.ID, // Set the document ID as the ID field
+		"repo_full_name":   repoFullName,
+		"pr_number":        prNumber,
+		"slack_channel":    channelID,
+		"slack_team_id":    teamID,
+		"slack_message_ts": messageTS,
+		"message_source":   "bot",
+		"created_at":       time.Now(),
 	}
-	_, _, err := h.testDB.Collection("tracked_messages").Add(ctx, msg)
+	_, err := docRef.Set(ctx, msg)
 	return err
 }
 
