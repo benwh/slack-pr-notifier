@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/go-github/v74/github"
+
 	"github-slack-notifier/internal/log"
 	"github-slack-notifier/internal/models"
 	"github-slack-notifier/internal/services"
@@ -56,13 +58,8 @@ func (h *GitHubHandler) ProcessReactionSyncJob(ctx context.Context, job *models.
 	// Convert tracked messages to message refs and group by team
 	messagesByTeam := h.groupMessagesByTeam(trackedMessages)
 
-	// Handle closed PR state
-	if pr.GetState() == "closed" {
-		return h.syncClosedPRReactions(ctx, pr, messagesByTeam, trackedMessages)
-	}
-
-	// Handle open PR review state
-	return h.syncOpenPRReactions(ctx, currentReviewState, messagesByTeam, trackedMessages)
+	// Sync reactions based on current PR state
+	return h.syncReactions(ctx, pr, currentReviewState, messagesByTeam, trackedMessages)
 }
 
 // groupMessagesByTeam groups tracked messages by Slack team ID for team-scoped API calls.
@@ -84,61 +81,73 @@ func (h *GitHubHandler) groupMessagesByTeam(trackedMessages []*models.TrackedMes
 	return messagesByTeam
 }
 
-// syncClosedPRReactions syncs emoji reactions for closed pull requests.
-// Adds appropriate emoji (merged/closed) to all tracked messages across teams.
-func (h *GitHubHandler) syncClosedPRReactions(
-	ctx context.Context, pr interface{ GetMerged() bool },
+// syncReactions syncs emoji reactions for pull requests based on current state.
+// For open PRs: removes PR state reactions, then syncs review reactions.
+// For closed PRs: syncs review reactions, then adds closed/merged emoji.
+func (h *GitHubHandler) syncReactions(
+	ctx context.Context, pr *github.PullRequest, currentReviewState string,
 	messagesByTeam map[string][]services.MessageRef, trackedMessages []*models.TrackedMessage,
 ) error {
-	emoji := utils.GetEmojiForPRState(PRActionClosed, pr.GetMerged(), h.emojiConfig)
-	if emoji == "" {
-		return nil
-	}
+	isClosed := pr.GetState() == "closed"
 
-	// Add reactions for each team
 	for teamID, teamMessageRefs := range messagesByTeam {
-		err := h.slackService.AddReactionToMultipleMessages(ctx, teamID, teamMessageRefs, emoji)
-		if err != nil {
-			log.Error(ctx, "Failed to add closed PR reactions for team",
-				"error", err,
-				"team_id", teamID,
-				"emoji", emoji,
-				"merged", pr.GetMerged(),
-			)
+		if isClosed {
+			// For closed PRs: sync review reactions, then add closed/merged emoji
+			err := h.slackService.SyncReviewReactions(ctx, teamID, teamMessageRefs, currentReviewState)
+			if err != nil {
+				log.Error(ctx, "Failed to sync review reactions for closed PR",
+					"error", err,
+					"team_id", teamID,
+					"review_state", currentReviewState,
+				)
+			}
+
+			// Add the appropriate closed/merged emoji
+			emoji := utils.GetEmojiForPRState(PRActionClosed, pr.GetMerged(), h.emojiConfig)
+			if emoji != "" {
+				err = h.slackService.AddReactionToMultipleMessages(ctx, teamID, teamMessageRefs, emoji)
+				if err != nil {
+					log.Error(ctx, "Failed to add PR state reaction",
+						"error", err,
+						"team_id", teamID,
+						"emoji", emoji,
+						"merged", pr.GetMerged(),
+					)
+				}
+			}
+		} else {
+			// For open PRs: remove any PR state reactions, then sync review reactions
+			err := h.slackService.RemovePRStateReactions(ctx, teamID, teamMessageRefs)
+			if err != nil {
+				log.Error(ctx, "Failed to remove PR state reactions",
+					"error", err,
+					"team_id", teamID,
+				)
+			}
+
+			err = h.slackService.SyncReviewReactions(ctx, teamID, teamMessageRefs, currentReviewState)
+			if err != nil {
+				log.Error(ctx, "Failed to sync review reactions for open PR",
+					"error", err,
+					"team_id", teamID,
+					"review_state", currentReviewState,
+				)
+			}
 		}
 	}
 
-	log.Info(ctx, "PR is closed, synced closed state reactions",
-		"merged", pr.GetMerged(),
-		"message_count", len(trackedMessages))
-
-	return nil
-}
-
-// syncOpenPRReactions syncs emoji reactions for open pull requests based on review state.
-// Uses comprehensive reaction sync that removes old reactions and adds current state reactions.
-func (h *GitHubHandler) syncOpenPRReactions(
-	ctx context.Context, currentReviewState string,
-	messagesByTeam map[string][]services.MessageRef, trackedMessages []*models.TrackedMessage,
-) error {
-	// Sync reactions for each team separately
-	for teamID, teamMessageRefs := range messagesByTeam {
-		err := h.slackService.SyncAllReviewReactions(ctx, teamID, teamMessageRefs, currentReviewState)
-		if err != nil {
-			log.Error(ctx, "Failed to sync review reactions for team",
-				"error", err,
-				"team_id", teamID,
-				"review_state", currentReviewState,
-				"message_count", len(teamMessageRefs),
-			)
-			// Continue with other teams even if one fails
-		}
+	// Log final state
+	if isClosed {
+		log.Info(ctx, "PR is closed, synced reactions",
+			"merged", pr.GetMerged(),
+			"review_state", currentReviewState,
+			"message_count", len(trackedMessages))
+	} else {
+		log.Info(ctx, "Reaction sync completed for open PR",
+			"review_state", currentReviewState,
+			"total_messages", len(trackedMessages),
+			"workspace_count", len(messagesByTeam))
 	}
-
-	log.Info(ctx, "Reaction sync completed",
-		"review_state", currentReviewState,
-		"total_messages", len(trackedMessages),
-		"workspace_count", len(messagesByTeam))
 
 	return nil
 }

@@ -204,13 +204,21 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		jobs := harness.FakeCloudTasks().GetExecutedJobs()
 		require.Len(t, jobs, 2)
 
-		// Verify reaction was added for approved review
-		reactionRequests := harness.SlackRequestCapture().GetReactionRequests()
-		if len(reactionRequests) > 0 {
+		// Verify reaction was added for approved review (filter for only add operations)
+		allRequests := harness.SlackRequestCapture().GetAllRequests()
+		var addReactions []SlackReactionRequest
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.add") {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok {
+					addReactions = append(addReactions, reaction)
+				}
+			}
+		}
+		if len(addReactions) > 0 {
 			// If reactions were added, verify the correct emoji
-			assert.Equal(t, "test-channel", reactionRequests[0].Channel)
-			assert.Equal(t, "1234567890.123456", reactionRequests[0].Timestamp)
-			assert.Equal(t, "white_check_mark", reactionRequests[0].Name)
+			assert.Equal(t, "test-channel", addReactions[0].Channel)
+			assert.Equal(t, "1234567890.123456", addReactions[0].Timestamp)
+			assert.Equal(t, "white_check_mark", addReactions[0].Name)
 		}
 	})
 
