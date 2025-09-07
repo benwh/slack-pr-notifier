@@ -25,7 +25,12 @@ func (b *HomeViewBuilder) BuildHomeView(
 	blocks := []slack.Block{}
 
 	// Introduction section
-	blocks = append(blocks, b.buildIntroductionSection()...)
+	blocks = append(blocks, b.buildIntroductionSection(user)...)
+
+	// How it works section (only shown after GitHub connection)
+	if user != nil && user.GitHubUsername != "" && user.Verified {
+		blocks = append(blocks, b.buildHowItWorksSection()...)
+	}
 
 	// GitHub App installation warning (only shown if no installations exist)
 	if !hasGitHubInstallations {
@@ -65,7 +70,7 @@ func (b *HomeViewBuilder) BuildHomeView(
 		),
 		slack.NewContextBlock(
 			"",
-			slack.NewTextBlockObject(slack.MarkdownType, "_Configure workspace-wide settings_", false, false),
+			slack.NewTextBlockObject(slack.MarkdownType, "_Configure *workspace-wide* settings_", false, false),
 		),
 		slack.NewDividerBlock(),
 	)
@@ -102,7 +107,7 @@ func (b *HomeViewBuilder) buildGitHubConnectionSection(user *models.User) []slac
 		// Connected state
 		blocks = append(blocks, slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				fmt.Sprintf("Connect your GitHub account\n_✅ Connected as @%s (Verified via OAuth)_", user.GitHubUsername),
+				fmt.Sprintf("Connect your GitHub account\n_✅ Connected as @%s_", user.GitHubUsername),
 				false, false),
 			nil,
 			slack.NewAccessory(
@@ -282,7 +287,7 @@ func (b *HomeViewBuilder) buildUserTaggingSection(user *models.User) []slack.Blo
 	}
 
 	taggingSectionText := slack.NewTextBlockObject(slack.MarkdownType,
-		fmt.Sprintf("Control user mentions\n_%s - When enabled, you will be mentioned (@username) in your PR messages_", taggingStatus),
+		fmt.Sprintf("Control user mentions\n_%s - When enabled, you will be mentioned (@username) in your PR messages, to get *thread reply notifications*_", taggingStatus),
 		false, false)
 
 	return []slack.Block{
@@ -572,16 +577,58 @@ func (b *HomeViewBuilder) BuildChannelTrackingConfigModal(channelID, channelName
 }
 
 // buildIntroductionSection builds the introduction section explaining what PR Bot does.
-func (b *HomeViewBuilder) buildIntroductionSection() []slack.Block {
+func (b *HomeViewBuilder) buildIntroductionSection(user *models.User) []slack.Block {
+	// Show different intro based on GitHub connection status
+	githubConnected := user != nil && user.GitHubUsername != "" && user.Verified
+
+	if githubConnected {
+		// Terse version for connected users
+		return []slack.Block{
+			slack.NewHeaderBlock(
+				slack.NewTextBlockObject(slack.PlainTextType, "PR Bot Settings 🤖", false, false),
+			),
+			slack.NewDividerBlock(),
+		}
+	}
+
+	// Full intro for new users
 	return []slack.Block{
 		slack.NewHeaderBlock(
 			slack.NewTextBlockObject(slack.PlainTextType, "Welcome to PR Bot! 🤖", false, false),
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType,
-				"*PR Bot provides integration between GitHub and Slack with two main features:*\n\n"+
+				"*PR Bot integrates between GitHub and Slack, with two main features:*\n\n"+
 					"• *PR mirroring*: Automatically posts your PRs to Slack when opened.\n"+
-					"• *PR status reactions*: Adds emoji reactions to show review status (on automatic and manually-posted links).",
+					"• *PR status reactions*: Adds emoji reactions on Slack messages to show review/merge status.",
+				false, false),
+			nil, nil,
+		),
+		slack.NewDividerBlock(),
+	}
+}
+
+// buildHowItWorksSection builds the "How it works" documentation section.
+func (b *HomeViewBuilder) buildHowItWorksSection() []slack.Block {
+	return []slack.Block{
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject(slack.PlainTextType, "📖 Usage", false, false),
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType,
+				"*PR description hints:*\n"+
+					"• Add or edit `!review ...` into your *GitHub PR description*, with various modifers, to customise behaviour:\n"+
+					"• `!review #review-channel`: *override the Slack channel* the PR is posted into\n"+
+					"• `!review @github_user`: *tag a user* for a review specifically (only works if they've linked their account via PR Bot!)\n"+
+					"• `!review skip`: to prevent the PR from being posted.\n"+
+					"• `!review :custom_emoji:`: to override the emoji on the posted message.\n"+
+					"• `<!-- !review @some_user #some_channel -->`: use a markdown comment to hide the hint\n\n"+
+
+					"*Message management:*\n"+
+					"• PRs opened as *draft* will be automatically skipped, and only posted when marked as ready for review.\n"+
+					"• Add a :wastebasket: reaction to a bot-posted message, to *delete the message* (only the linked author can do this though!)\n"+
+					"• PR review status reactions are automatic.\n"+
+					"• If a PR hasn't been automaticaly posted, then you can post it yourself, and still receive review status reactions.",
 				false, false),
 			nil, nil,
 		),
