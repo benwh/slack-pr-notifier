@@ -1,0 +1,74 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Development files
+.env
+.env.*
+*.env
+
+# Scripts (not needed in container)
+scripts/
+
+# Build artifacts
+github-slack-notifier
+*.so
+*.dylib
+
+# Test files
+*_test.go
+tests/
+coverage.out
+coverage.html
+*.test
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go build cache
+vendor/
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+
+# CI/CD
+.github/
+
+# Docker files
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Slack manifest files
+slack-app-manifest.yaml
+slack-app-manifest.json
+
+# Cloud provider files
+terraform/
+*.tf
+*.tfvars
+*.tfstate*
+
+# Local development
+ngrok*
+.ngrok*
+
+# Claude AI files
+CLAUDE.md
+CLAUDE.local.md
+.claude/
