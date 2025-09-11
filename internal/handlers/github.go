@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,11 +58,13 @@ type PRUpdateChanges struct {
 	DirectivesChanged bool
 	OldTitle          string
 	NewTitle          string
-	OldCC             string
-	NewCC             string
+	OldCC             []string
+	NewCC             []string
 	OldHasDirective   bool
 	NewHasDirective   bool
 }
+
+// Utility functions
 
 // Channel utility functions
 
@@ -606,7 +609,7 @@ func (h *GitHubHandler) postPRToAllWorkspaces(ctx context.Context, payload *gith
 	log.Debug(ctx, "Channel and directive determination",
 		"annotated_channel", annotatedChannel,
 		"skip", directives.Skip,
-		"user_to_cc", directives.UserToCC)
+		"users_to_cc", directives.UsersToCC)
 
 	// Check if PR should be skipped
 	if directives.Skip {
@@ -738,10 +741,11 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		impersonationEnabled = user.GetImpersonationEnabled()
 	}
 
-	// Resolve UserToCC GitHub username to Slack user ID if possible
-	var userToCCSlackID string
-	if directives.UserToCC != "" {
-		userToCCSlackID = h.resolveUserMention(ctx, directives.UserToCC, repo.WorkspaceID)
+	// Resolve UsersToCC GitHub usernames to Slack user IDs if possible
+	var usersCCSlackIDs []string
+	for _, username := range directives.UsersToCC {
+		slackID := h.resolveUserMention(ctx, username, repo.WorkspaceID)
+		usersCCSlackIDs = append(usersCCSlackIDs, slackID)
 	}
 
 	timestamp, resolvedChannelID, err := h.slackService.PostPRMessage(
@@ -755,8 +759,8 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		payload.GetPullRequest().GetHTMLURL(),
 		prSize,
 		authorSlackUserID,
-		directives.UserToCC,
-		userToCCSlackID,
+		directives.UsersToCC,
+		usersCCSlackIDs,
 		directives.CustomEmoji,
 		impersonationEnabled,
 		userTaggingEnabled,
@@ -792,9 +796,9 @@ func (h *GitHubHandler) postAndTrackPRMessage(
 		SlackMessageTS:     timestamp,
 		SlackTeamID:        repo.WorkspaceID,
 		MessageSource:      models.MessageSourceBot,
-		PRAuthorGitHubID:   &prAuthorID,         // Store PR author GitHub ID for deletion authorization
-		UserToCC:           directives.UserToCC, // Store CC info for future updates
-		HasReviewDirective: &hasDirective,       // Track whether directive existed when message was created
+		PRAuthorGitHubID:   &prAuthorID,          // Store PR author GitHub ID for deletion authorization
+		UsersToCC:          directives.UsersToCC, // Store CC info for future updates
+		HasReviewDirective: &hasDirective,        // Track whether directive existed when message was created
 	}
 
 	log.Debug(ctx, "Saving tracked message to database",
@@ -869,7 +873,7 @@ func (h *GitHubHandler) handlePREdited(ctx context.Context, payload *github.Pull
 	log.Info(ctx, "Processing PR edit directives",
 		"skip", directives.Skip,
 		"channel", directives.Channel,
-		"user_to_cc", directives.UserToCC,
+		"users_to_cc", directives.UsersToCC,
 		"pr_body", payload.GetPullRequest().GetBody(),
 	)
 
@@ -1235,7 +1239,7 @@ func (h *GitHubHandler) detectPRChanges(
 ) *PRUpdateChanges {
 	changes := &PRUpdateChanges{
 		NewTitle:        payload.GetPullRequest().GetTitle(),
-		NewCC:           directives.UserToCC,
+		NewCC:           directives.UsersToCC,
 		NewHasDirective: directives.HasReviewDirective,
 	}
 
@@ -1265,9 +1269,9 @@ func (h *GitHubHandler) detectPRChanges(
 		firstMsg := botMessages[0]
 
 		// Check if CC changed
-		if firstMsg.UserToCC != directives.UserToCC {
+		if !slices.Equal(firstMsg.UsersToCC, directives.UsersToCC) {
 			changes.CCChanged = true
-			changes.OldCC = firstMsg.UserToCC
+			changes.OldCC = firstMsg.UsersToCC
 			log.Info(ctx, "CC change detected",
 				"old_cc", changes.OldCC,
 				"new_cc", changes.NewCC,
@@ -1356,7 +1360,7 @@ func (h *GitHubHandler) filterMessagesForPRUpdates(
 				"workspace_id", msg.SlackTeamID,
 				"old_title", msg.PRTitle,
 				"new_title", changes.NewTitle,
-				"old_cc", msg.UserToCC,
+				"old_cc", msg.UsersToCC,
 				"new_cc", changes.NewCC,
 				"old_has_directive", msg.HasReviewDirective != nil && *msg.HasReviewDirective,
 				"new_has_directive", changes.NewHasDirective,
@@ -1394,7 +1398,7 @@ func (h *GitHubHandler) messageNeedsUpdate(
 			changeReasons = append(changeReasons, "directive_added")
 		}
 		// Case 2: Message had directive, CC content changed
-		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && msg.UserToCC != changes.NewCC {
+		if msg.HasReviewDirective != nil && *msg.HasReviewDirective && !slices.Equal(msg.UsersToCC, changes.NewCC) {
 			needsUpdate = true
 			changeReasons = append(changeReasons, "cc_changed")
 		}
@@ -1417,7 +1421,7 @@ func (h *GitHubHandler) createUpdatedMessage(msg *models.TrackedMessage, changes
 	}
 
 	if changes.CCChanged || changes.DirectivesChanged {
-		updatedMsg.UserToCC = changes.NewCC
+		updatedMsg.UsersToCC = changes.NewCC
 		hasDirective := changes.NewHasDirective
 		updatedMsg.HasReviewDirective = &hasDirective
 	}
@@ -1481,10 +1485,11 @@ func (h *GitHubHandler) updateSingleMessageForPRChanges(
 	ctx context.Context, payload *github.PullRequestEvent, msg *models.TrackedMessage,
 	directives *services.PRDirectives, user *models.User, prSize int,
 ) error {
-	// Resolve CC username to Slack user ID if possible
-	var userToCCSlackID string
-	if directives.UserToCC != "" {
-		userToCCSlackID = h.resolveUserMention(ctx, directives.UserToCC, msg.SlackTeamID)
+	// Resolve CC usernames to Slack user IDs if possible
+	var usersCCSlackIDs []string
+	for _, username := range directives.UsersToCC {
+		slackID := h.resolveUserMention(ctx, username, msg.SlackTeamID)
+		usersCCSlackIDs = append(usersCCSlackIDs, slackID)
 	}
 
 	// Get author's Slack user ID if they're in the same workspace and verified
@@ -1509,8 +1514,8 @@ func (h *GitHubHandler) updateSingleMessageForPRChanges(
 		payload.GetPullRequest().GetHTMLURL(),
 		prSize,
 		authorSlackUserID,
-		directives.UserToCC, // Use current CC
-		userToCCSlackID,
+		directives.UsersToCC, // Use current CC
+		usersCCSlackIDs,
 		directives.CustomEmoji,
 		userTaggingEnabled,
 		user,

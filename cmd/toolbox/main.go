@@ -14,6 +14,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"github-slack-notifier/internal/config"
 	"github-slack-notifier/internal/log"
+	"github-slack-notifier/internal/models"
 	"google.golang.org/api/iterator"
 )
 
@@ -21,6 +22,13 @@ const (
 	batchSize         = 500
 	minArgsRequired   = 2
 	filePermReadWrite = 0600
+	// Log levels.
+	logLevelDebug = "debug"
+	logLevelInfo  = "info"
+	logLevelWarn  = "warn"
+	logLevelError = "error"
+	// Gin modes.
+	ginModeRelease = "release"
 )
 
 var (
@@ -39,6 +47,8 @@ func main() {
 		handleWipeFirestore()
 	case "dump-firestore":
 		handleDumpFirestore()
+	case "migrate-user-cc":
+		handleMigrateUserCC()
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -57,6 +67,7 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  wipe-firestore     Delete all documents from all Firestore collections")
 	fmt.Println("  dump-firestore     Export all documents from all Firestore collections as JSON")
+	fmt.Println("  migrate-user-cc    Migrate TrackedMessage records from user_to_cc to users_to_cc field")
 	fmt.Println("  help               Show this help message")
 	fmt.Println("")
 	fmt.Println("Flags for wipe-firestore:")
@@ -65,6 +76,10 @@ func printUsage() {
 	fmt.Println("Flags for dump-firestore:")
 	fmt.Println("  --output FILE      Write output to file instead of stdout")
 	fmt.Println("  --pretty           Pretty-print JSON output")
+	fmt.Println("")
+	fmt.Println("Flags for migrate-user-cc:")
+	fmt.Println("  --dry-run          Show what would be migrated without making changes")
+	fmt.Println("  --force            Skip confirmation prompt")
 	fmt.Println("")
 }
 
@@ -81,14 +96,14 @@ func handleWipeFirestore() {
 
 	// Setup structured logging
 	var logger *slog.Logger
-	isDev := cfg.GinMode != "release"
+	isDev := cfg.GinMode != ginModeRelease
 	var logLevel slog.Level
 	switch cfg.LogLevel {
-	case "debug":
+	case logLevelDebug:
 		logLevel = slog.LevelDebug
-	case "warn":
+	case logLevelWarn:
 		logLevel = slog.LevelWarn
-	case "error":
+	case logLevelError:
 		logLevel = slog.LevelError
 	default:
 		logLevel = slog.LevelInfo
@@ -242,14 +257,14 @@ func handleDumpFirestore() {
 
 	// Setup structured logging
 	var logger *slog.Logger
-	isDev := cfg.GinMode != "release"
+	isDev := cfg.GinMode != ginModeRelease
 	var logLevel slog.Level
 	switch cfg.LogLevel {
-	case "debug":
+	case logLevelDebug:
 		logLevel = slog.LevelDebug
-	case "warn":
+	case logLevelWarn:
 		logLevel = slog.LevelWarn
-	case "error":
+	case logLevelError:
 		logLevel = slog.LevelError
 	default:
 		logLevel = slog.LevelInfo
@@ -361,4 +376,161 @@ func dumpCollection(ctx context.Context, client *firestore.Client, collectionNam
 	}
 
 	return documents, count, nil
+}
+
+//nolint:gocognit,cyclop // Migration command with complex workflow - acceptable for toolbox utility
+func handleMigrateUserCC() {
+	var dryRun, force bool
+
+	// Parse flags for the migrate-user-cc command
+	fs := flag.NewFlagSet("migrate-user-cc", flag.ExitOnError)
+	fs.BoolVar(&dryRun, "dry-run", false, "Show what would be migrated without making changes")
+	fs.BoolVar(&force, "force", false, "Skip confirmation prompt")
+	_ = fs.Parse(os.Args[2:])
+
+	cfg := config.Load()
+	ctx := context.Background()
+
+	// Setup structured logging
+	var logger *slog.Logger
+	isDev := cfg.GinMode != ginModeRelease
+	var logLevel slog.Level
+	switch cfg.LogLevel {
+	case logLevelDebug:
+		logLevel = slog.LevelDebug
+	case logLevelWarn:
+		logLevel = slog.LevelWarn
+	case logLevelError:
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
+
+	if isDev {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: logLevel,
+		}))
+	} else {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: logLevel,
+		}))
+	}
+	slog.SetDefault(logger)
+
+	// Initialize Firestore
+	client, err := firestore.NewClientWithDatabase(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
+	if err != nil {
+		fmt.Printf("Failed to create Firestore client: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			fmt.Printf("Error closing Firestore client: %v\n", err)
+		}
+	}()
+
+	fmt.Println("Scanning TrackedMessage collection for user_to_cc field migration...")
+
+	// Query all documents with the old user_to_cc field
+	query := client.Collection("trackedmessages").Where("user_to_cc", "!=", "")
+
+	var toMigrate []models.TrackedMessage
+	iter := query.Documents(ctx)
+
+	for {
+		doc, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			fmt.Printf("Error reading document: %v\n", err)
+			os.Exit(1)
+		}
+
+		var message models.TrackedMessage
+		if err := doc.DataTo(&message); err != nil {
+			fmt.Printf("Error deserializing document %s: %v\n", doc.Ref.ID, err)
+			continue
+		}
+
+		// Only add to migration list if it needs migration
+		if message.UserToCC != "" && len(message.UsersToCC) == 0 {
+			toMigrate = append(toMigrate, message)
+		}
+	}
+
+	if len(toMigrate) == 0 {
+		fmt.Println("✅ No documents need migration. All TrackedMessage records are up to date.")
+		return
+	}
+
+	fmt.Printf("Found %d documents that need migration:\n", len(toMigrate))
+	for i, msg := range toMigrate {
+		if i < 5 { // Show first 5 examples
+			fmt.Printf("  - Document %s: user_to_cc='%s' → users_to_cc=['%s']\n",
+				msg.ID, msg.UserToCC, msg.UserToCC)
+		} else if i == 5 {
+			fmt.Printf("  ... and %d more documents\n", len(toMigrate)-5)
+			break
+		}
+	}
+
+	if dryRun {
+		fmt.Println("\n🔍 DRY RUN MODE: No changes will be made.")
+		fmt.Printf("Would migrate %d documents from user_to_cc to users_to_cc field.\n", len(toMigrate))
+		return
+	}
+
+	// Confirmation prompt
+	if !force {
+		fmt.Printf("\nThis will migrate %d documents. Continue? [y/N]: ", len(toMigrate))
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Printf("Error reading input: %v\n", err)
+			os.Exit(1)
+		}
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Println("Migration cancelled.")
+			return
+		}
+	}
+
+	fmt.Printf("\nMigrating %d documents...\n", len(toMigrate))
+
+	migrated := 0
+	failed := 0
+
+	for i, msg := range toMigrate {
+		// Perform the migration
+		msg.MigrateUserToCC()
+
+		// Update the document in Firestore
+		updates := []firestore.Update{
+			{Path: "users_to_cc", Value: msg.UsersToCC},
+			{Path: "user_to_cc", Value: firestore.Delete}, // Remove old field
+		}
+
+		docRef := client.Collection("trackedmessages").Doc(msg.ID)
+		_, err := docRef.Update(ctx, updates)
+		if err != nil {
+			fmt.Printf("❌ Failed to migrate document %s: %v\n", msg.ID, err)
+			failed++
+			continue
+		}
+
+		migrated++
+		if (i+1)%50 == 0 { // Progress update every 50 documents
+			fmt.Printf("   Migrated %d/%d documents...\n", i+1, len(toMigrate))
+		}
+	}
+
+	fmt.Printf("\n✅ Migration completed!\n")
+	fmt.Printf("   Successfully migrated: %d documents\n", migrated)
+	if failed > 0 {
+		fmt.Printf("   Failed to migrate: %d documents\n", failed)
+	}
+	fmt.Println("\nAll TrackedMessage records now use the users_to_cc array field.")
+	fmt.Println("The old user_to_cc field has been removed from migrated documents.")
 }

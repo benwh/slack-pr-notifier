@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /github-slack-notifier
+/toolbox
 
 # Test binary, built with `go test -c`
 *.test

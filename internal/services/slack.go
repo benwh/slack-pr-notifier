@@ -86,7 +86,7 @@ func (s *SlackService) getSlackClient(ctx context.Context, teamID string) (*slac
 // Returns the message timestamp and resolved channel ID for tracking.
 func (s *SlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
+	authorSlackUserID string, usersToCC []string, usersCCSlackIDs []string, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
 	user *models.User,
 ) (string, string, error) {
 	client, err := s.getSlackClient(ctx, teamID)
@@ -108,7 +108,7 @@ func (s *SlackService) PostPRMessage(
 
 	// Build message text once - use bot mode format since it includes everything we need
 	messageText := s.buildMessageText(
-		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC, userToCCSlackID,
+		customEmoji, prSize, prURL, prTitle, prAuthor, usersToCC, usersCCSlackIDs,
 		authorSlackUserID, userTaggingEnabled, user,
 	)
 
@@ -219,7 +219,7 @@ func (s *SlackService) postMessageAsBot(
 
 // buildMessageText constructs the message text for both impersonation and bot modes.
 func (s *SlackService) buildMessageText(
-	customEmoji string, prSize int, prURL, prTitle, prAuthor, userToCC, userToCCSlackID, authorSlackUserID string,
+	customEmoji string, prSize int, prURL, prTitle, prAuthor string, usersToCC []string, usersCCSlackIDs []string, authorSlackUserID string,
 	userTaggingEnabled bool, user *models.User,
 ) string {
 	emoji := s.formatEmoji(customEmoji, prSize, user)
@@ -235,12 +235,16 @@ func (s *SlackService) buildMessageText(
 	}
 
 	// Add user CC if specified - use Slack user ID if available, otherwise fallback to plain text
-	if userToCC != "" {
-		if userToCCSlackID != "" {
-			text += fmt.Sprintf(" (cc: <@%s>)", userToCCSlackID)
-		} else {
-			text += fmt.Sprintf(" (cc: @%s)", userToCC)
+	if len(usersToCC) > 0 {
+		var ccMentions []string
+		for i, username := range usersToCC {
+			if i < len(usersCCSlackIDs) && usersCCSlackIDs[i] != "" {
+				ccMentions = append(ccMentions, fmt.Sprintf("<@%s>", usersCCSlackIDs[i]))
+			} else {
+				ccMentions = append(ccMentions, fmt.Sprintf("@%s", username))
+			}
 		}
+		text += fmt.Sprintf(" (cc: %s)", strings.Join(ccMentions, ", "))
 	}
 
 	return text
@@ -743,14 +747,14 @@ func (s *SlackService) resolveChannelID(ctx context.Context, _ string, client *s
 type PRDirectives struct {
 	Skip               bool
 	Channel            string
-	UserToCC           string
+	UsersToCC          []string
 	CustomEmoji        string
 	HasReviewDirective bool // Whether any !review directive was found (even if empty)
 }
 
-// !review[s]: [skip|no] [#channel_name] [@user_to_cc].
-// ParsePRDirectives parses PR description for directive commands like !review: skip #channel @user :emoji:.
-// Returns parsed directives with the last occurrence of each directive type taking precedence.
+// !review[s]: [skip|no] [#channel_name] [@user1 @user2 ...].
+// ParsePRDirectives parses PR description for directive commands like !review: skip #channel @user1 @user2 :emoji:.
+// Returns parsed directives with all users accumulated from all directive occurrences.
 func (s *SlackService) ParsePRDirectives(description string) *PRDirectives {
 	directives := &PRDirectives{}
 
@@ -784,6 +788,9 @@ func (s *SlackService) processDirectiveMatch(content string, directives *PRDirec
 		return
 	}
 
+	// Reset users list for this directive (last directive wins behavior)
+	var usersInThisDirective []string
+
 	// Split content by whitespace and parse each component
 	parts := strings.Fields(content)
 	for _, part := range parts {
@@ -791,12 +798,17 @@ func (s *SlackService) processDirectiveMatch(content string, directives *PRDirec
 		if part == "" {
 			continue
 		}
-		s.processDirectivePart(part, directives)
+		s.processDirectivePartWithUserList(part, directives, &usersInThisDirective)
+	}
+
+	// If we found users in this directive, replace the existing list
+	if len(usersInThisDirective) > 0 {
+		directives.UsersToCC = usersInThisDirective
 	}
 }
 
-// processDirectivePart processes a single part of a directive.
-func (s *SlackService) processDirectivePart(part string, directives *PRDirectives) {
+// processDirectivePartWithUserList processes a single part of a directive with a local user list.
+func (s *SlackService) processDirectivePartWithUserList(part string, directives *PRDirectives, usersInThisDirective *[]string) {
 	// Check for skip directive
 	if strings.EqualFold(part, "skip") || strings.EqualFold(part, "no") {
 		directives.Skip = true
@@ -826,7 +838,7 @@ func (s *SlackService) processDirectivePart(part string, directives *PRDirective
 
 	// Check for user CC directive (starts with @)
 	if strings.HasPrefix(part, "@") {
-		s.processUserDirective(part, directives)
+		s.processUserDirectiveWithList(part, usersInThisDirective)
 	}
 }
 
@@ -839,12 +851,18 @@ func (s *SlackService) processChannelDirective(part string, directives *PRDirect
 	}
 }
 
-// processUserDirective processes a user CC directive part.
-func (s *SlackService) processUserDirective(part string, directives *PRDirectives) {
+// processUserDirectiveWithList processes a user CC directive part with a local user list.
+func (s *SlackService) processUserDirectiveWithList(part string, usersInThisDirective *[]string) {
 	// Validate username format: alphanumeric, dots, hyphens, underscores
 	username := strings.TrimPrefix(part, "@")
 	if usernameValidationRegex.MatchString(username) {
-		directives.UserToCC = username
+		// Check if user is already in this directive's list to avoid duplicates
+		for _, existingUser := range *usersInThisDirective {
+			if existingUser == username {
+				return
+			}
+		}
+		*usersInThisDirective = append(*usersInThisDirective, username)
 	}
 }
 
@@ -1060,7 +1078,7 @@ func (s *SlackService) GetChannelName(ctx context.Context, teamID, channelID str
 // Used to update CC mentions when PR description directives change.
 func (s *SlackService) UpdatePRMessage(
 	ctx context.Context, teamID, channelID, messageTS, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, userTaggingEnabled bool, user *models.User,
+	authorSlackUserID string, usersToCC []string, usersCCSlackIDs []string, customEmoji string, userTaggingEnabled bool, user *models.User,
 ) error {
 	client, err := s.getSlackClient(ctx, teamID)
 	if err != nil {
@@ -1069,7 +1087,7 @@ func (s *SlackService) UpdatePRMessage(
 
 	// Build the updated message text using the same logic as PostPRMessage
 	messageText := s.buildMessageText(
-		customEmoji, prSize, prURL, prTitle, prAuthor, userToCC, userToCCSlackID,
+		customEmoji, prSize, prURL, prTitle, prAuthor, usersToCC, usersCCSlackIDs,
 		authorSlackUserID, userTaggingEnabled, user,
 	)
 
@@ -1091,7 +1109,7 @@ func (s *SlackService) UpdatePRMessage(
 		"channel_id", channelID,
 		"message_ts", messageTS,
 		"team_id", teamID,
-		"user_to_cc", userToCC,
+		"users_to_cc", usersToCC,
 	)
 
 	return nil

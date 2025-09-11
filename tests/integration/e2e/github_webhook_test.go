@@ -864,6 +864,121 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		t.Logf("✅ CC directive change test passed: Message correctly updated to add and remove CC mentions")
 	})
 
+	t.Run("PR directives - multiple users CC", func(t *testing.T) {
+		// Reset all test state for proper isolation
+		require.NoError(t, harness.ResetForTest(ctx))
+
+		// Setup OAuth workspace and test data
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Step 1: Create PR with single user CC
+		initialPayload := buildPRPayloadWithDirective(
+			"testorg/testrepo", 600, "PR with multiple CC users", "test-user",
+			"PR description\n!review: @alice.jones",
+		)
+
+		// Send initial PR webhook
+		resp := sendGitHubWebhook(t, harness, "pull_request", initialPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2) // github_webhook + workspace_pr
+
+		slackRequests := harness.SlackRequestCapture().GetPostMessageRequests()
+		require.Len(t, slackRequests, 1, "Expected initial message to be posted")
+
+		initialMessage := slackRequests[0]
+		assert.Contains(t, initialMessage.Text, "(cc: @alice.jones)")
+		assert.Contains(t, initialMessage.Text, "PR with multiple CC users")
+
+		// Step 2: Edit PR to add multiple users to CC
+		multiUserPayload := buildPREditedPayloadWithDirective(
+			"testorg/testrepo", 600, "PR with multiple CC users", "test-user",
+			"Updated PR description\n!review: @alice.jones @bob.smith @charlie.chen",
+		)
+
+		// Clear job history for clean assertions
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Send edited PR webhook
+		resp = sendGitHubWebhook(t, harness, "pull_request", multiUserPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed (edited PRs only create github_webhook job)
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1) // github_webhook only for edits
+
+		// Verify message was updated with multiple CCs
+		updateRequests := harness.SlackRequestCapture().GetUpdateMessageRequests()
+		require.Len(t, updateRequests, 1, "Expected message to be updated")
+
+		updatedMessage := updateRequests[0]
+		assert.Equal(t, "C987654321", updatedMessage.Channel)
+		assert.Contains(t, updatedMessage.Text, "(cc: @alice.jones, @bob.smith, @charlie.chen)")
+		assert.Contains(t, updatedMessage.Text, "PR with multiple CC users")
+
+		// Step 3: Edit PR again with duplicates to test deduplication
+		dedupePayload := buildPREditedPayloadWithDirective(
+			"testorg/testrepo", 600, "PR with multiple CC users", "test-user",
+			"Updated again\n!review: @alice.jones @bob.smith @alice.jones @charlie.chen @bob.smith",
+		)
+
+		// Clear job history for clean assertions
+		harness.FakeCloudTasks().ClearExecutedJobs()
+
+		// Send edited PR webhook with duplicates
+		resp = sendGitHubWebhook(t, harness, "pull_request", dedupePayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed (edited PRs only create github_webhook job)
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1) // github_webhook only for edits
+
+		// Verify deduplication worked
+		updateRequests = harness.SlackRequestCapture().GetUpdateMessageRequests()
+		require.Len(t, updateRequests, 1, "Expected message to be updated")
+
+		dedupedMessage := updateRequests[0]
+		// Should still show unique users in order
+		assert.Contains(t, dedupedMessage.Text, "(cc: @alice.jones, @bob.smith, @charlie.chen)")
+		// Verify no duplicate mentions
+		assert.Equal(t, 1, strings.Count(dedupedMessage.Text, "@alice.jones"))
+		assert.Equal(t, 1, strings.Count(dedupedMessage.Text, "@bob.smith"))
+
+		// Step 4: Test "last directive wins" with multiple directives
+		multiDirectivePayload := buildPREditedPayloadWithDirective(
+			"testorg/testrepo", 600, "PR with multiple CC users", "test-user",
+			"Description\n!review: @alice.jones\n!review: @bob.smith @charlie.chen",
+		)
+
+		// Clear job history and slack requests for clean assertions
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Send edited PR webhook with multiple directives
+		resp = sendGitHubWebhook(t, harness, "pull_request", multiDirectivePayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed (edited PRs only create github_webhook job)
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 1) // github_webhook only for edits
+
+		// Verify last directive wins
+		updateRequests = harness.SlackRequestCapture().GetUpdateMessageRequests()
+		require.Len(t, updateRequests, 1, "Expected message to be updated")
+
+		lastWinsMessage := updateRequests[0]
+		// Should only have users from the last directive
+		assert.Contains(t, lastWinsMessage.Text, "(cc: @bob.smith, @charlie.chen)")
+		assert.NotContains(t, lastWinsMessage.Text, "@alice.jones")
+
+		t.Logf("✅ Multiple users CC test passed: Messages correctly handle multiple CC users with deduplication")
+	})
+
 	t.Run("PR title changes - update message with new title", func(t *testing.T) {
 		// Reset all test state for proper isolation
 		require.NoError(t, harness.ResetForTest(ctx))

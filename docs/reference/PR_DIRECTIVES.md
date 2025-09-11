@@ -7,7 +7,7 @@ This document describes the special directives that can be included in GitHub PR
 PR directives use the following format:
 
 ```
-!review[s][:] [skip|no] [#channel_name] [@user_to_cc] [:emoji_name:]
+!review[s][:] [skip|no] [#channel_name] [@user1 @user2 ...] [:emoji_name:]
 ```
 
 **Note**: The colon after `!review` or `!reviews` is optional. Both formats work identically:
@@ -29,7 +29,7 @@ This directive works both proactively (prevents initial posting) and retroactive
 - **Magic string**: `!review` or `!reviews` (both forms work identically)
 - **Skip directive**: `skip` or `no` - prevents the PR from being posted to Slack AND deletes existing messages (same as `!review-skip`)
 - **Channel override**: `#channel_name` - overrides the default channel for posting
-- **User CC**: `@user_to_cc` - mentions additional users in the Slack message (triggers real Slack notifications for registered users)  
+- **User CC**: `@user1 @user2 ...` - mentions additional users in the Slack message (triggers real Slack notifications for registered users). Multiple users can be specified by including multiple @mentions
 - **Custom emoji**: `:emoji_name:` or actual emoji character (🔥, 🚀, ✨) - overrides the default size-based emoji with a custom one
 
 ### Order and Combinations
@@ -63,13 +63,22 @@ or
 !review #dev-team
 ```
 
-### User CC
+### User CC (Single User)
 ```
 !review: @john.doe
 ```
 or
 ```
 !review @john.doe
+```
+
+### User CC (Multiple Users)
+```
+!review: @john.doe @jane.smith @team.lead
+```
+or
+```
+!review @john.doe @jane.smith @team.lead
 ```
 
 ### Custom Emoji
@@ -99,6 +108,14 @@ or
 ```
 
 ```
+!review: #dev-team @jane.smith @john.doe
+```
+or
+```
+!review #dev-team @jane.smith @john.doe
+```
+
+```
 !reviews: @team-lead #engineering
 ```
 or
@@ -107,15 +124,15 @@ or
 ```
 
 ```
-!review: :fire: #dev-team @reviewer
+!review: :fire: #dev-team @reviewer @backup.reviewer
 ```
 or
 ```
-!review :fire: #dev-team @reviewer
+!review :fire: #dev-team @reviewer @backup.reviewer
 ```
 or
 ```
-!review 🔥 #dev-team @reviewer
+!review 🔥 #dev-team @reviewer @backup.reviewer
 ```
 
 ### Skip with Other Components (Skip Takes Precedence)
@@ -136,7 +153,7 @@ If multiple `!review` or `!reviews` directives are present in the same PR descri
 
 ## User Mentions
 
-The `@user_to_cc` directive supports intelligent user mention resolution:
+The `@user` directives support intelligent user mention resolution:
 
 - **For registered users**: If the GitHub username matches a user who has connected their GitHub account to the bot and is verified in the same Slack workspace, the mention will use the proper Slack format `<@slackUserID>` which triggers a real Slack notification.
 
@@ -146,6 +163,7 @@ This ensures that:
 - Team members who have set up their GitHub integration will receive proper Slack notifications
 - External contributors or users who haven't set up integration will still be mentioned visually in the message
 - The directive works consistently regardless of user registration status
+- Multiple users can be specified and each will be resolved independently
 
 ## Implementation Notes
 

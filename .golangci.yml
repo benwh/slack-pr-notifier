@@ -53,6 +53,7 @@ linters:
         - tests/
         - internal/testing/
         - internal/utils/emoji.go$
+        - cmd/toolbox/
       # List of function patterns to exclude from analysis.
       # Following functions are always ignored: `time.Date`,
       # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
