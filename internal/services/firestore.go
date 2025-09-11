@@ -348,9 +348,6 @@ func (fs *FirestoreService) GetTrackedMessages(
 			continue
 		}
 
-		// Handle backward compatibility migration
-		message.MigrateUserToCC()
-
 		messages = append(messages, &message)
 	}
 
@@ -397,9 +394,6 @@ func (fs *FirestoreService) GetTrackedMessageBySlackMessage(
 		return nil, fmt.Errorf("failed to deserialize tracked message: %w", err)
 	}
 
-	// Handle backward compatibility migration
-	message.MigrateUserToCC()
-
 	return &message, nil
 }
 
@@ -408,9 +402,6 @@ func (fs *FirestoreService) CreateTrackedMessage(ctx context.Context, message *m
 	message.CreatedAt = time.Now()
 	docRef := fs.client.Collection("trackedmessages").NewDoc()
 	message.ID = docRef.ID
-
-	// Ensure the legacy field is not persisted
-	message.UserToCC = ""
 
 	_, err := docRef.Set(ctx, message)
 	if err != nil {
@@ -434,16 +425,11 @@ func (fs *FirestoreService) UpdateTrackedMessage(ctx context.Context, message *m
 		return ErrInvalidMessageID
 	}
 
-	// Ensure migration before updating
-	message.MigrateUserToCC()
-
 	docRef := fs.client.Collection("trackedmessages").Doc(message.ID)
 	// Update only the CC-related fields instead of overwriting the entire document
 	updates := []firestore.Update{
 		{Path: "users_to_cc", Value: message.UsersToCC},
 		{Path: "has_review_directive", Value: message.HasReviewDirective},
-		// Explicitly remove the old field during updates
-		{Path: "user_to_cc", Value: firestore.Delete},
 	}
 	_, err := docRef.Update(ctx, updates)
 	if err != nil {

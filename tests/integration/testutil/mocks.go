@@ -158,7 +158,7 @@ func (m *MockSlackService) recordCall(call SlackCall) {
 // PostPRMessage mocks posting a PR message and returns a mock timestamp and channel ID.
 func (m *MockSlackService) PostPRMessage(
 	ctx context.Context, teamID, channel, repoName, prTitle, prAuthor, prDescription, prURL string, prSize int,
-	authorSlackUserID, userToCC, userToCCSlackID, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
+	authorSlackUserID string, usersToCC []string, usersCCSlackIDs []string, customEmoji string, impersonationEnabled, userTaggingEnabled bool,
 	user *models.User,
 ) (string, string, error) {
 	m.recordCall(SlackCall{
@@ -173,8 +173,8 @@ func (m *MockSlackService) PostPRMessage(
 			"prURL":                prURL,
 			"prSize":               prSize,
 			"authorSlackUserID":    authorSlackUserID,
-			"userToCC":             userToCC,
-			"userToCCSlackID":      userToCCSlackID,
+			"usersToCC":            usersToCC,
+			"usersCCSlackIDs":      usersCCSlackIDs,
 			"customEmoji":          customEmoji,
 			"impersonationEnabled": impersonationEnabled,
 			"userTaggingEnabled":   userTaggingEnabled,

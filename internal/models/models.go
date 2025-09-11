@@ -187,20 +187,9 @@ type TrackedMessage struct {
 	MessageSource      string    `firestore:"message_source"`                 // "bot" or "manual"
 	PRAuthorGitHubID   *int64    `firestore:"pr_author_github_id,omitempty"`  // GitHub user ID of PR author (bot messages only)
 	UsersToCC          []string  `firestore:"users_to_cc,omitempty"`          // GitHub usernames mentioned in CC directives
-	UserToCC           string    `firestore:"user_to_cc,omitempty"`           // Legacy field - deprecated, use UsersToCC
 	HasReviewDirective *bool     `firestore:"has_review_directive,omitempty"` // Whether message had directive
 	DeletedByUser      bool      `firestore:"deleted_by_user,omitempty"`      // Whether user deleted this message
 	CreatedAt          time.Time `firestore:"created_at"`                     // When we started tracking this message
-}
-
-// MigrateUserToCC handles backward compatibility by migrating old UserToCC field to UsersToCC array.
-func (tm *TrackedMessage) MigrateUserToCC() {
-	// If we have the old field but not the new one, migrate
-	if tm.UserToCC != "" && len(tm.UsersToCC) == 0 {
-		tm.UsersToCC = []string{tm.UserToCC}
-	}
-	// Clear the old field to avoid confusion (don't persist it)
-	tm.UserToCC = ""
 }
 
 type Repo struct {

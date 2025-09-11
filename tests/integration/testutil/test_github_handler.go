@@ -87,13 +87,13 @@ func (h *TestGitHubHandler) ProcessWebhookJob(ctx context.Context, job *models.J
 			"Test description",
 			"https://github.com/test/repo/pull/1",
 			testPRSize,
-			"",    // No Slack user ID in test
-			"",    // No user CC in test
-			"",    // No user CC Slack ID in test
-			"",    // No custom emoji in test
-			true,  // Default to impersonation enabled in test
-			false, // Default to user tagging disabled in test
-			nil,   // No user in test
+			"",         // No Slack user ID in test
+			[]string{}, // No users CC in test
+			[]string{}, // No users CC Slack IDs in test
+			"",         // No custom emoji in test
+			true,       // Default to impersonation enabled in test
+			false,      // Default to user tagging disabled in test
+			nil,        // No user in test
 		)
 	case "pull_request_review":
 		// Simulate adding reactions for reviews (assume approved for simplicity)
