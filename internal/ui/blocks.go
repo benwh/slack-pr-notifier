@@ -620,7 +620,8 @@ func (b *HomeViewBuilder) buildHowItWorksSection() []slack.Block {
 				"*PR description hints:*\n"+
 					"• Add or edit `!review ...` into your *GitHub PR description*, with various modifers, to customise behaviour:\n"+
 					"• `!review #review-channel`: *override the Slack channel* the PR is posted into\n"+
-					"• `!review @github_user`: *tag a user* (or multiple separated by spaces) for a review (only works if they've linked their account via PR Bot!)\n"+
+					"• `!review @github_user`: *tag a user* (or multiple separated by spaces) "+
+					"for a review (only works if they've linked their account via PR Bot!)\n"+
 					"• `!review skip`: to prevent the PR from being posted.\n"+
 					"• `!review :custom_emoji:`: to override the emoji on the posted message.\n"+
 					"• `<!-- !review @some_user #some_channel -->`: use a markdown comment to hide the hint\n\n"+

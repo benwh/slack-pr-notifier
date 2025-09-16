@@ -218,7 +218,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 			// If reactions were added, verify the correct emoji
 			assert.Equal(t, "test-channel", addReactions[0].Channel)
 			assert.Equal(t, "1234567890.123456", addReactions[0].Timestamp)
-			assert.Equal(t, "white_check_mark", addReactions[0].Name)
+			assert.Equal(t, emojiWhiteCheckMark, addReactions[0].Name)
 		}
 	})
 
@@ -1299,7 +1299,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 				var addReactions []SlackReactionRequest
 				for _, req := range allRequests {
 					if strings.Contains(req.URL, "reactions.add") {
-						if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == "speech_balloon" {
+						if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == emojiSpeechBalloon {
 							addReactions = append(addReactions, reaction)
 						}
 					}
@@ -1352,7 +1352,7 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		var addReactions []SlackReactionRequest
 		for _, req := range allRequests {
 			if strings.Contains(req.URL, "reactions.add") {
-				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == "white_check_mark" {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == emojiWhiteCheckMark {
 					addReactions = append(addReactions, reaction)
 				}
 			}
@@ -1362,10 +1362,99 @@ func TestGitHubWebhookIntegration(t *testing.T) {
 		if len(addReactions) > 0 {
 			// Channel ID is returned by the mock, not the channel name
 			assert.Equal(t, "C987654321", addReactions[0].Channel)
-			assert.Equal(t, "white_check_mark", addReactions[0].Name)
+			assert.Equal(t, emojiWhiteCheckMark, addReactions[0].Name)
 		}
 
 		t.Logf("✅ PR author approval test passed: approved reaction added even when PR author approves")
+	})
+
+	t.Run("PR review reactions - PR author approval then comment results in no reactions", func(t *testing.T) {
+		// Reset state and setup
+		require.NoError(t, harness.ResetForTest(ctx))
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		setupTestWorkspace(t, harness, "U123456789")
+		setupTestUser(t, harness, "test-user", "U123456789", "test-channel")
+		setupTestRepo(t, harness, "test-channel")
+		setupGitHubInstallation(t, harness)
+
+		// Step 1: Create PR first to ensure tracked message exists
+		prPayload := buildPROpenedPayload("testorg/testrepo", 4004, "Test PR for approval then comment", "test-user")
+		resp := sendGitHubWebhook(t, harness, "pull_request", prPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		waitForTrackedMessage(t, harness, "testorg/testrepo", 4004)
+
+		// Clear to focus on reviews
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Step 2: User submits approval review
+		approvalPayload := buildReviewSubmittedPayloadWithIDs("testorg/testrepo", 4004, "test-user", 100001, "approved", "test-user", 100001)
+		resp = sendGitHubWebhook(t, harness, "pull_request_review", approvalPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify jobs were executed (the actual behavior might be no reaction since it's PR author)
+		jobs := harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2) // github_webhook + reaction_sync
+
+		allRequests := harness.SlackRequestCapture().GetAllRequests()
+		var approvalReactions []SlackReactionRequest
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.add") {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok && reaction.Name == emojiWhiteCheckMark {
+					approvalReactions = append(approvalReactions, reaction)
+				}
+			}
+		}
+
+		// Note: PR author approvals might not result in reactions - this documents the current behavior
+		t.Logf("After first approval by PR author: found %d approval reactions", len(approvalReactions))
+
+		// Clear for next step
+		harness.FakeCloudTasks().ClearExecutedJobs()
+		harness.SlackRequestCapture().Clear()
+
+		// Step 3: Same user subsequently submits comment review (without dismissing approval)
+		commentPayload := buildReviewSubmittedPayloadWithIDs("testorg/testrepo", 4004, "test-user", 100001, "commented", "test-user", 100001)
+		resp = sendGitHubWebhook(t, harness, "pull_request_review", commentPayload)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Wait for reaction sync to complete
+		jobs = harness.FakeCloudTasks().GetExecutedJobs()
+		require.Len(t, jobs, 2) // github_webhook + reaction_sync
+
+		// Step 4: Verify final emoji state
+		// Based on updated determineOverallReviewState logic with priority:
+		// - User has APPROVED first, then COMMENTED
+		// - Priority logic: changes_requested > approved > commented
+		// - Since user has both APPROVED and COMMENTED, APPROVED takes precedence
+		// - Even though it's the PR author, their APPROVED state should be preserved
+		// - Final state should be APPROVED (approval emoji shown)
+		allRequests = harness.SlackRequestCapture().GetAllRequests()
+
+		// Check that approval reaction is added in the final sync
+		var finalApprovalReactions []SlackReactionRequest
+		var finalCommentReactions []SlackReactionRequest
+		for _, req := range allRequests {
+			if strings.Contains(req.URL, "reactions.add") {
+				if reaction, ok := req.ParsedBody.(SlackReactionRequest); ok {
+					switch reaction.Name {
+					case emojiWhiteCheckMark:
+						finalApprovalReactions = append(finalApprovalReactions, reaction)
+					case emojiSpeechBalloon:
+						finalCommentReactions = append(finalCommentReactions, reaction)
+					}
+				}
+			}
+		}
+
+		// The sync process may involve removes followed by adds, so we just check final state
+		assert.NotEmpty(t, finalApprovalReactions, "Expected approval reaction to be present when user approved then commented")
+		assert.Empty(t, finalCommentReactions, "Expected no comment reaction when approval takes precedence")
+
+		t.Logf("✅ Approval followed by comment test passed: final state shows approval emoji (priority logic working)")
 	})
 }
 

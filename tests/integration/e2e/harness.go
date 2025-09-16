@@ -31,7 +31,10 @@ import (
 var testPrivateKeyPEM []byte
 
 const (
-	testUserLogin = "test-user"
+	testUserLogin               = "test-user"
+	emojiWhiteCheckMark         = "white_check_mark"
+	emojiSpeechBalloon          = "speech_balloon"
+	emojiArrowsCounterClockWise = "arrows_counterclockwise"
 )
 
 // TestHarness provides an end-to-end testing environment for the application.
@@ -865,6 +868,27 @@ func (h *TestHarness) SetupMockResponses() {
 						"user": map[string]interface{}{
 							"id":    200001,
 							"login": "other-reviewer",
+						},
+					},
+				}
+			case "/repos/testorg/testrepo/pulls/4004/reviews":
+				// User approval followed by comment review scenario
+				// Same user has both approved and commented (without dismissing)
+				reviews = []interface{}{
+					map[string]interface{}{
+						"id":    12350,
+						"state": "APPROVED",
+						"user": map[string]interface{}{
+							"id":    100001,
+							"login": testUserLogin,
+						},
+					},
+					map[string]interface{}{
+						"id":    12351,
+						"state": "COMMENTED",
+						"user": map[string]interface{}{
+							"id":    100001,
+							"login": testUserLogin,
 						},
 					},
 				}

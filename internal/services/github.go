@@ -215,7 +215,7 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		prAuthorID = pr.User.GetID()
 	}
 
-	// Determine the latest review state per user (using user ID for reliability)
+	// Determine the highest priority review state per user (using user ID for reliability)
 	userReviewStates := make(map[int64]string)
 	for _, review := range reviews {
 		if review.User == nil || review.State == nil {
@@ -229,8 +229,16 @@ func (s *GitHubService) GetPullRequestWithReviews(
 		if !ok {
 			continue // Skip unknown states
 		}
-		// Keep the latest review state for each user
-		userReviewStates[userID] = string(reviewState)
+
+		// Keep the highest priority review state for each user
+		// If user already has a review state, prioritize: changes_requested > approved > commented
+		if existingState, exists := userReviewStates[userID]; exists {
+			if shouldReplaceReviewState(existingState, string(reviewState)) {
+				userReviewStates[userID] = string(reviewState)
+			}
+		} else {
+			userReviewStates[userID] = string(reviewState)
+		}
 	}
 
 	// Determine overall review state based on all reviews, excluding PR author's comments
@@ -245,6 +253,39 @@ func (s *GitHubService) GetPullRequestWithReviews(
 	)
 
 	return pr, currentReviewState, nil
+}
+
+// Review state priority constants.
+const (
+	reviewPriorityChangesRequested = 3 // Highest priority
+	reviewPriorityApproved         = 2
+	reviewPriorityCommented        = 1
+	reviewPriorityDismissed        = 0 // Lowest priority
+	reviewPriorityUnknown          = -1
+)
+
+// getReviewStatePriority returns the priority value for a review state.
+// Higher values indicate higher priority.
+func getReviewStatePriority(state string) int {
+	switch models.ReviewState(state) {
+	case models.ReviewStateChangesRequested:
+		return reviewPriorityChangesRequested
+	case models.ReviewStateApproved:
+		return reviewPriorityApproved
+	case models.ReviewStateCommented:
+		return reviewPriorityCommented
+	case models.ReviewStateDismissed:
+		return reviewPriorityDismissed
+	default:
+		return reviewPriorityUnknown
+	}
+}
+
+// shouldReplaceReviewState determines if a new review state should replace an existing one
+// based on priority: changes_requested > approved > commented > dismissed.
+// Returns true if newState has higher priority than existingState.
+func shouldReplaceReviewState(existingState, newState string) bool {
+	return getReviewStatePriority(newState) > getReviewStatePriority(existingState)
 }
 
 // determineOverallReviewState determines the overall review state from individual user reviews.
@@ -276,41 +317,30 @@ func determineOverallReviewState(userReviewStates map[int64]string, prAuthorID i
 		return ""
 	}
 
-	// Track presence of each review state type (excluding dismissed)
-	hasChangesRequested := false
-	hasApproved := false
-	hasCommented := false
+	// Find the highest priority review state, applying filtering rules
+	highestPriority := reviewPriorityUnknown
+	highestPriorityState := ""
 
 	for userID, state := range userReviewStates {
-		switch models.ReviewState(state) {
-		case models.ReviewStateChangesRequested:
-			hasChangesRequested = true
-		case models.ReviewStateApproved:
-			hasApproved = true
-		case models.ReviewStateCommented:
-			// Only count comments from non-PR-authors
-			// If PR author has commented but others have too, we still want the reaction
-			if userID != prAuthorID {
-				hasCommented = true
-			}
-		case models.ReviewStateDismissed:
-			// Dismissed reviews are excluded from overall state calculation
-			// (see function documentation above for rationale)
+		// Skip dismissed reviews (they don't contribute to overall state)
+		if models.ReviewState(state) == models.ReviewStateDismissed {
+			continue
+		}
+
+		// Skip comments from PR author (they don't contribute to overall state)
+		if models.ReviewState(state) == models.ReviewStateCommented && userID == prAuthorID {
+			continue
+		}
+
+		// Check if this state has higher priority than what we've seen
+		statePriority := getReviewStatePriority(state)
+		if statePriority > highestPriority {
+			highestPriority = statePriority
+			highestPriorityState = state
 		}
 	}
 
-	// Return the highest priority state
-	if hasChangesRequested {
-		return string(models.ReviewStateChangesRequested)
-	}
-	if hasApproved {
-		return string(models.ReviewStateApproved)
-	}
-	if hasCommented {
-		return string(models.ReviewStateCommented)
-	}
-
-	return ""
+	return highestPriorityState
 }
 
 // parseGitHubReviewState converts a GitHub review state string to our ReviewState type.
